@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>tw.bk</groupId>
+        <artifactId>invest-assistant-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>app-api</artifactId>
+    <name>app-api</name>
+    <packaging>jar</packaging>
+
+    <dependencies>
+        <dependency>
+            <groupId>tw.bk</groupId>
+            <artifactId>app-common</artifactId>
+        </dependency>
+
+        <!-- API 對外入口會呼叫各模組 service -->
+        <dependency><groupId>tw.bk</groupId><artifactId>app-auth</artifactId></dependency>
+        <dependency><groupId>tw.bk</groupId><artifactId>app-portfolio</artifactId></dependency>
+        <dependency><groupId>tw.bk</groupId><artifactId>app-stocks</artifactId></dependency>
+        <dependency><groupId>tw.bk</groupId><artifactId>app-ocr</artifactId></dependency>
+        <dependency><groupId>tw.bk</groupId><artifactId>app-files</artifactId></dependency>
+        <dependency><groupId>tw.bk</groupId><artifactId>app-ai</artifactId></dependency>
+        <dependency><groupId>tw.bk</groupId><artifactId>app-rag</artifactId></dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Swagger/OpenAPI -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+
+        <!-- Controller 常用 security annotations/types -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
