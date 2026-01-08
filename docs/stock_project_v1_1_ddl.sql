@@ -110,7 +110,10 @@ CREATE TABLE IF NOT EXISTS app.instruments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_instruments_market_ticker ON app.instruments(market_id, ticker);
-CREATE INDEX IF NOT EXISTS idx_instruments_exchange_ticker ON app.instruments(exchange_id, ticker);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_instruments_exchange_ticker_unique ON app.instruments(exchange_id, ticker);
+CREATE INDEX IF NOT EXISTS idx_instruments_ticker ON app.instruments(ticker);
+CREATE INDEX IF NOT EXISTS idx_instruments_name_zh ON app.instruments(name_zh);
+CREATE INDEX IF NOT EXISTS idx_instruments_name_en ON app.instruments(name_en);
 
 CREATE TRIGGER tg_instruments_updated_at
 BEFORE UPDATE ON app.instruments
@@ -127,6 +130,7 @@ CREATE TABLE IF NOT EXISTS app.instrument_aliases (
 );
 
 CREATE INDEX IF NOT EXISTS idx_instrument_aliases_instrument ON app.instrument_aliases(instrument_id);
+CREATE INDEX IF NOT EXISTS idx_instrument_aliases_alias ON app.instrument_aliases(alias_ticker);
 
 -- =========================================
 -- 3) Market data cacheable tables (prices / fx)
