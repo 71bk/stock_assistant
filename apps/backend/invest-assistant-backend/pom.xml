@@ -31,6 +31,7 @@
         <tika.version>3.2.3</tika.version>
         <commons-io.version>2.21.0</commons-io.version>
         <commons-text.version>1.15.0</commons-text.version>
+        <sentry.version>8.29.0</sentry.version>
     </properties>
 
     <modules>
@@ -55,6 +56,14 @@
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
                 <version>1.20.4</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Sentry BOM -->
+            <dependency>
+                <groupId>io.sentry</groupId>
+                <artifactId>sentry-bom</artifactId>
+                <version>${sentry.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

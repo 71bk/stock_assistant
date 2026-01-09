@@ -1,27 +1,39 @@
-import { Layout } from "antd";
-import { Outlet } from "react-router-dom";
+import React from 'react';
+import { Layout, Card, Typography, Button } from 'antd';
+import { GoogleOutlined } from '@ant-design/icons';
+import { GOOGLE_LOGIN_URL } from '../../api/auth.api';
 
-const { Content, Footer } = Layout;
+const { Content } = Layout;
+const { Title, Text } = Typography;
 
-/**
- * 認證頁面佈局（登入、註冊等）
- * 簡單居中布局
- */
-export function AuthLayout() {
+export const AuthLayout: React.FC = () => {
+  const handleLogin = () => {
+    // Redirect to backend OAuth endpoint
+    window.location.href = GOOGLE_LOGIN_URL;
+  };
+
   return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <Content
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Outlet />
+    <Layout style={{ minHeight: '100vh', justifyContent: 'center', alignItems: 'center', background: '#f0f2f5' }}>
+      <Content style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <Card style={{ width: 400, textAlign: 'center', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+           <div style={{ marginBottom: 24 }}>
+             {/* Logo Placeholder */}
+             <div style={{ width: 64, height: 64, background: '#1677ff', borderRadius: '50%', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 24, fontWeight: 'bold' }}>SA</div>
+             <Title level={3}>Welcome Back</Title>
+             <Text type="secondary">Sign in to manage your stock portfolio</Text>
+           </div>
+           
+           <Button 
+             type="primary" 
+             icon={<GoogleOutlined />} 
+             size="large" 
+             block 
+             onClick={handleLogin}
+           >
+             Sign in with Google
+           </Button>
+        </Card>
       </Content>
-      <Footer style={{ textAlign: "center" }}>
-        Stock Assistant ©2026
-      </Footer>
     </Layout>
   );
-}
+};

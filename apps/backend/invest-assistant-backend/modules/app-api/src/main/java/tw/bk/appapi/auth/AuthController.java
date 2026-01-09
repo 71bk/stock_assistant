@@ -2,7 +2,6 @@ package tw.bk.appapi.auth;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.net.URI;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
@@ -12,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tw.bk.appapi.auth.vo.MeResponse;
 import tw.bk.appauth.config.AuthProperties;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
@@ -23,7 +23,7 @@ import tw.bk.appcommon.security.CurrentUserProvider;
 import tw.bk.apppersistence.entity.UserEntity;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/auth")
 public class AuthController {
     private final AuthService authService;
     private final AuthCookieService cookieService;
@@ -32,10 +32,10 @@ public class AuthController {
     private final AuthProperties authProperties;
 
     public AuthController(AuthService authService,
-                          AuthCookieService cookieService,
-                          UserService userService,
-                          CurrentUserProvider currentUserProvider,
-                          AuthProperties authProperties) {
+            AuthCookieService cookieService,
+            UserService userService,
+            CurrentUserProvider currentUserProvider,
+            AuthProperties authProperties) {
         this.authService = authService;
         this.cookieService = cookieService;
         this.userService = userService;
@@ -43,14 +43,14 @@ public class AuthController {
         this.authProperties = authProperties;
     }
 
-    @GetMapping("/auth/google/login")
+    @GetMapping("/google/login")
     public ResponseEntity<Void> googleLogin() {
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create("/oauth2/authorization/google"))
+                .location(URI.create("/api/oauth2/authorization/google"))
                 .build();
     }
 
-    @PostMapping("/auth/refresh")
+    @PostMapping("/refresh")
     public ResponseEntity<Result<Void>> refresh(HttpServletRequest request, HttpServletResponse response) {
         String refreshToken = readCookie(request, authProperties.getRefreshCookieName());
         if (refreshToken == null) {
@@ -65,7 +65,7 @@ public class AuthController {
         return ResponseEntity.ok(Result.ok());
     }
 
-    @PostMapping("/auth/logout")
+    @PostMapping("/logout")
     public ResponseEntity<Result<Void>> logout(HttpServletRequest request, HttpServletResponse response) {
         String refreshToken = readCookie(request, authProperties.getRefreshCookieName());
         authService.logout(refreshToken);
@@ -80,7 +80,7 @@ public class AuthController {
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
         Optional<UserEntity> userOpt = userService.findById(userId);
         UserEntity user = userOpt.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
-        MeResponse response = new MeResponse(String.valueOf(user.getId()), user.getEmail(), user.getDisplayName());
+        MeResponse response = MeResponse.from(user);
         return Result.ok(response);
     }
 
@@ -96,6 +96,4 @@ public class AuthController {
         return null;
     }
 
-    public record MeResponse(String id, String email, String displayName) {
-    }
 }

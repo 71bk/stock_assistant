@@ -1,14 +1,17 @@
 import { RouteObject } from "react-router-dom";
-import { App } from "@/app/App";
+import { Outlet } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
+import { RequireAuth, PublicOnly } from "@/utils/guards";
 
-// Pages - 實現後再 import
-// import Home from "@/pages/Home";
-// import Dashboard from "@/pages/Dashboard";
-// import Portfolio from "@/pages/Portfolio";
-// import Stocks from "@/pages/Stocks";
-// import Login from "@/pages/Auth/Login";
+// Pages
+import Home from "@/pages/Home";
+import Dashboard from "@/pages/Dashboard";
+import Portfolio from "@/pages/Portfolio";
+import Stocks from "@/pages/Stocks";
+import ImportPage from "@/pages/Import";
+import Login from "@/pages/Auth";
+import OAuthCallback from "@/pages/Auth/Callback";
 
 /**
  * 路由配置
@@ -16,44 +19,57 @@ import { AuthLayout } from "@/components/layout/AuthLayout";
 export const routeConfig: RouteObject[] = [
   {
     path: "/",
-    element: <App />,
+    element: <Outlet />,
     children: [
       {
         path: "/",
-        element: <MainLayout />,
+        element: (
+          <RequireAuth>
+            <MainLayout />
+          </RequireAuth>
+        ),
         children: [
           {
-            path: "",
-            element: <div>Home</div>, // <Home />
+            index: true,
+            element: <Home />,
           },
           {
             path: "dashboard",
-            element: <div>Dashboard</div>, // <Dashboard />
+            element: <Dashboard />,
           },
           {
             path: "portfolio",
-            element: <div>Portfolio</div>, // <Portfolio />
+            element: <Portfolio />,
           },
           {
             path: "stocks",
-            element: <div>Stocks</div>, // <Stocks />
+            element: <Stocks />,
+          },
+          {
+            path: "import",
+            element: <ImportPage />,
           },
         ],
       },
       {
         path: "auth",
-        element: <AuthLayout />,
+        element: (
+          <PublicOnly>
+            <AuthLayout />
+          </PublicOnly>
+        ),
         children: [
           {
             path: "login",
-            element: <div>Login</div>, // <Login />
+            element: <Login />,
           },
           {
             path: "callback",
-            element: <div>Callback</div>, // <OAuthCallback />
+            element: <OAuthCallback />,
           },
         ],
       },
     ],
   },
 ];
+

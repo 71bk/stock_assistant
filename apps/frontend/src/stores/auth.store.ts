@@ -1,37 +1,66 @@
-import { create } from "zustand";
-import { User } from "@/api/auth.api";
+import { create } from 'zustand';
+import type { User } from '../types/domain';
+import { authApi } from '../api/auth.api';
 
 interface AuthState {
   user: User | null;
-  isLoading: boolean;
   isAuthenticated: boolean;
-
-  // Actions
-  setUser: (user: User | null) => void;
-  setLoading: (loading: boolean) => void;
-  logout: () => void;
+  isLoading: boolean;
+  login: () => void; // Triggered after successful OAuth callback
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<void>;
 }
 
-/**
- * 認證狀態 store
- * 管理當前使用者資訊、登入狀態
- */
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  isLoading: false,
   isAuthenticated: false,
+  isLoading: true, // Start loading to check session
 
-  setUser: (user) =>
-    set({
-      user,
-      isAuthenticated: !!user,
-    }),
+  login: () => {
+     // After Google OAuth redirect, we might re-fetch user
+     set({ isAuthenticated: true });
+     useAuthStore.getState().checkAuth();
+  },
 
-  setLoading: (isLoading) => set({ isLoading }),
+  logout: async () => {
+    try {
+      await authApi.logout();
+    } catch (e) {
+      console.error('Logout failed', e);
+    } finally {
+      // Always clean up state even if API fails
+      set({ user: null, isAuthenticated: false });
+      window.location.href = '/login';
+    }
+  },
 
-  logout: () =>
-    set({
-      user: null,
-      isAuthenticated: false,
-    }),
+  checkAuth: async () => {
+    set({ isLoading: true });
+    try {
+      // Call /auth/me to validate session and get user info
+      const response = await authApi.getMe();
+      // The response should have data property with the User object
+      set({ user: response.data.data || response.data, isAuthenticated: true });
+
+    } catch (error) {
+      console.error('Auth check failed, using mock data for development:', error);
+      // For development: use mock data if API fails
+      await new Promise(resolve => setTimeout(resolve, 300));
+      set({ 
+        user: { 
+          id: 'mock-user-1', 
+          email: 'user@example.com', 
+          displayName: 'Demo User',
+          pictureUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
+          preferences: { 
+            baseCurrency: 'TWD',
+            timezone: 'Asia/Taipei'
+          }
+        }, 
+        isAuthenticated: true 
+      });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
 }));

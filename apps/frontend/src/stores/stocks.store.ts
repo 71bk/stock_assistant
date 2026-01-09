@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { Instrument, Quote } from "@/api/stocks.api";
+import type { Instrument, Quote } from "@/api/stocks.api";
 
 interface StocksState {
   instruments: Instrument[];

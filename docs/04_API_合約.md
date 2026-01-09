@@ -12,6 +12,11 @@
 - **ID 形式**：回傳與輸入皆使用 **字串**（避免 JS 精度問題；DB 可為 BIGINT/UUID）
 - **時間/日期**：全部 **UTC**；`TIMESTAMP` 用 ISO 8601（例 `2026-01-07T12:34:56Z`），`DATE` 用 `YYYY-MM-DD`
 - **金額/數量**：建議以 **字串**傳遞（DECIMAL），前端用 decimal library；若使用 number 需注意精度
+- **DTO/VO 命名**：
+  - **Request**：放置於 `dto` package，命名為 `*Request`（例 `CreateTradeRequest`）
+  - **Response**：放置於 `vo` package，命名為 `*Response`（例 `TradeResponse`）
+  - **使用 Lombok**：統一使用 `@Data`、`@Builder`、`@NoArgsConstructor`、`@AllArgsConstructor`
+  - **好處**：團隊風格一致、支援 Builder Pattern、欄位調整維護成本低
 
 ---
 

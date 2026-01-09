@@ -1,47 +1,21 @@
-import { http } from "../utils/http";
+import { http } from '../utils/http';
+import type { ApiResponse } from '../types/api';
+import type { User } from '../types/domain';
 
-export interface User {
-  id: string;
-  email: string;
-  display_name: string;
-  picture_url?: string;
-  base_currency: string;
-  display_timezone: string;
-}
+export const authApi = {
+  // 1. 取得當前使用者 (Session Check)
+  getMe: () =>
+    http.get<ApiResponse<User>>('/auth/me'),
 
-export interface AuthResponse {
-  success: boolean;
-  data: User;
-  error: null;
-  traceId: string;
-}
+  // 2. 登出 (清除 Cookie & Session)
+  logout: () =>
+    http.post<ApiResponse<void>>('/auth/logout'),
 
-/**
- * 獲取當前登入使用者資訊
- */
-export const getMe = async (): Promise<User> => {
-  const response = await http.get<AuthResponse>("/auth/me");
-  return response.data.data;
+  // 3. (Optional) 手動刷新 Token，通常由 HttpOnly Cookie 自動處理，
+  // 但若有需要主動換發可呼叫此 API
+  refresh: () =>
+    http.post<ApiResponse<void>>('/auth/refresh'),
 };
 
-/**
- * 刷新 Token（旋轉）
- */
-export const refreshToken = async (): Promise<User> => {
-  const response = await http.post<AuthResponse>("/auth/refresh");
-  return response.data.data;
-};
-
-/**
- * 登出
- */
-export const logout = async (): Promise<void> => {
-  await http.post("/auth/logout");
-};
-
-/**
- * 重定向到 Google OAuth 登入
- */
-export const loginWithGoogle = (): void => {
-  window.location.href = "/api/auth/google/login";
-};
+// 用於前端跳轉的 URL (非 AJAX 呼叫)
+export const GOOGLE_LOGIN_URL = `${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/google/login`;

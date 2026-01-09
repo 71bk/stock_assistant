@@ -1,35 +1,23 @@
-import { create } from "zustand";
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 interface UIState {
-  sidebarCollapsed: boolean;
-  theme: "light" | "dark";
-
-  // Actions
-  toggleSidebar: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
-  setTheme: (theme: "light" | "dark") => void;
+  siderCollapsed: boolean;
+  theme: 'light' | 'dark';
+  toggleSider: () => void;
+  setTheme: (theme: 'light' | 'dark') => void;
 }
 
-/**
- * UI 狀態 store
- * 管理側欄、主題等 UI 相關狀態
- */
-export const useUIStore = create<UIState>((set) => ({
-  sidebarCollapsed: false,
-  theme: "light",
-
-  toggleSidebar: () =>
-    set((state) => ({
-      sidebarCollapsed: !state.sidebarCollapsed,
-    })),
-
-  setSidebarCollapsed: (collapsed) =>
-    set({
-      sidebarCollapsed: collapsed,
+export const useUIStore = create<UIState>()(
+  persist(
+    (set) => ({
+      siderCollapsed: false,
+      theme: 'light',
+      toggleSider: () => set((state) => ({ siderCollapsed: !state.siderCollapsed })),
+      setTheme: (theme) => set({ theme }),
     }),
-
-  setTheme: (theme) =>
-    set({
-      theme,
-    }),
-}));
+    {
+      name: 'ui-storage',
+    }
+  )
+);

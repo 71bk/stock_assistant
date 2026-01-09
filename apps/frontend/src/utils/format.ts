@@ -1,72 +1,42 @@
-/**
- * 數字與金額格式化工具
- */
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+export const DATE_FORMAT = 'YYYY-MM-DD';
+export const TIME_FORMAT = 'HH:mm:ss';
+export const DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss';
 
 /**
- * 格式化數字（千位分隔符）
+ * Parses any date input to a UTC Dayjs object.
+ * Backend always returns UTC ISO strings.
  */
-export const formatNumber = (
-  value: number | string,
-  decimals: number = 2
-): string => {
-  const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num)) return "0";
-  return num.toLocaleString("zh-TW", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+export const toUtc = (date?: string | Date | dayjs.Dayjs) => {
+  return dayjs(date).utc();
 };
 
 /**
- * 格式化金額（含幣別符號）
+ * Formats a UTC date string to the user's local timezone (or specified timezone).
  */
-export const formatCurrency = (
-  value: number | string,
-  currency: string = "TWD",
-  decimals: number = 2
-): string => {
-  const symbols: Record<string, string> = {
-    TWD: "NT$",
-    USD: "$",
-    CNY: "¥",
-  };
-  const symbol = symbols[currency] || currency;
-  const formatted = formatNumber(value, decimals);
-  return `${symbol} ${formatted}`;
+export const formatDateTime = (
+  utcDateStr: string,
+  tz: string = dayjs.tz.guess(),
+  format: string = DATETIME_FORMAT
+) => {
+  if (!utcDateStr) return '-';
+  return dayjs.utc(utcDateStr).tz(tz).format(format);
 };
 
 /**
- * 格式化百分比
+ * Formats a number as currency.
  */
-export const formatPercent = (
-  value: number | string,
-  decimals: number = 2
-): string => {
-  const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num)) return "0%";
-  return `${num.toFixed(decimals)}%`;
-};
-
-/**
- * 格式化股價（通常 2-4 位小數）
- */
-export const formatPrice = (value: number | string): string => {
-  return formatNumber(value, 2);
-};
-
-/**
- * 格式化股數（可能是小數）
- */
-export const formatQuantity = (value: number | string): string => {
-  return formatNumber(value, 2);
-};
-
-/**
- * 損益顏色判斷（用於 UI）
- */
-export const getProfitLossColor = (value: number | string): string => {
-  const num = typeof value === "string" ? parseFloat(value) : value;
-  if (num > 0) return "#52c41a"; // 綠色（盈利）
-  if (num < 0) return "#f5222d"; // 紅色（虧損）
-  return "#000000"; // 黑色（持平）
+export const formatCurrency = (amount: number, currency: string = 'TWD') => {
+  return new Intl.NumberFormat('zh-TW', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
 };
