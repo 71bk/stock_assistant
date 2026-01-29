@@ -1,6 +1,7 @@
 package tw.bk.appstocks.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -12,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 商品主檔服務
+ * Instrument service.
  */
 @Service
 @RequiredArgsConstructor
@@ -22,37 +23,48 @@ public class InstrumentService {
     private final InstrumentRepository instrumentRepository;
 
     /**
-     * 根據 symbol_key 查詢商品
-     * 
-     * @param symbolKey 商品唯一識別碼（如 US:XNAS:AAPL）
-     * @return 商品實體
+     * Find by symbol_key.
      */
     public Optional<InstrumentEntity> findBySymbolKey(String symbolKey) {
-        return instrumentRepository.findBySymbolKey(symbolKey);
+        return instrumentRepository.findBySymbolKeyWithRelations(symbolKey);
     }
 
     /**
-     * 搜尋商品（自動補全用）
-     * 支援 ticker 和 name 的模糊搜尋
-     * 
-     * @param query 搜尋關鍵字
-     * @param limit 回傳數量限制（預設 10，最多 50）
-     * @return 符合條件的商品列表
+     * Find by id.
+     */
+    public Optional<InstrumentEntity> findById(Long id) {
+        return instrumentRepository.findById(id);
+    }
+
+    /**
+     * Find by id with market/exchange relations loaded.
+     */
+    public Optional<InstrumentEntity> findByIdWithRelations(Long id) {
+        return instrumentRepository.findByIdWithRelations(id);
+    }
+
+    /**
+     * Search instruments by ticker or name (limit 1-50).
      */
     public List<InstrumentEntity> searchInstruments(String query, int limit) {
-        // 限制回傳數量，避免效能問題
+        // Clamp limit between 1 and 50.
         int validLimit = Math.min(Math.max(limit, 1), 50);
         Pageable pageable = PageRequest.of(0, validLimit);
 
-        return instrumentRepository.searchInstruments(query, pageable);
+        return instrumentRepository.searchInstrumentsWithRelations(query, pageable);
     }
 
     /**
-     * 取得所有商品
-     * 
-     * @return 商品列表
+     * Find all instruments.
      */
     public List<InstrumentEntity> findAll() {
-        return instrumentRepository.findAll();
+        return instrumentRepository.findAllWithRelations();
+    }
+
+    /**
+     * Find all instruments (paged).
+     */
+    public Page<InstrumentEntity> findAll(Pageable pageable) {
+        return instrumentRepository.findAllWithRelations(pageable);
     }
 }

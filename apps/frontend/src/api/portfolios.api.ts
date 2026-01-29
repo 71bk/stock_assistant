@@ -28,9 +28,9 @@ export interface PortfolioSummary {
 }
 
 export const portfoliosApi = {
-  getSummary: (id: string = 'default') => 
-    http.get<ApiResponse<PortfolioSummary>>(`/portfolios/${id}/summary`),
+  getSummary: (id: string = 'default') =>
+    http.get<ApiResponse<PortfolioSummary>>(`/portfolios/${id}`),
     
-  getPositions: (id: string = 'default') => 
+  getPositions: (id: string = 'default') =>
     http.get<ApiResponse<Position[]>>(`/portfolios/${id}/positions`),
 };

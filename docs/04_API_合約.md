@@ -1,4 +1,4 @@
-# API 合約
+﻿# API 合約
 
 > 狀態：v0 草稿（可落地）  
 > 範圍：MVP + v1（以標註說明）
@@ -95,12 +95,14 @@
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
 | GET | `/api/auth/google/login` | 302 導向 Google OAuth | 否 |
-| GET | `/api/auth/google/callback` | OAuth 回跳，設定 Cookie 後導向前端 | 否 |
+| GET | `/api/oauth2/authorization/{provider}` | OAuth2 ?????Spring Security ??? | ? |
+| GET | `/api/login/oauth2/code/google` | OAuth ???Spring Security ?????? Cookie ????? | 否 |
+| GET | `/api/login/oauth2/**` | OAuth2 ?????Spring Security ??? | ? |
 | GET | `/api/auth/me` | 取得登入使用者資訊 | 是 |
 | POST | `/api/auth/refresh` | 旋轉 refresh、刷新 access | 是（refresh cookie） |
 | POST | `/api/auth/logout` | 登出並撤銷 refresh session | 是 |
-| GET | `/api/auth/sessions` | 取得登入裝置/工作階段（v1） | 是 |
-| DELETE | `/api/auth/sessions/{sessionId}` | 撤銷單一 session（v1） | 是 |
+| GET | `/api/auth/sessions` | ??????/?????v1??????? | 是 |
+| DELETE | `/api/auth/sessions/{sessionId}` | ???? session?v1??????? | 是 |
 
 ### User Profile（`GET /api/auth/me`）
 ```json
@@ -109,15 +111,25 @@
   "data": {
     "id": "123",
     "email": "demo@example.com",
-    "display_name": "Demo",
-    "picture_url": "https://...",
-    "base_currency": "TWD",
-    "display_timezone": "Asia/Taipei"
+    "displayName": "Demo",
+    "pictureUrl": "https://...",
+    "baseCurrency": "TWD",
+    "displayTimezone": "Asia/Taipei"
   },
   "error": null,
   "traceId": "..."
 }
 ```
+
+---
+
+
+## System / Health
+### Endpoints
+| Method | Path | ?? | Auth |
+|---|---|---|---|
+| GET | `/api/health` | ???????? | ? |
+| GET | `/api/actuator/health` | ?????Actuator? | ? |
 
 ---
 
@@ -129,8 +141,8 @@
 Request（`PATCH /api/users/me/settings`）
 ```json
 {
-  "base_currency": "TWD",
-  "display_timezone": "Asia/Taipei"
+  "baseCurrency": "TWD",
+  "displayTimezone": "Asia/Taipei"
 }
 ```
 
@@ -158,10 +170,10 @@ Response（節錄）
     "items": [
       {
         "id": "1001",
-        "symbol_key": "US:XNAS:AAPL",
+        "symbolKey": "US:XNAS:AAPL",
         "ticker": "AAPL",
-        "name_zh": "蘋果",
-        "name_en": "Apple Inc.",
+        "nameZh": "蘋果",
+        "nameEn": "Apple Inc.",
         "market": "US",
         "exchange": "XNAS",
         "currency": "USD"
@@ -177,19 +189,19 @@ Response（節錄）
 ```
 
 #### Quote（`GET /api/stocks/quote`）
-Query：`instrument_id` **或** `symbol_key`（擇一）
+Query：`instrumentId` **或** `symbolKey`（擇一）
 
 Response（節錄）
 ```json
 {
   "success": true,
   "data": {
-    "instrument_id": "1001",
-    "symbol_key": "US:XNAS:AAPL",
+    "instrumentId": "1001",
+    "symbolKey": "US:XNAS:AAPL",
     "price": "198.32",
     "change": "-1.20",
-    "change_pct": "-0.60",
-    "ts_utc": "2026-01-07T12:00:01Z"
+    "changePct": "-0.60",
+    "tsUtc": "2026-01-07T12:00:01Z"
   },
   "error": null,
   "traceId": "..."
@@ -197,7 +209,7 @@ Response（節錄）
 ```
 
 #### Candles（`GET /api/stocks/candles`）
-Query：`instrument_id`/`symbol_key`、`interval`、`from`、`to`
+Query：`instrumentId`/`symbolKey`、`interval`、`from`、`to`
 
 ---
 
@@ -217,8 +229,8 @@ Query：`instrument_id`/`symbol_key`、`interval`、`from`、`to`
 #### 新增交易（`POST /api/portfolios/{portfolioId}/trades`）
 ```json
 {
-  "instrument_id": "1001",
-  "trade_date": "2026-01-07",
+  "instrumentId": "1001",
+  "tradeDate": "2026-01-07",
   "side": "BUY",
   "quantity": "10",
   "price": "198.32",
@@ -233,7 +245,7 @@ Response（節錄）
 {
   "success": true,
   "data": {
-    "trade_id": "9001"
+    "tradeId": "9001"
   },
   "error": null,
   "traceId": "..."
@@ -248,14 +260,14 @@ Response（節錄）
 |---|---|---|---|
 | POST | `/api/files` | 上傳檔案（multipart） | 是 |
 | GET | `/api/files/{fileId}` | 取得檔案 metadata | 是 |
-| POST | `/api/files/presign` | 取得直傳 URL（可選） | 是 |
+| POST | `/api/files/presign` | ???? URL????? | 是 |
 
 Response（`POST /api/files` 節錄）
 ```json
 {
   "success": true,
   "data": {
-    "file_id": "501",
+    "fileId": "501",
     "sha256": "..."
   },
   "error": null,
@@ -269,7 +281,7 @@ Response（`POST /api/files` 節錄）
 ### Endpoints
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
-| POST | `/api/ocr/jobs` | 建立 OCR Job（以 file_id） | 是 |
+| POST | `/api/ocr/jobs` | 建立 OCR Job（以 fileId） | 是 |
 | GET | `/api/ocr/jobs/{jobId}` | 查詢 Job 狀態 | 是 |
 | GET | `/api/ocr/jobs/{jobId}/drafts` | 取得草稿交易 | 是 |
 | PATCH | `/api/ocr/drafts/{draftId}` | 更新草稿交易 | 是 |
@@ -278,8 +290,8 @@ Response（`POST /api/files` 節錄）
 #### 建立 OCR Job（`POST /api/ocr/jobs`）
 ```json
 {
-  "file_id": "501",
-  "portfolio_id": "2001"
+  "fileId": "501",
+  "portfolioId": "2001"
 }
 ```
 
@@ -288,8 +300,8 @@ Response（節錄）
 {
   "success": true,
   "data": {
-    "job_id": "8001",
-    "statement_id": "7001",
+    "jobId": "8001",
+    "statementId": "7001",
     "status": "QUEUED"
   },
   "error": null,
@@ -304,10 +316,10 @@ Response（節錄）
   "data": {
     "items": [
       {
-        "draft_id": "9101",
-        "instrument_id": "1001",
-        "raw_ticker": "AAPL",
-        "trade_date": "2026-01-03",
+        "draftId": "9101",
+        "instrumentId": "1001",
+        "rawTicker": "AAPL",
+        "tradeDate": "2026-01-03",
         "side": "BUY",
         "quantity": "5",
         "price": "190.00",
@@ -334,7 +346,7 @@ Response（節錄）
 #### Request（`POST /api/ai/analysis/stream`）
 ```json
 {
-  "instrument_id": "1001",
+  "instrumentId": "1001",
   "prompt": "請摘要最近一個月的趨勢與風險點"
 }
 ```
@@ -342,7 +354,7 @@ Response（節錄）
 #### SSE Response（`text/event-stream`）
 ```
 event: meta
-data: {"request_id":"r-123","instrument_id":"1001"}
+data: {"requestId":"r-123","instrumentId":"1001"}
 
 event: delta
 data: {"text":"近一個月價格呈現..."}
@@ -351,7 +363,7 @@ event: delta
 data: {"text":"風險點包含..."}
 
 event: done
-data: {"report_id":"3001"}
+data: {"reportId":"3001"}
 ```
 
 ---
@@ -360,7 +372,7 @@ data: {"report_id":"3001"}
 ### Endpoints
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
-| POST | `/api/rag/documents` | 建立文件（可含 raw_text 或 file_id） | 是 |
+| POST | `/api/rag/documents` | 建立文件（可含 rawText 或 fileId） | 是 |
 | POST | `/api/rag/query` | RAG 問答 | 是 |
 
 ---
@@ -376,9 +388,9 @@ Response（節錄）
   "data": {
     "items": [
       {
-        "trade_id": "9001",
-        "instrument_id": "1001",
-        "trade_date": "2026-01-07",
+        "tradeId": "9001",
+        "instrumentId": "1001",
+        "tradeDate": "2026-01-07",
         "side": "BUY",
         "quantity": "10",
         "price": "198.32",

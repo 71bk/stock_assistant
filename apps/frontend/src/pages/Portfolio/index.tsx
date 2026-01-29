@@ -1,38 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Card, Row, Col, Statistic, Button, Tag, Typography, Modal, Steps, Form, DatePicker, InputNumber, Radio, message } from 'antd';
+import { Table, Card, Row, Col, Statistic, Button, Tag, Typography } from 'antd';
 import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { usePortfolioStore } from '../../stores/portfolio.store';
 import { formatCurrency } from '../../utils/format';
-import { InstrumentSearch } from '../../components/common/InstrumentSearch';
-import type { Instrument } from '../../api/stocks.api';
-import dayjs from 'dayjs';
+import { AddTradeModal } from './components/AddTradeModal';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 const Portfolio: React.FC = () => {
   const { summary, positions, isLoading, fetchPortfolioData } = usePortfolioStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [selectedInstrument, setSelectedInstrument] = useState<Instrument | null>(null);
-  const [form] = Form.useForm();
 
   useEffect(() => {
     fetchPortfolioData();
   }, [fetchPortfolioData]);
 
-  const handleInstrumentSelect = (instrument: Instrument) => {
-    setSelectedInstrument(instrument);
-    setCurrentStep(1); // Move to details step
-  };
-
-  const handleFinish = (values: any) => {
-    console.log('Form values:', { ...values, instrument: selectedInstrument });
-    message.success('Trade added successfully (Mock)');
+  const handleTradeSuccess = () => {
+    fetchPortfolioData();
     setIsModalOpen(false);
-    setCurrentStep(0);
-    setSelectedInstrument(null);
-    form.resetFields();
-    // Refresh data...
   };
 
   const renderKPI = () => (
@@ -159,91 +144,11 @@ const Portfolio: React.FC = () => {
         />
       </Card>
 
-      {/* Add Trade Modal */}
-      <Modal
-        title="Add New Trade"
+      <AddTradeModal
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
-        <Steps
-          current={currentStep}
-          items={[
-            { title: 'Select Stock' },
-            { title: 'Trade Details' },
-          ]}
-          style={{ marginBottom: 24 }}
-        />
-
-        {currentStep === 0 && (
-          <div style={{ padding: '20px 0', minHeight: 200 }}>
-            <Text style={{ display: 'block', marginBottom: 8 }}>Search by symbol or name:</Text>
-            <InstrumentSearch onSelect={handleInstrumentSelect} />
-          </div>
-        )}
-
-        {currentStep === 1 && selectedInstrument && (
-          <Form
-            form={form}
-            layout="vertical"
-            initialValues={{ date: dayjs(), side: 'BUY', currency: selectedInstrument.currency }}
-            onFinish={handleFinish}
-          >
-            <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
-              <Text strong>{selectedInstrument.symbol} - {selectedInstrument.name}</Text>
-              <div><Tag>{selectedInstrument.exchange}</Tag></div>
-            </div>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="side" label="Side" rules={[{ required: true }]}>
-                  <Radio.Group buttonStyle="solid">
-                    <Radio.Button value="BUY">Buy</Radio.Button>
-                    <Radio.Button value="SELL">Sell</Radio.Button>
-                  </Radio.Group>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="date" label="Date" rules={[{ required: true }]}>
-                  <DatePicker style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="quantity" label="Quantity" rules={[{ required: true }]}>
-                  <InputNumber style={{ width: '100%' }} min={0.0001} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="price" label={`Price (${selectedInstrument.currency})`} rules={[{ required: true }]}>
-                  <InputNumber style={{ width: '100%' }} min={0} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="fee" label="Commission (Fee)">
-                  <InputNumber style={{ width: '100%' }} min={0} defaultValue={0} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="tax" label="Tax">
-                  <InputNumber style={{ width: '100%' }} min={0} defaultValue={0} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-              <Button onClick={() => setCurrentStep(0)}>Back</Button>
-              <Button type="primary" htmlType="submit">Confirm Trade</Button>
-            </div>
-          </Form>
-        )}
-      </Modal>
+        onSuccess={handleTradeSuccess}
+      />
     </div>
   );
 };

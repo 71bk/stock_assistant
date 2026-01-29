@@ -76,11 +76,6 @@ export const MainLayout: React.FC = () => {
           onClick={handleMenuClick}
           items={[
             {
-              key: '/',
-              icon: <HomeOutlined />,
-              label: 'Home',
-            },
-            {
               key: '/dashboard',
               icon: <PieChartOutlined />,
               label: 'Dashboard',
@@ -89,6 +84,11 @@ export const MainLayout: React.FC = () => {
               key: '/portfolio',
               icon: <RiseOutlined />,
               label: 'Portfolio',
+            },
+            {
+              key: '/trades',
+              icon: <FileTextOutlined />,
+              label: 'Trades',
             },
             {
               key: '/stocks',
@@ -100,16 +100,16 @@ export const MainLayout: React.FC = () => {
               icon: <UploadOutlined />,
               label: 'Import',
             },
-            // {
-            //   key: '/reports',
-            //   icon: <FileTextOutlined />,
-            //   label: 'Reports',
-            // },
-            // {
-            //   key: '/settings',
-            //   icon: <SettingOutlined />,
-            //   label: 'Settings',
-            // },
+            {
+              key: '/reports',
+              icon: <FileTextOutlined />,
+              label: 'Reports',
+            },
+            {
+              key: '/settings',
+              icon: <SettingOutlined />,
+              label: 'Settings',
+            },
           ]}
         />
       </Sider>

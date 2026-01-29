@@ -42,4 +42,7 @@ public class InstrumentEntity extends BaseEntity {
 
     @Column(name = "symbol_key", nullable = false, unique = true)
     private String symbolKey;
+
+    @Column(name = "asset_type", nullable = false)
+    private String assetType = "STOCK";
 }

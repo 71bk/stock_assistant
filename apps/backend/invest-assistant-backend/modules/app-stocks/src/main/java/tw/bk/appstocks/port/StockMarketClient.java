@@ -3,6 +3,8 @@ package tw.bk.appstocks.port;
 import tw.bk.appcommon.model.MarketCode;
 import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
+import tw.bk.appstocks.model.TickerList;
+import tw.bk.appstocks.model.TickerQuery;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -39,4 +41,14 @@ public interface StockMarketClient {
      * @return 市場代碼（如 US, TW）
      */
     MarketCode getSupportedMarket();
+
+    /**
+     * 取得股票或指數列表（依條件查詢）
+     *
+     * @param query 查詢條件
+     * @return ticker 列表
+     */
+    default Optional<TickerList> getTickers(TickerQuery query) {
+        return Optional.empty();
+    }
 }

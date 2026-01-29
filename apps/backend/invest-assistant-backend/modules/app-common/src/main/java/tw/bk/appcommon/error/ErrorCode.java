@@ -8,6 +8,7 @@ public enum ErrorCode {
     CONFLICT(409, "CONFLICT", "Conflict"),
     OCR_PARSE_FAILED(422, "OCR_PARSE_FAILED", "OCR parse failed"),
     RATE_LIMITED(429, "RATE_LIMITED", "Too many requests"),
+    NOT_IMPLEMENTED(501, "NOT_IMPLEMENTED", "Not implemented"),
     INTERNAL_ERROR(500, "INTERNAL_ERROR", "Internal server error");
 
     private final int httpStatus;

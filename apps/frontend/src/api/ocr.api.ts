@@ -30,17 +30,27 @@ export interface OcrJob {
 }
 
 export const ocrApi = {
-  upload: (file: File) => {
+  upload: async (file: File, portfolioId: string = 'default') => {
+    // 1. Upload File
     const formData = new FormData();
     formData.append('file', file);
-    return http.post<ApiResponse<{ jobId: string }>>('/ocr/upload', formData, {
+    const fileRes = (await http.post<ApiResponse<{ file_id: string }>>('/files', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+    })) as unknown as ApiResponse<{ file_id: string }>;
+
+    // 2. Create OCR Job
+    return http.post<ApiResponse<{ job_id: string }>>('/ocr/jobs', {
+      file_id: fileRes.data.file_id,
+      portfolio_id: portfolioId,
     });
   },
 
-  getJob: (jobId: string) => 
+  getJob: (jobId: string) =>
     http.get<ApiResponse<OcrJob>>(`/ocr/jobs/${jobId}`),
 
-  confirmImport: (statementId: string, trades: DraftTrade[]) =>
-    http.post<ApiResponse<{ importedCount: number }>>(`/ocr/confirm`, { statementId, trades }),
+  confirmImport: (jobId: string, statementId: string, trades: DraftTrade[]) =>
+    http.post<ApiResponse<{ importedCount: number }>>(`/ocr/jobs/${jobId}/confirm`, {
+      statementId,
+      trades,
+    }),
 };

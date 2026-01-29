@@ -7,6 +7,8 @@ import lombok.Getter;
 import lombok.Setter;
 import tw.bk.appcommon.model.BaseEntity;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "users", schema = "app")
 @Getter
@@ -21,6 +23,12 @@ public class UserEntity extends BaseEntity {
     @Column(name = "display_name")
     private String displayName;
 
+    @Column(name = "picture_url")
+    private String pictureUrl;
+
     @Column(name = "status", nullable = false)
     private String status;
+
+    @Column(name = "last_login_at")
+    private LocalDateTime lastLoginAt;
 }

@@ -46,7 +46,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
 
       // Real API:
       // const res = await ocrApi.upload(file);
-      // const jobId = res.data.jobId;
+      // const jobId = res.data.job_id;
       // set({ activeJobId: jobId, isPolling: true });
       // get().pollJob(jobId);
 
@@ -91,14 +91,14 @@ export const useImportStore = create<ImportState>((set, get) => ({
   },
 
   confirmTrades: async (selectedIds) => {
-    const { statementId, draftTrades } = get();
-    const tradesToImport = draftTrades.filter(t => selectedIds.includes(t.id));
+    const { activeJobId, statementId, draftTrades } = get();
+    const tradesToImport = draftTrades.filter((t) => selectedIds.includes(t.id));
 
-    if (!statementId) return;
+    if (!statementId || !activeJobId) return;
 
     try {
-      // await ocrApi.confirmImport(statementId, tradesToImport);
-      await new Promise(r => setTimeout(r, 1000)); // Mock API
+      // await ocrApi.confirmImport(activeJobId, statementId, tradesToImport);
+      await new Promise((r) => setTimeout(r, 1000)); // Mock API
       set({ currentStep: 2 }); // Success Step
     } catch (e) {
       message.error('Import confirmation failed');

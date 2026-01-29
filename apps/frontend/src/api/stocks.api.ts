@@ -22,8 +22,8 @@ export interface Quote {
 
 export const stocksApi = {
   search: (query: string) =>
-    http.get<ApiResponse<Instrument[]>>('/stocks/search', { params: { q: query } }),
+    http.get<ApiResponse<Instrument[]>>('/instruments/search', { params: { q: query } }),
 
   getQuote: (symbolKey: string) =>
-    http.get<ApiResponse<any>>(`/stocks/${symbolKey}/quote`),
+    http.get<ApiResponse<any>>('/stocks/quote', { params: { symbol_key: symbolKey } }),
 };

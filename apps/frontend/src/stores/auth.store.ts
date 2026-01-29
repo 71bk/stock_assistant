@@ -38,13 +38,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true });
     try {
       // Call /auth/me to validate session and get user info
-      const response = await authApi.getMe();
-      // The response should have data property with the User object
-      set({ user: response.data.data || response.data, isAuthenticated: true });
-
-    } catch (error) {
-      console.error('Auth check failed, using mock data for development:', error);
-      // For development: use mock data if API fails
+      // const response = await authApi.getMe();
+      // // Ensure the response data matches the User interface
+      // const userData = response.data; // Type assertion might be needed if API response is not perfectly aligned
+      // set({ user: userData, isAuthenticated: true });
+      
+      // Mock for development to bypass backend requirement
       await new Promise(resolve => setTimeout(resolve, 300));
       set({ 
         user: { 
@@ -59,6 +58,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         }, 
         isAuthenticated: true 
       });
+
+    } catch (error) {
+      console.error(error);
+      // If 401/403, we are not authenticated
+      set({ user: null, isAuthenticated: false });
     } finally {
       set({ isLoading: false });
     }

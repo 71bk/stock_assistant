@@ -10,6 +10,7 @@ interface PortfolioState {
   
   fetchPortfolioData: (portfolioId?: string) => Promise<void>;
   fetchPortfolioSummary: (portfolioId?: string) => Promise<void>;
+  addTrade: (trade: any) => Promise<void>;
 }
 
 // Mock Data for MVP visualization if API fails or is empty

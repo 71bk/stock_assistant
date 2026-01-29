@@ -8,11 +8,13 @@ import tw.bk.appcommon.error.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.model.MarketCode;
 import tw.bk.appstocks.config.StockMarketProperties;
+import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
 import tw.bk.appstocks.port.StockMarketClient;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.repository.InstrumentRepository;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,8 +44,7 @@ public class StockQuoteService {
                         Function.identity(),
                         (a, b) -> {
                             throw new IllegalStateException("重複的市場 client: " + a.getSupportedMarket().getCode());
-                        }
-                ));
+                        }));
     }
 
     /**
@@ -61,7 +62,7 @@ public class StockQuoteService {
         }
 
         // 2. 查詢商品資訊
-        InstrumentEntity instrument = instrumentRepository.findBySymbolKey(symbolKey)
+        InstrumentEntity instrument = instrumentRepository.findBySymbolKeyWithRelations(symbolKey)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
 
         // 3. 根據市場選擇對應的 client
@@ -81,6 +82,45 @@ public class StockQuoteService {
         cacheService.set(cacheKey, quote, properties.getCache().getQuoteTtl());
 
         return quote;
+    }
+
+    /**
+     * 取得 K 線資料（歷史 OHLC）
+     * 
+     * @param symbolKey 商品唯一識別碼（如 US:XNAS:AAPL）
+     * @param interval  時間間隔（1m/5m/15m/30m/1h/1d等）
+     * @param from      起始日期
+     * @param to        結束日期
+     * @return K線資料列表
+     */
+    public List<Candle> getCandles(String symbolKey, String interval, LocalDate from, LocalDate to) {
+        // 1. 檢查快取
+        String cacheKey = String.format("candles:%s:%s:%s:%s",
+                symbolKey, interval, from, to);
+        Optional<List<Candle>> cached = cacheService.getList(cacheKey, Candle.class);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+
+        // 2. 查詢商品資訊
+        InstrumentEntity instrument = instrumentRepository.findBySymbolKeyWithRelations(symbolKey)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
+
+        // 3. 根據市場選擇對應的 client
+        String marketCodeValue = instrument.getMarket() != null ? instrument.getMarket().getCode() : null;
+        MarketCode marketCode = MarketCode.requireSupported(
+                marketCodeValue,
+                ErrorCode.INTERNAL_ERROR,
+                "不支援的市場: " + marketCodeValue);
+        StockMarketClient client = getClientByMarket(marketCode);
+
+        // 4. 呼叫第三方 API
+        List<Candle> candles = client.getCandles(instrument.getTicker(), interval, from, to);
+
+        // 5. 寫入快取（K線資料快取時間較長）
+        cacheService.setList(cacheKey, candles, properties.getCache().getCandlesTtl());
+
+        return candles;
     }
 
     /**

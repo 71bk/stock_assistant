@@ -3,6 +3,7 @@ package tw.bk.appauth.config;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Arrays;
 import java.util.List;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +17,8 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import tw.bk.appauth.security.JwtAuthenticationFilter;
 import tw.bk.appauth.security.OAuth2LoginSuccessHandler;
+import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.result.Result;
 
 @Configuration
 public class SecurityConfig {
@@ -26,7 +29,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
             JwtAuthenticationFilter jwtAuthenticationFilter,
-            OAuth2LoginSuccessHandler loginSuccessHandler) throws Exception {
+            OAuth2LoginSuccessHandler loginSuccessHandler,
+            ObjectMapper objectMapper) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
@@ -49,7 +53,9 @@ public class SecurityConfig {
                             // For API requests, return 401 instead of redirecting to login
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                             response.setContentType("application/json");
-                            response.getWriter().write("{\"success\":false,\"message\":\"Unauthorized\"}");
+                            response.setCharacterEncoding("UTF-8");
+                            Result<Void> body = Result.error(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
+                            response.getWriter().write(objectMapper.writeValueAsString(body));
                         }))
                 .oauth2Login(oauth2 -> oauth2.successHandler(loginSuccessHandler))
                 .formLogin(AbstractHttpConfigurer::disable)

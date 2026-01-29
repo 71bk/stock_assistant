@@ -16,10 +16,12 @@ import tw.bk.appauth.config.AuthProperties;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
 import tw.bk.appauth.service.UserService;
+import tw.bk.appauth.service.UserSettingsService;
 import tw.bk.appcommon.error.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.apppersistence.entity.UserSettingsEntity;
 import tw.bk.apppersistence.entity.UserEntity;
 
 @RestController
@@ -28,17 +30,20 @@ public class AuthController {
     private final AuthService authService;
     private final AuthCookieService cookieService;
     private final UserService userService;
+    private final UserSettingsService userSettingsService;
     private final CurrentUserProvider currentUserProvider;
     private final AuthProperties authProperties;
 
     public AuthController(AuthService authService,
             AuthCookieService cookieService,
             UserService userService,
+            UserSettingsService userSettingsService,
             CurrentUserProvider currentUserProvider,
             AuthProperties authProperties) {
         this.authService = authService;
         this.cookieService = cookieService;
         this.userService = userService;
+        this.userSettingsService = userSettingsService;
         this.currentUserProvider = currentUserProvider;
         this.authProperties = authProperties;
     }
@@ -80,7 +85,8 @@ public class AuthController {
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
         Optional<UserEntity> userOpt = userService.findById(userId);
         UserEntity user = userOpt.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
-        MeResponse response = MeResponse.from(user);
+        UserSettingsEntity settings = userSettingsService.getOrCreate(userId);
+        MeResponse response = MeResponse.from(user, settings.getBaseCurrency(), settings.getDisplayTimezone());
         return Result.ok(response);
     }
 
