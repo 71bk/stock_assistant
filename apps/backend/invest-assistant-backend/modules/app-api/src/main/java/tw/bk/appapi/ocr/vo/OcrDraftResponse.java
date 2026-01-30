@@ -1,6 +1,5 @@
 package tw.bk.appapi.ocr.vo;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -14,47 +13,28 @@ import tw.bk.apppersistence.entity.StatementTradeEntity;
 @NoArgsConstructor
 @AllArgsConstructor
 public class OcrDraftResponse {
-    @JsonProperty("draft_id")
     private String draftId;
-
-    @JsonProperty("instrument_id")
     private String instrumentId;
-
-    @JsonProperty("raw_ticker")
     private String rawTicker;
-
-    @JsonProperty("trade_date")
+    private String name;
     private LocalDate tradeDate;
-
-    @JsonProperty("settlement_date")
     private LocalDate settlementDate;
-
-    @JsonProperty("side")
     private String side;
-
-    @JsonProperty("quantity")
     private String quantity;
-
-    @JsonProperty("price")
     private String price;
-
-    @JsonProperty("currency")
     private String currency;
-
-    @JsonProperty("fee")
     private String fee;
-
-    @JsonProperty("tax")
     private String tax;
-
-    @JsonProperty("warnings")
     private List<String> warnings;
+    private List<String> errors;
+    private String rowHash;
 
-    public static OcrDraftResponse from(StatementTradeEntity entity, List<String> warnings) {
+    public static OcrDraftResponse from(StatementTradeEntity entity, List<String> warnings, List<String> errors) {
         return OcrDraftResponse.builder()
                 .draftId(entity.getId() != null ? entity.getId().toString() : null)
                 .instrumentId(entity.getInstrumentId() != null ? entity.getInstrumentId().toString() : null)
                 .rawTicker(entity.getRawTicker())
+                .name(entity.getName())
                 .tradeDate(entity.getTradeDate())
                 .settlementDate(entity.getSettlementDate())
                 .side(entity.getSide())
@@ -64,6 +44,8 @@ public class OcrDraftResponse {
                 .fee(entity.getFee() != null ? entity.getFee().toPlainString() : null)
                 .tax(entity.getTax() != null ? entity.getTax().toPlainString() : null)
                 .warnings(warnings)
+                .errors(errors)
+                .rowHash(entity.getRowHash())
                 .build();
     }
 }

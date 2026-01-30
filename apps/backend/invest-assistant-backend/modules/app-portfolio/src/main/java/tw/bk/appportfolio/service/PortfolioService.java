@@ -20,6 +20,8 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.time.ClockProvider;
 import tw.bk.appportfolio.model.TradeCommand;
 import tw.bk.appportfolio.model.TradeSide;
+import tw.bk.appportfolio.model.PortfolioSummary;
+import tw.bk.appportfolio.model.PositionWithQuote;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.entity.PortfolioEntity;
 import tw.bk.apppersistence.entity.StockTradeEntity;
@@ -45,10 +47,10 @@ public class PortfolioService {
     private final ClockProvider clockProvider;
 
     public PortfolioService(PortfolioRepository portfolioRepository,
-                            StockTradeRepository tradeRepository,
-                            UserPositionRepository positionRepository,
-                            InstrumentRepository instrumentRepository,
-                            ClockProvider clockProvider) {
+            StockTradeRepository tradeRepository,
+            UserPositionRepository positionRepository,
+            InstrumentRepository instrumentRepository,
+            ClockProvider clockProvider) {
         this.portfolioRepository = portfolioRepository;
         this.tradeRepository = tradeRepository;
         this.positionRepository = positionRepository;
@@ -60,7 +62,8 @@ public class PortfolioService {
         PortfolioEntity portfolio = new PortfolioEntity();
         portfolio.setUserId(userId);
         portfolio.setName(isBlank(name) ? DEFAULT_PORTFOLIO_NAME : name.trim());
-        portfolio.setBaseCurrency(isBlank(baseCurrency) ? DEFAULT_BASE_CURRENCY : baseCurrency.trim().toUpperCase(Locale.ROOT));
+        portfolio.setBaseCurrency(
+                isBlank(baseCurrency) ? DEFAULT_BASE_CURRENCY : baseCurrency.trim().toUpperCase(Locale.ROOT));
         return portfolioRepository.save(portfolio);
     }
 
@@ -73,20 +76,74 @@ public class PortfolioService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
     }
 
+    /**
+     * Calculate portfolio summary statistics.
+     * 
+     * @param userId      User ID
+     * @param portfolioId Portfolio ID
+     * @return PortfolioSummary with totalMarketValue, totalCost, totalPnl,
+     *         totalPnlPercent
+     */
+    public PortfolioSummary getPortfolioSummary(Long userId, Long portfolioId) {
+        getPortfolio(userId, portfolioId);
+        List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
+
+        if (positions.isEmpty()) {
+            return PortfolioSummary.empty();
+        }
+
+        BigDecimal totalCost = BigDecimal.ZERO;
+        BigDecimal totalMarketValue = BigDecimal.ZERO;
+
+        for (UserPositionEntity position : positions) {
+            BigDecimal quantity = position.getTotalQuantity();
+            BigDecimal avgCost = position.getAvgCostNative();
+
+            // Calculate cost for this position
+            BigDecimal positionCost = avgCost.multiply(quantity)
+                    .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+            totalCost = totalCost.add(positionCost);
+
+            // For market value, we use avgCost as placeholder since we don't have real-time
+            // price yet
+            // TODO: Integrate with StockQuoteService to get real-time prices
+            BigDecimal currentPrice = avgCost; // Placeholder: use avgCost as current price
+            BigDecimal positionMarketValue = currentPrice.multiply(quantity)
+                    .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+            totalMarketValue = totalMarketValue.add(positionMarketValue);
+        }
+
+        BigDecimal totalPnl = totalMarketValue.subtract(totalCost)
+                .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+
+        BigDecimal totalPnlPercent = BigDecimal.ZERO;
+        if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
+            totalPnlPercent = totalPnl
+                    .divide(totalCost, 4, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"))
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return new PortfolioSummary(totalMarketValue, totalCost, totalPnl, totalPnlPercent);
+    }
+
     public Page<StockTradeEntity> listTrades(Long userId,
-                                             Long portfolioId,
-                                             LocalDate from,
-                                             LocalDate to,
-                                             Pageable pageable) {
+            Long portfolioId,
+            LocalDate from,
+            LocalDate to,
+            Pageable pageable) {
         getPortfolio(userId, portfolioId);
         if (from != null && to != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateBetween(userId, portfolioId, from, to, pageable);
+            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateBetween(userId, portfolioId, from, to,
+                    pageable);
         }
         if (from != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateGreaterThanEqual(userId, portfolioId, from, pageable);
+            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateGreaterThanEqual(userId, portfolioId, from,
+                    pageable);
         }
         if (to != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateLessThanEqual(userId, portfolioId, to, pageable);
+            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateLessThanEqual(userId, portfolioId, to,
+                    pageable);
         }
         return tradeRepository.findByUserIdAndPortfolioId(userId, portfolioId, pageable);
     }
@@ -94,6 +151,71 @@ public class PortfolioService {
     public List<UserPositionEntity> listPositions(Long userId, Long portfolioId) {
         getPortfolio(userId, portfolioId);
         return positionRepository.findByPortfolioId(portfolioId);
+    }
+
+    /**
+     * 取得持倉列表（含報價與損益計算）
+     *
+     * @param userId        使用者 ID
+     * @param portfolioId   投資組合 ID
+     * @param quoteProvider 報價查詢函數
+     * @return 持倉資料列表（含市值與損益）
+     */
+    public List<PositionWithQuote> listPositionsWithQuotes(Long userId, Long portfolioId, QuoteProvider quoteProvider) {
+        getPortfolio(userId, portfolioId);
+        List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
+
+        return positions.stream()
+                .map(pos -> buildPositionWithQuote(pos, quoteProvider))
+                .toList();
+    }
+
+    private PositionWithQuote buildPositionWithQuote(UserPositionEntity pos, QuoteProvider quoteProvider) {
+        InstrumentEntity instrument = instrumentRepository.findById(pos.getInstrumentId()).orElse(null);
+
+        String ticker = instrument != null ? instrument.getTicker() : null;
+        String name = instrument != null ? instrument.getNameZh() : null;
+        String symbolKey = instrument != null ? instrument.getSymbolKey() : null;
+
+        BigDecimal quantity = pos.getTotalQuantity();
+        BigDecimal avgCost = pos.getAvgCostNative();
+
+        // 查詢報價
+        BigDecimal currentPrice = null;
+        if (symbolKey != null && quoteProvider != null) {
+            currentPrice = quoteProvider.getCurrentPrice(symbolKey).orElse(null);
+        }
+
+        // 計算損益
+        BigDecimal marketValue = null;
+        BigDecimal unrealizedPnl = null;
+        BigDecimal unrealizedPnlPercent = null;
+
+        if (currentPrice != null && quantity != null && avgCost != null) {
+            marketValue = currentPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal totalCost = avgCost.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
+            unrealizedPnl = marketValue.subtract(totalCost);
+
+            if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
+                unrealizedPnlPercent = unrealizedPnl
+                        .divide(totalCost, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+        }
+
+        return new PositionWithQuote(
+                pos.getPortfolioId(),
+                pos.getInstrumentId(),
+                ticker,
+                name,
+                quantity,
+                avgCost,
+                pos.getCurrency(),
+                currentPrice,
+                marketValue,
+                unrealizedPnl,
+                unrealizedPnlPercent);
     }
 
     @Transactional
@@ -188,8 +310,8 @@ public class PortfolioService {
     }
 
     private void rebuildPosition(Long userId, Long portfolioId, Long instrumentId) {
-        List<StockTradeEntity> trades =
-                tradeRepository.findByUserIdAndPortfolioIdAndInstrumentIdOrderByTradeDateAscIdAsc(
+        List<StockTradeEntity> trades = tradeRepository
+                .findByUserIdAndPortfolioIdAndInstrumentIdOrderByTradeDateAscIdAsc(
                         userId, portfolioId, instrumentId);
         if (trades.isEmpty()) {
             positionRepository.deleteByPortfolioIdAndInstrumentId(portfolioId, instrumentId);

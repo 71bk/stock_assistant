@@ -3,6 +3,7 @@ package tw.bk.appapi.files;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,7 +18,13 @@ import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
 import tw.bk.appfiles.service.FileService;
 import tw.bk.apppersistence.entity.FileEntity;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.RequestBody;
+import tw.bk.appapi.files.dto.PresignRequest;
+import tw.bk.appapi.files.vo.PresignResponse;
+import tw.bk.appfiles.model.PresignResult;
 
+@Slf4j
 @RestController
 @RequestMapping("/files")
 @RequiredArgsConstructor
@@ -30,10 +37,14 @@ public class FilesController {
     @PostMapping
     @Operation(summary = "Upload file")
     public Result<FileResponse> upload(@RequestParam("file") MultipartFile file) {
+        log.info("接收到檔案上傳請求: filename={}, size={}",
+                file != null ? file.getOriginalFilename() : "null",
+                file != null ? file.getSize() : 0);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "檔案不得為空");
         }
         Long userId = requireUserId();
+        log.info("檔案上傳 userId={}", userId);
         FileEntity entity;
         try {
             entity = fileService.upload(userId, file.getContentType(), file.getInputStream());
@@ -56,8 +67,14 @@ public class FilesController {
 
     @PostMapping("/presign")
     @Operation(summary = "Get presigned upload URL")
-    public Result<Void> presign() {
-        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "尚未支援");
+    public Result<PresignResponse> presign(@Valid @RequestBody PresignRequest request) {
+        Long userId = requireUserId();
+        PresignResult result = fileService.presignUpload(
+                userId,
+                request.getSha256(),
+                request.getSizeBytes(),
+                request.getContentType());
+        return Result.ok(PresignResponse.from(result));
     }
 
     private Long requireUserId() {

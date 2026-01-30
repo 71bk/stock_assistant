@@ -35,13 +35,13 @@ export const MainLayout: React.FC = () => {
     items: [
       {
         key: 'settings',
-        label: 'Settings',
+        label: '設定',
         icon: <SettingOutlined />,
         onClick: () => navigate('/settings'),
       },
       {
         key: 'logout',
-        label: 'Logout',
+        label: '登出',
         icon: <LogoutOutlined />,
         onClick: () => logout(),
       },
@@ -78,37 +78,37 @@ export const MainLayout: React.FC = () => {
             {
               key: '/dashboard',
               icon: <PieChartOutlined />,
-              label: 'Dashboard',
+              label: '總覽',
             },
             {
               key: '/portfolio',
               icon: <RiseOutlined />,
-              label: 'Portfolio',
+              label: '投資組合',
             },
             {
               key: '/trades',
               icon: <FileTextOutlined />,
-              label: 'Trades',
+              label: '交易紀錄',
             },
             {
               key: '/stocks',
               icon: <FileTextOutlined />,
-              label: 'Stocks',
+              label: '股票行情',
             },
             {
               key: '/import',
               icon: <UploadOutlined />,
-              label: 'Import',
+              label: '匯入交易',
             },
             {
               key: '/reports',
               icon: <FileTextOutlined />,
-              label: 'Reports',
+              label: '分析報告',
             },
             {
               key: '/settings',
               icon: <SettingOutlined />,
-              label: 'Settings',
+              label: '設定',
             },
           ]}
         />

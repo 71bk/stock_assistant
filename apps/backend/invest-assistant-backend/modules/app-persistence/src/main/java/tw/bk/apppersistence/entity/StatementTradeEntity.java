@@ -11,6 +11,8 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "statement_trades", schema = "app")
@@ -63,10 +65,12 @@ public class StatementTradeEntity {
     @Column(name = "row_hash", nullable = false)
     private String rowHash;
 
-    @Column(name = "errors_json", nullable = false, columnDefinition = "jsonb")
+    @Column(name = "errors_json", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     private String errorsJson;
 
-    @Column(name = "warnings_json", nullable = false, columnDefinition = "jsonb")
+    @Column(name = "warnings_json", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     private String warningsJson;
 
     @Column(name = "created_at", insertable = false, updatable = false)

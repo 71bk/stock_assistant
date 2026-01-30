@@ -6,9 +6,9 @@ const { Title } = Typography;
 const Reports: React.FC = () => {
   return (
     <div>
-      <Title level={2}>Analysis Reports</Title>
+      <Title level={2}>分析報告</Title>
       <Card>
-        <Empty description="No reports generated yet" />
+        <Empty description="尚未產生報告" />
       </Card>
     </div>
   );

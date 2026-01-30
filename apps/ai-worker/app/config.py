@@ -2,8 +2,14 @@
 
 from enum import Enum
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Get the directory where this config.py file is located
+_CONFIG_DIR = Path(__file__).parent
+# .env is in the parent directory (ai-worker root)
+_ENV_FILE = _CONFIG_DIR.parent / ".env"
 
 
 class LlmProvider(str, Enum):
@@ -18,7 +24,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
     )

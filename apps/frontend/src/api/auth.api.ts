@@ -15,6 +15,12 @@ export const authApi = {
   // 但若有需要主動換發可呼叫此 API
   refresh: () =>
     http.post<ApiResponse<void>>('/auth/refresh'),
+
+  getSessions: () =>
+    http.get<ApiResponse<any[]>>('/auth/sessions'),
+
+  revokeSession: (sessionId: string) =>
+    http.delete<ApiResponse<void>>(`/auth/sessions/${sessionId}`),
 };
 
 // 用於前端跳轉的 URL (非 AJAX 呼叫)

@@ -11,6 +11,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,11 +20,30 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appfiles.config.FileStorageProperties;
 import tw.bk.apppersistence.entity.FileEntity;
 import tw.bk.apppersistence.repository.FileRepository;
+import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.MinioClient;
+import io.minio.http.Method;
+import java.net.URI;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import tw.bk.appfiles.model.PresignResult;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FileService {
     private static final String PROVIDER_LOCAL = "local";
+    private static final String PROVIDER_S3 = "s3";
+    private static final String PROVIDER_MINIO = "minio";
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
 
     private final FileRepository fileRepository;
@@ -67,15 +87,19 @@ public class FileService {
 
         Optional<FileEntity> existing = fileRepository.findByUserIdAndSha256(userId, sha256);
         if (existing.isPresent()) {
+            log.info("檔案已存在，返回既存記錄: fileId={}, sha256={}", existing.get().getId(), sha256);
             deleteQuietly(tempFile);
             return existing.get();
         }
 
         String objectKey = sha256;
         Path finalPath = baseDir.resolve(objectKey);
+        log.info("準備將檔案移動到: {}", finalPath);
         try {
             Files.move(tempFile, finalPath, StandardCopyOption.REPLACE_EXISTING);
+            log.info("檔案已成功儲存: path={}, size={}", finalPath, sizeBytes);
         } catch (IOException ex) {
+            log.error("檔案移動失敗: from={}, to={}, error={}", tempFile, finalPath, ex.getMessage(), ex);
             deleteQuietly(tempFile);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "檔案儲存失敗");
         }
@@ -107,6 +131,54 @@ public class FileService {
         }
         return fileRepository.findByIdAndUserId(fileId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "檔案不存在"));
+    }
+
+    @Transactional
+    public PresignResult presignUpload(Long userId, String sha256, Long sizeBytes, String contentType) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
+        }
+        if (isBlank(sha256)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "sha256 is required");
+        }
+        if (sizeBytes == null || sizeBytes <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "size_bytes must be positive");
+        }
+        String normalizedContentType = isBlank(contentType) ? DEFAULT_CONTENT_TYPE : contentType.trim();
+
+        Optional<FileEntity> existing = fileRepository.findByUserIdAndSha256(userId, sha256);
+        FileEntity entity = existing.orElseGet(FileEntity::new);
+        boolean needsSave = entity.getId() == null;
+        if (entity.getId() == null) {
+            entity.setUserId(userId);
+            entity.setSha256(sha256);
+        }
+        if (isBlank(entity.getProvider())) {
+            entity.setProvider(properties.getProvider());
+            needsSave = true;
+        }
+        if (isBlank(entity.getBucket())) {
+            entity.setBucket(properties.getBucket());
+            needsSave = true;
+        }
+        if (isBlank(entity.getObjectKey())) {
+            entity.setObjectKey(sha256);
+            needsSave = true;
+        }
+        if (entity.getSizeBytes() == null || entity.getSizeBytes() <= 0) {
+            entity.setSizeBytes(sizeBytes);
+            needsSave = true;
+        }
+        if (isBlank(entity.getContentType())) {
+            entity.setContentType(normalizedContentType);
+            needsSave = true;
+        }
+        if (needsSave) {
+            entity = fileRepository.save(entity);
+        }
+
+        PresignResult presign = presignByProvider(entity);
+        return new PresignResult(entity, presign.uploadUrl(), presign.method(), presign.headers());
     }
 
     private Path ensureBaseDir() {
@@ -152,5 +224,104 @@ public class FileService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private PresignResult presignByProvider(FileEntity entity) {
+        String provider = properties.getProvider();
+        if (isBlank(provider)) {
+            provider = PROVIDER_LOCAL;
+        }
+        provider = provider.trim().toLowerCase(Locale.ROOT);
+
+        if (PROVIDER_S3.equals(provider)) {
+            return presignS3(entity);
+        }
+        if (PROVIDER_MINIO.equals(provider)) {
+            return presignMinio(entity);
+        }
+        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Presign not supported for local storage");
+    }
+
+    private PresignResult presignS3(FileEntity entity) {
+        String bucket = requireBucket();
+        String region = isBlank(properties.getRegion()) ? "us-east-1" : properties.getRegion().trim();
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (isBlank(accessKey) || isBlank(secretKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "S3 credentials are required");
+        }
+
+        AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
+        S3Presigner.Builder builder = S3Presigner.builder()
+                .region(Region.of(region))
+                .credentialsProvider(StaticCredentialsProvider.create(credentials));
+
+        if (!isBlank(properties.getEndpoint())) {
+            builder.endpointOverride(URI.create(properties.getEndpoint().trim()));
+        }
+
+        PutObjectRequest putRequest = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(entity.getObjectKey())
+                .contentType(entity.getContentType())
+                .build();
+
+        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
+        PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofSeconds(expirySeconds))
+                .putObjectRequest(putRequest)
+                .build();
+
+        try (S3Presigner presigner = builder.build()) {
+            PresignedPutObjectRequest presigned = presigner.presignPutObject(presignRequest);
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", entity.getContentType());
+            return new PresignResult(entity, presigned.url().toString(), "PUT", headers);
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign S3 upload");
+        }
+    }
+
+    private PresignResult presignMinio(FileEntity entity) {
+        String bucket = requireBucket();
+        String endpoint = properties.getEndpoint();
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (isBlank(endpoint)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO endpoint is required");
+        }
+        if (isBlank(accessKey) || isBlank(secretKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO credentials are required");
+        }
+
+        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
+        try {
+            MinioClient client = MinioClient.builder()
+                    .endpoint(endpoint.trim())
+                    .credentials(accessKey, secretKey)
+                    .build();
+
+            String url = client.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.PUT)
+                            .bucket(bucket)
+                            .object(entity.getObjectKey())
+                            .expiry(expirySeconds)
+                            .build());
+
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", entity.getContentType());
+            return new PresignResult(entity, url, "PUT", headers);
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign MinIO upload");
+        }
+    }
+
+    private String requireBucket() {
+        String bucket = properties.getBucket();
+        if (isBlank(bucket)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bucket is required");
+        }
+        return bucket.trim();
     }
 }

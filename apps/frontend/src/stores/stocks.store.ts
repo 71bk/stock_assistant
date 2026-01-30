@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import type { Instrument, Quote } from "@/api/stocks.api";
+import { stocksApi } from "../api/stocks.api";
+import type { Instrument, Quote } from "../api/stocks.api";
+import type { ApiResponse } from "../types/api";
 
 interface StocksState {
   instruments: Instrument[];
@@ -11,6 +13,7 @@ interface StocksState {
   setInstruments: (instruments: Instrument[]) => void;
   setSelectedInstrument: (instrument: Instrument | null) => void;
   setQuote: (instrumentId: string, quote: Quote) => void;
+  fetchQuote: (symbolKey: string) => Promise<void>;
   setLoading: (loading: boolean) => void;
 }
 
@@ -41,6 +44,24 @@ export const useStocksStore = create<StocksState>((set) => ({
         [instrumentId]: quote,
       },
     })),
+
+  fetchQuote: async (symbolKey: string) => {
+    // set({ isLoading: true }); // Optional: don't block UI for quote
+    try {
+      const res = await stocksApi.getQuote(symbolKey);
+      const quote = (res as unknown as ApiResponse<Quote>).data;
+      set((state) => ({
+        quotes: {
+          ...state.quotes,
+          [symbolKey]: quote,
+        },
+      }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      // set({ isLoading: false });
+    }
+  },
 
   setLoading: (isLoading) =>
     set({

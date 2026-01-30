@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Table, Card, Row, Col, Statistic, Button, Tag, Typography } from 'antd';
 import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { usePortfolioStore } from '../../stores/portfolio.store';
@@ -8,6 +9,7 @@ import { AddTradeModal } from './components/AddTradeModal';
 const { Title } = Typography;
 
 const Portfolio: React.FC = () => {
+  const navigate = useNavigate();
   const { summary, positions, isLoading, fetchPortfolioData } = usePortfolioStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -25,8 +27,8 @@ const Portfolio: React.FC = () => {
       <Col xs={24} sm={8}>
         <Card>
           <Statistic
-            title="Total Market Value"
-            value={summary?.totalMarketValue}
+            title="總市值"
+            value={summary?.totalMarketValue || 0}
             precision={0}
             prefix={summary?.baseCurrency === 'USD' ? '$' : 'NT$'}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
@@ -36,8 +38,8 @@ const Portfolio: React.FC = () => {
       <Col xs={24} sm={8}>
         <Card>
           <Statistic
-            title="Total Cost"
-            value={summary?.totalCost}
+            title="總成本"
+            value={summary?.totalCost || 0}
             precision={0}
             prefix={summary?.baseCurrency === 'USD' ? '$' : 'NT$'}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
@@ -47,12 +49,12 @@ const Portfolio: React.FC = () => {
       <Col xs={24} sm={8}>
         <Card>
           <Statistic
-            title="Total P/L"
-            value={summary?.totalPnl}
+            title="總損益"
+            value={summary?.totalPnl || 0}
             precision={0}
-            valueStyle={{ color: (summary?.totalPnl || 0) >= 0 ? '#3f8600' : '#cf1322' }}
+            styles={{ content: { color: (summary?.totalPnl || 0) >= 0 ? '#3f8600' : '#cf1322' } }}
             prefix={(summary?.totalPnl || 0) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-            suffix={`(${summary?.totalPnlPercent}%)`}
+            suffix={`(${summary?.totalPnlPercent || 0}%)`}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
           />
         </Card>
@@ -62,9 +64,9 @@ const Portfolio: React.FC = () => {
 
   const columns = [
     {
-      title: 'Instrument',
-      dataIndex: 'symbol',
-      key: 'symbol',
+      title: '商品',
+      dataIndex: 'ticker',
+      key: 'ticker',
       render: (text: string, record: any) => (
         <div>
           <div style={{ fontWeight: 'bold' }}>{text}</div>
@@ -74,67 +76,74 @@ const Portfolio: React.FC = () => {
       ),
     },
     {
-      title: 'Qty',
-      dataIndex: 'quantity',
-      key: 'quantity',
+      title: '持股數',
+      dataIndex: 'totalQuantity',
+      key: 'totalQuantity',
       align: 'right' as const,
-      render: (val: number) => val.toLocaleString(),
+      render: (val: number) => val?.toLocaleString() ?? '-',
     },
     {
-      title: 'Avg Cost',
-      dataIndex: 'avgCost',
-      key: 'avgCost',
+      title: '平均成本',
+      dataIndex: 'avgCostNative',
+      key: 'avgCostNative',
       align: 'right' as const,
-      render: (val: number, record: any) => formatCurrency(val, record.currency),
+      render: (val: number, record: any) => val != null ? formatCurrency(val, record.currency) : '-',
     },
     {
-      title: 'Price',
+      title: '現價',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
       align: 'right' as const,
       render: (val: number, record: any) => (
-        <span style={{ fontWeight: 'bold' }}>{formatCurrency(val, record.currency)}</span>
+        <span style={{ fontWeight: 'bold' }}>{val != null ? formatCurrency(val, record.currency) : '-'}</span>
       ),
     },
     {
-      title: 'Value',
+      title: '市值',
       dataIndex: 'currentValue',
       key: 'currentValue',
       align: 'right' as const,
-      render: (val: number, record: any) => formatCurrency(val, record.currency), // In list, show native currency
+      render: (val: number, record: any) => val != null ? formatCurrency(val, record.currency) : '-',
     },
     {
-      title: 'Unrealized P/L',
+      title: '未實現損益',
       dataIndex: 'unrealizedPnl',
       key: 'unrealizedPnl',
       align: 'right' as const,
       render: (val: number, record: any) => (
-        <div style={{ color: val >= 0 ? '#3f8600' : '#cf1322' }}>
-          <div>{formatCurrency(val, record.currency)}</div>
-          <div style={{ fontSize: 12 }}>{record.unrealizedPnlPercent}%</div>
+        <div style={{ color: (val || 0) >= 0 ? '#3f8600' : '#cf1322' }}>
+          <div>{val != null ? formatCurrency(val, record.currency) : '-'}</div>
+          <div style={{ fontSize: 12 }}>{record.unrealizedPnlPercent ?? '-'}%</div>
         </div>
       ),
     },
     {
-      title: 'Actions',
+      title: '操作',
       key: 'actions',
-      render: () => <Button size="small">Details</Button>,
+      render: () => (
+        <Button
+          size="small"
+          onClick={() => navigate('/trades')}
+        >
+          詳情
+        </Button>
+      ),
     },
   ];
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={2} style={{ margin: 0 }}>My Portfolio</Title>
+        <Title level={2} style={{ margin: 0 }}>我的投資組合</Title>
         <div>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchPortfolioData()} style={{ marginRight: 8 }}>Refresh</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>Add Trade</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchPortfolioData()} style={{ marginRight: 8 }}>重新整理</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>新增交易</Button>
         </div>
       </div>
 
       {renderKPI()}
 
-      <Card bodyStyle={{ padding: 0 }}>
+      <Card styles={{ body: { padding: 0 } }}>
         <Table
           dataSource={positions}
           columns={columns}

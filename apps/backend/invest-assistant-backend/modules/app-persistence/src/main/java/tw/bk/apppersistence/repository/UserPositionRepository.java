@@ -9,6 +9,8 @@ import tw.bk.apppersistence.entity.UserPositionId;
 public interface UserPositionRepository extends JpaRepository<UserPositionEntity, UserPositionId> {
     List<UserPositionEntity> findByPortfolioId(Long portfolioId);
 
+    long countByPortfolioId(Long portfolioId);
+
     Optional<UserPositionEntity> findByPortfolioIdAndInstrumentId(Long portfolioId, Long instrumentId);
 
     void deleteByPortfolioIdAndInstrumentId(Long portfolioId, Long instrumentId);

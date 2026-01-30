@@ -29,7 +29,15 @@ class TesseractService:
         
         # Set custom path if configured
         if self.settings.tesseract_path and pytesseract:
-            pytesseract.pytesseract.tesseract_cmd = self.settings.tesseract_path
+            tess_path = Path(self.settings.tesseract_path)
+            logger.info("Tesseract config path", config_path=self.settings.tesseract_path)
+            # If path is a directory, append tesseract.exe
+            if tess_path.is_dir():
+                tess_path = tess_path / "tesseract.exe"
+            pytesseract.pytesseract.tesseract_cmd = str(tess_path)
+            logger.info("Tesseract command set", tesseract_cmd=str(tess_path), exists=tess_path.exists())
+        else:
+            logger.warning("Tesseract path not configured", tesseract_path=self.settings.tesseract_path, pytesseract_available=pytesseract is not None)
 
     def is_available(self) -> bool:
         """Check if Tesseract is installed and working."""

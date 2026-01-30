@@ -41,8 +41,8 @@ public class AuthService {
         if (!"refresh".equals(claims.type())) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Invalid refresh token");
         }
-        Long storedUserId = refreshTokenStore.findUserId(claims.jti()).orElseThrow(() ->
-                new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token revoked"));
+        Long storedUserId = refreshTokenStore.findUserId(claims.jti())
+                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token revoked"));
         if (!storedUserId.equals(claims.userId())) {
             refreshTokenStore.revoke(claims.jti());
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token mismatch");

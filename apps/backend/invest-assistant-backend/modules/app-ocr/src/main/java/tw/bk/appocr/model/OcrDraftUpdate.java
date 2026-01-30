@@ -5,16 +5,15 @@ import java.time.LocalDate;
 import tw.bk.appportfolio.model.TradeSide;
 
 public record OcrDraftUpdate(
-        Long instrumentId,
-        String rawTicker,
-        String name,
-        LocalDate tradeDate,
-        LocalDate settlementDate,
-        TradeSide side,
-        BigDecimal quantity,
-        BigDecimal price,
-        String currency,
-        BigDecimal fee,
-        BigDecimal tax
-) {
+                Long instrumentId,
+                String rawTicker,
+                String name,
+                LocalDate tradeDate,
+                LocalDate settlementDate,
+                TradeSide side,
+                BigDecimal quantity,
+                BigDecimal price,
+                String currency,
+                BigDecimal fee,
+                BigDecimal tax) {
 }

@@ -6,7 +6,8 @@ import {
 } from 'antd';
 import {
   InboxOutlined, FileImageOutlined, CheckCircleOutlined,
-  ExclamationCircleOutlined, DeleteOutlined, SaveOutlined
+  ExclamationCircleOutlined, DeleteOutlined, SaveOutlined,
+  ReloadOutlined
 } from '@ant-design/icons';
 import { useImportStore } from '../../stores/import.store';
 import type { DraftTrade } from '../../api/ocr.api';
@@ -24,6 +25,7 @@ const UploadStep: React.FC = () => {
     name: 'file',
     multiple: false,
     showUploadList: false,
+    accept: '.jpg,.jpeg,.pdf',
     customRequest: async (options: any) => {
       const { file, onSuccess } = options;
       await uploadFile(file);
@@ -37,9 +39,9 @@ const UploadStep: React.FC = () => {
         <p className="ant-upload-drag-icon">
           <InboxOutlined style={{ fontSize: 48, color: '#1677ff' }} />
         </p>
-        <p className="ant-upload-text">Click or drag file to this area to upload</p>
+        <p className="ant-upload-text">點擊或拖曳檔案至此上傳</p>
         <p className="ant-upload-hint">
-          Support for images (JPG, PNG) or PDF. OCR will automatically extract trade details.
+          支援圖片 (JPG, JPEG) 或 PDF，OCR 將自動辨識交易細節
         </p>
       </Dragger>
     </Card>
@@ -52,13 +54,13 @@ const ProcessingStep: React.FC = () => {
 
   return (
     <Card style={{ textAlign: 'center', padding: 60 }}>
-      <Title level={4}>Analyzing Document...</Title>
+      <Title level={4}>文件解析中...</Title>
       <Progress type="circle" percent={progress} status={jobStatus === 'FAILED' ? 'exception' : undefined} />
       <div style={{ marginTop: 20 }}>
         {jobStatus === 'FAILED' ? (
-          <Text type="danger">OCR Analysis Failed. Please try another image.</Text>
+          <Text type="danger">OCR 解析失敗，請嘗試其他影像。</Text>
         ) : (
-          <Text type="secondary">Identifying dates, symbols, and amounts...</Text>
+          <Text type="secondary">正在辨識日期、代號與金額...</Text>
         )}
       </div>
     </Card>
@@ -67,16 +69,16 @@ const ProcessingStep: React.FC = () => {
 
 // --- Step 2: Review ---
 const ReviewStep: React.FC = () => {
-  const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades } = useImportStore();
+  const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob } = useImportStore();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>(
-    draftTrades.filter(t => t.status !== 'ERROR').map(t => t.id) // Select valid ones by default
+    draftTrades.filter(t => t.status !== 'ERROR').map(t => t.draftId) // Select valid ones by default
   );
   const [editingKey, setEditingKey] = useState<string>('');
 
-  const isEditing = (record: DraftTrade) => record.id === editingKey;
+  const isEditing = (record: DraftTrade) => record.draftId === editingKey;
 
   const edit = (record: DraftTrade) => {
-    setEditingKey(record.id);
+    setEditingKey(record.draftId);
   };
 
   const save = (id: string) => {
@@ -88,7 +90,7 @@ const ReviewStep: React.FC = () => {
 
   const columns = [
     {
-      title: 'Status',
+      title: '狀態',
       key: 'status',
       width: 80,
       render: (_: any, record: DraftTrade) => {
@@ -98,30 +100,35 @@ const ReviewStep: React.FC = () => {
       },
     },
     {
-      title: 'Date',
+      title: '日期',
       dataIndex: 'tradeDate',
       render: (text: string, record: DraftTrade) => {
         if (isEditing(record)) {
-          return <DatePicker defaultValue={dayjs(text)} onChange={(d) => d && updateDraftTrade(record.id, { tradeDate: d.format('YYYY-MM-DD') })} />;
+          return <DatePicker defaultValue={dayjs(text)} onChange={(d) => d && updateDraftTrade(record.draftId, { tradeDate: d.format('YYYY-MM-DD') })} />;
         }
         return text;
       }
     },
     {
-      title: 'Symbol',
-      dataIndex: 'symbol',
+      title: '代號',
+      dataIndex: 'rawTicker',
       render: (text: string, record: DraftTrade) => {
-        if (isEditing(record)) return <input value={text} onChange={(e) => updateDraftTrade(record.id, { symbol: e.target.value })} style={{ width: 80 }} />;
+        if (isEditing(record)) return <input value={text} onChange={(e) => updateDraftTrade(record.draftId, { rawTicker: e.target.value })} style={{ width: 80 }} />;
         return <Text strong>{text}</Text>;
       }
     },
     {
-      title: 'Side',
+      title: '名稱',
+      dataIndex: 'name',
+      render: (text: string) => <Text type="secondary" style={{ fontSize: 12 }}>{text}</Text>,
+    },
+    {
+      title: '方向',
       dataIndex: 'side',
       render: (text: string, record: DraftTrade) => {
         if (isEditing(record)) {
           return (
-            <Select value={text} onChange={(v) => updateDraftTrade(record.id, { side: v as 'BUY' | 'SELL' })}>
+            <Select value={text} onChange={(v) => updateDraftTrade(record.draftId, { side: v as 'BUY' | 'SELL' })}>
               <Select.Option value="BUY">BUY</Select.Option>
               <Select.Option value="SELL">SELL</Select.Option>
             </Select>
@@ -131,34 +138,56 @@ const ReviewStep: React.FC = () => {
       }
     },
     {
-      title: 'Qty',
+      title: '數量',
       dataIndex: 'quantity',
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v && updateDraftTrade(record.id, { quantity: v })} style={{ width: 80 }} />;
+        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v && updateDraftTrade(record.draftId, { quantity: v })} style={{ width: 80 }} />;
         return val;
       }
     },
     {
-      title: 'Price',
+      title: '價格',
       dataIndex: 'price',
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v && updateDraftTrade(record.id, { price: v })} style={{ width: 100 }} />;
-        return val.toFixed(2);
+        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v && updateDraftTrade(record.draftId, { price: v })} style={{ width: 100 }} />;
+        return Number(val || 0).toFixed(2);
       }
     },
     {
-      title: 'Action',
+      title: '幣別',
+      dataIndex: 'currency',
+      width: 80,
+      render: (text: string) => <Tag>{text}</Tag>,
+    },
+    {
+      title: '手續費',
+      dataIndex: 'fee',
+      render: (val: number, record: DraftTrade) => {
+        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v != null && updateDraftTrade(record.draftId, { fee: v })} style={{ width: 80 }} />;
+        return Number(val || 0).toFixed(2);
+      }
+    },
+    {
+      title: '稅金',
+      dataIndex: 'tax',
+      render: (val: number, record: DraftTrade) => {
+        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v != null && updateDraftTrade(record.draftId, { tax: v })} style={{ width: 80 }} />;
+        return Number(val || 0).toFixed(2);
+      }
+    },
+    {
+      title: '操作',
       key: 'action',
       render: (_: any, record: DraftTrade) => {
         const editable = isEditing(record);
         return editable ? (
           <Space>
-            <Button type="primary" size="small" icon={<SaveOutlined />} onClick={() => save(record.id)} />
+            <Button type="primary" size="small" icon={<SaveOutlined />} onClick={() => save(record.draftId)} />
           </Space>
         ) : (
           <Space>
-            <Button size="small" onClick={() => edit(record)}>Edit</Button>
-            <Popconfirm title="Delete?" onConfirm={() => deleteDraftTrade(record.id)}>
+            <Button size="small" onClick={() => edit(record)}>編輯</Button>
+            <Popconfirm title="刪除?" onConfirm={() => deleteDraftTrade(record.draftId)}>
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
           </Space>
@@ -174,8 +203,8 @@ const ReviewStep: React.FC = () => {
   return (
     <div>
       <Alert
-        message={`Found ${draftTrades.length} trades`}
-        description="Please review the details below. Identify any warnings before confirming."
+        message={`找到 ${draftTrades.length} 筆交易`}
+        description="請校對以下細節，確認無誤後再匯入。"
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
@@ -188,16 +217,19 @@ const ReviewStep: React.FC = () => {
         }}
         dataSource={draftTrades}
         columns={columns}
-        rowKey="id"
+        rowKey="draftId"
         pagination={false}
         scroll={{ x: 800 }}
       />
 
       <div style={{ marginTop: 24, textAlign: 'right' }}>
         <Space>
-          <Text>Selected: {selectedRowKeys.length}</Text>
+          <Text>已選: {selectedRowKeys.length}</Text>
+          <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
+            重新辨識
+          </Button>
           <Button type="primary" size="large" disabled={selectedRowKeys.length === 0} onClick={handleConfirm}>
-            Confirm Import
+            確認匯入
           </Button>
         </Space>
       </div>
@@ -213,14 +245,14 @@ const ResultStep: React.FC = () => {
   return (
     <Result
       status="success"
-      title="Import Successfully!"
-      subTitle="Trades have been recorded and your portfolio positions updated."
+      title="匯入成功！"
+      subTitle="交易紀錄已儲存，您的投資組合部位已更新。"
       extra={[
         <Button type="primary" key="portfolio" onClick={() => navigate('/portfolio')}>
-          Go Portfolio
+          前往投資組合
         </Button>,
         <Button key="import" onClick={reset}>
-          Import Another
+          匯入其他
         </Button>,
       ]}
     />
@@ -236,7 +268,7 @@ const ImportPage: React.FC = () => {
   // Determine which component to render
   let content = <UploadStep />;
   if (currentStep === 1) {
-    if (jobStatus === 'COMPLETED') {
+    if (jobStatus === 'DONE') {
       content = <ReviewStep />;
     } else {
       content = <ProcessingStep />;
@@ -247,14 +279,14 @@ const ImportPage: React.FC = () => {
 
   return (
     <div>
-      <Title level={2}>Import Trades</Title>
+      <Title level={2}>匯入交易</Title>
       <Card>
         <Steps
           current={currentStep}
           items={[
-            { title: 'Upload' },
-            { title: 'Processing & Review' }, // Combined conceptual step
-            { title: 'Done' },
+            { title: '上傳' },
+            { title: '解析與校對' },
+            { title: '完成' },
           ]}
           style={{ marginBottom: 40, maxWidth: 800, margin: '0 auto 40px' }}
         />

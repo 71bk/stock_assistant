@@ -6,6 +6,10 @@ import { RequireAuth } from '../utils/guards';
 import Dashboard from '../pages/Dashboard';
 import Portfolio from '../pages/Portfolio';
 import ImportPage from '../pages/Import';
+import Trades from '../pages/Trades';
+import Reports from '../pages/Reports';
+import Settings from '../pages/Settings';
+import Stocks from '../pages/Stocks';
 
 export const router = createBrowserRouter([
   {
@@ -23,10 +27,11 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'portfolio', element: <Portfolio /> },
-      { path: 'trades', element: <div>Trades Page (Coming Soon)</div> },
+      { path: 'trades', element: <Trades /> },
+      { path: 'stocks', element: <Stocks /> },
       { path: 'import', element: <ImportPage /> },
-      { path: 'reports', element: <div>Reports Page (Coming Soon)</div> },
-      { path: 'settings', element: <div>Settings Page (Coming Soon)</div> },
+      { path: 'reports', element: <Reports /> },
+      { path: 'settings', element: <Settings /> },
     ],
   },
   {

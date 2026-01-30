@@ -87,6 +87,7 @@
 | 422 | `OCR_PARSE_FAILED` | OCR 解析失敗 |
 | 429 | `RATE_LIMITED` | 超過速率限制 |
 | 500 | `INTERNAL_ERROR` | 未預期錯誤 |
+| 501 | `NOT_IMPLEMENTED` | 功能尚未實作 |
 
 ---
 
@@ -95,14 +96,11 @@
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
 | GET | `/api/auth/google/login` | 302 導向 Google OAuth | 否 |
-| GET | `/api/oauth2/authorization/{provider}` | OAuth2 ?????Spring Security ??? | ? |
-| GET | `/api/login/oauth2/code/google` | OAuth ???Spring Security ?????? Cookie ????? | 否 |
-| GET | `/api/login/oauth2/**` | OAuth2 ?????Spring Security ??? | ? |
+| GET | `/api/oauth2/authorization/{provider}` | OAuth2 授權端點（Spring Security 處理） | 否 |
+| GET | `/api/login/oauth2/code/google` | OAuth 回調（Spring Security 處理，設置 Cookie 並重導） | 否 |
 | GET | `/api/auth/me` | 取得登入使用者資訊 | 是 |
 | POST | `/api/auth/refresh` | 旋轉 refresh、刷新 access | 是（refresh cookie） |
 | POST | `/api/auth/logout` | 登出並撤銷 refresh session | 是 |
-| GET | `/api/auth/sessions` | ??????/?????v1??????? | 是 |
-| DELETE | `/api/auth/sessions/{sessionId}` | ???? session?v1??????? | 是 |
 
 ### User Profile（`GET /api/auth/me`）
 ```json
@@ -123,13 +121,12 @@
 
 ---
 
-
 ## System / Health
 ### Endpoints
-| Method | Path | ?? | Auth |
+| Method | Path | 說明 | Auth |
 |---|---|---|---|
-| GET | `/api/health` | ???????? | ? |
-| GET | `/api/actuator/health` | ?????Actuator? | ? |
+| GET | `/api/health` | 基本健康檢查 | 否 |
+| GET | `/api/actuator/health` | 健康檢查（Actuator） | 否 |
 
 ---
 
@@ -146,37 +143,144 @@ Request（`PATCH /api/users/me/settings`）
 }
 ```
 
+Response
+```json
+{
+  "success": true,
+  "data": {
+    "baseCurrency": "TWD",
+    "displayTimezone": "Asia/Taipei"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
 ---
 
 ## Stocks / Instruments
 ### Endpoints
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
-| GET | `/api/stocks/markets` | 市場列表（TW/US） | 是 |
-| GET | `/api/stocks/exchanges` | 交易所列表（依 market 篩選） | 是 |
-| GET | `/api/stocks/instruments` | 搜尋股票（代號/名稱/別名） | 是 |
-| GET | `/api/stocks/instruments/{instrumentId}` | 取得單一商品 | 是 |
-| GET | `/api/stocks/quote` | 即時報價 | 是 |
-| GET | `/api/stocks/candles` | K 線資料 | 是 |
+| GET | `/api/stocks/markets` | 市場列表（TW/US） | 否 |
+| GET | `/api/stocks/exchanges` | 交易所列表（可依 market 過濾） | 否 |
+| GET | `/api/stocks/tickers` | 取得 tickers 清單（台股專用） | 否 |
+| GET | `/api/stocks/instruments` | 搜尋商品（分頁/模糊查詢） | 否 |
+| GET | `/api/stocks/instruments/{instrumentId}` | 取得單一商品 | 否 |
+| GET | `/api/stocks/quote` | 即時報價 | 否 |
+| GET | `/api/stocks/candles` | K 線資料 | 否 |
+| GET | `/api/instruments` | 商品列表（分頁） | 否 |
+| GET | `/api/instruments/search` | 搜尋商品（自動補全） | 否 |
+| GET | `/api/instruments/{symbolKey}` | 取得商品詳情 | 否 |
 
-#### 搜尋（`GET /api/stocks/instruments`）
-Query：`q`、`market`、`exchange`、`limit`
+---
 
-Response（節錄）
+#### 市場列表（`GET /api/stocks/markets`）
+Response：
+```json
+{
+  "success": true,
+  "data": [
+    { "code": "US", "name": "美股" },
+    { "code": "TW", "name": "台股" }
+  ],
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
+#### 交易所列表（`GET /api/stocks/exchanges`）
+Query Parameters：
+- `market`（可選）
+
+Response：
+```json
+{
+  "success": true,
+  "data": [
+    { "code": "XNAS", "name": "NASDAQ", "market": "US" },
+    { "code": "XNYS", "name": "New York Stock Exchange", "market": "US" },
+    { "code": "XTAI", "name": "臺灣證券交易所", "market": "TW" }
+  ],
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
+#### Tickers 清單（`GET /api/stocks/tickers`）
+Query Parameters：
+- `type`：EQUITY/INDEX/WARRANT/ODDLOT（必填）
+- `exchange`：交易所代碼（可選）
+- `market`：市場代碼（可選）
+- `industry`：產業分類（可選）
+- `isNormal`：正常交易標的（可選）
+- `isAttention`：注意股（可選）
+- `isDisposition`：處置股（可選）
+- `isHalted`：暫停交易（可選）
+
+Response 欄位說明：
+- `date`：資料日期（YYYY-MM-DD）
+- `type`：標的類型
+- `exchange`：交易所
+- `market`：市場
+- `industry`：產業分類
+- `isNormal` / `isAttention` / `isDisposition` / `isHalted`：交易狀態
+- `data`：標的列表
+  - `symbol`：代號
+  - `name`：名稱
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "date": "2026-01-10",
+    "type": "EQUITY",
+    "exchange": "TWSE",
+    "market": "TW",
+    "industry": "Semiconductor",
+    "isNormal": true,
+    "isAttention": false,
+    "isDisposition": false,
+    "isHalted": false,
+    "data": [
+      { "symbol": "2330", "name": "台積電" },
+      { "symbol": "2317", "name": "鴻海" }
+    ]
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
+#### 搜尋商品（`GET /api/stocks/instruments`）
+Query Parameters：
+- `q`：搜尋關鍵字（必填）
+- `page`：頁碼（預設 1）
+- `size`：每頁筆數（預設 20）
+
+Response：
 ```json
 {
   "success": true,
   "data": {
     "items": [
       {
-        "id": "1001",
+        "instrumentId": "1001",
         "symbolKey": "US:XNAS:AAPL",
         "ticker": "AAPL",
         "nameZh": "蘋果",
         "nameEn": "Apple Inc.",
         "market": "US",
         "exchange": "XNAS",
-        "currency": "USD"
+        "currency": "USD",
+        "assetType": "STOCK"
       }
     ],
     "page": 1,
@@ -188,30 +292,171 @@ Response（節錄）
 }
 ```
 
-#### Quote（`GET /api/stocks/quote`）
-Query：`instrumentId` **或** `symbolKey`（擇一）
+---
 
-Response（節錄）
+#### 單一商品（`GET /api/stocks/instruments/{instrumentId}`）
+Response：
 ```json
 {
   "success": true,
   "data": {
     "instrumentId": "1001",
     "symbolKey": "US:XNAS:AAPL",
-    "price": "198.32",
-    "change": "-1.20",
-    "changePct": "-0.60",
-    "tsUtc": "2026-01-07T12:00:01Z"
+    "ticker": "AAPL",
+    "nameZh": "蘋果",
+    "nameEn": "Apple Inc.",
+    "market": "US",
+    "exchange": "XNAS",
+    "currency": "USD",
+    "assetType": "STOCK"
   },
   "error": null,
   "traceId": "..."
 }
 ```
 
-#### Candles（`GET /api/stocks/candles`）
-Query：`instrumentId`/`symbolKey`、`interval`、`from`、`to`
+---
+
+#### Quote（`GET /api/stocks/quote`）
+Query Parameters：`instrumentId` 或 `symbolKey` 擇一
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "instrumentId": "1001",
+    "symbolKey": "US:XNAS:AAPL",
+    "price": "192.12",
+    "open": "191.50",
+    "high": "193.00",
+    "low": "190.80",
+    "previousClose": "192.47",
+    "volume": 45678900,
+    "change": "-0.35",
+    "changePercent": "-0.18",
+    "timestamp": "2026-01-29T10:20:30Z"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
 
 ---
+
+#### Candles（`GET /api/stocks/candles`）
+Query Parameters：`instrumentId` 或 `symbolKey` 擇一，`interval`、`from`、`to`
+
+Response：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "timestamp": "2026-01-01T00:00:00",
+      "open": 100.1,
+      "high": 101.5,
+      "low": 99.9,
+      "close": 101.0,
+      "volume": 1234567
+    }
+  ],
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
+#### 商品列表（`GET /api/instruments`）
+Query Parameters：
+- `page`：頁碼（預設 1）
+- `size`：每頁筆數（預設 20）
+
+Response：`Result<PageResponse<InstrumentResponse>>`
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "instrumentId": "1001",
+        "symbolKey": "US:XNAS:AAPL",
+        "ticker": "AAPL",
+        "nameZh": "蘋果",
+        "nameEn": "Apple Inc.",
+        "market": "US",
+        "exchange": "XNAS",
+        "currency": "USD",
+        "assetType": "STOCK"
+      }
+    ],
+    "page": 1,
+    "size": 20,
+    "total": 150
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
+#### 搜尋商品（`GET /api/instruments/search`）
+Query Parameters：
+- `q`：搜尋關鍵字（必填）
+- `limit`：回傳數量（預設 10）
+
+Response：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "instrumentId": "1001",
+      "symbolKey": "US:XNAS:AAPL",
+      "ticker": "AAPL",
+      "nameZh": "蘋果",
+      "nameEn": "Apple Inc.",
+      "market": "US",
+      "exchange": "XNAS",
+      "currency": "USD",
+      "assetType": "STOCK"
+    }
+  ],
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
+#### 商品詳情（`GET /api/instruments/{symbolKey}`）
+Response：`Result<InstrumentDetailResponse>`
+```json
+{
+  "success": true,
+  "data": {
+    "instrument": {
+      "instrumentId": "1001",
+      "symbolKey": "US:XNAS:AAPL",
+      "ticker": "AAPL",
+      "nameZh": "蘋果",
+      "nameEn": "Apple Inc.",
+      "market": "US",
+      "exchange": "XNAS",
+      "currency": "USD",
+      "assetType": "STOCK"
+    },
+    "etfProfile": null
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
 
 ## Portfolio / Trades / Positions
 ### Endpoints
@@ -219,12 +464,40 @@ Query：`instrumentId`/`symbolKey`、`interval`、`from`、`to`
 |---|---|---|---|
 | GET | `/api/portfolios` | 取得投資組合列表 | 是 |
 | POST | `/api/portfolios` | 新增投資組合 | 是 |
-| GET | `/api/portfolios/{portfolioId}` | 取得投資組合 | 是 |
+| GET | `/api/portfolios/{portfolioId}` | 取得投資組合（含統計） | 是 |
 | GET | `/api/portfolios/{portfolioId}/positions` | 持倉列表 | 是 |
 | GET | `/api/portfolios/{portfolioId}/trades` | 交易列表（可篩選） | 是 |
 | POST | `/api/portfolios/{portfolioId}/trades` | 新增交易 | 是 |
 | PATCH | `/api/trades/{tradeId}` | 更新交易 | 是 |
 | DELETE | `/api/trades/{tradeId}` | 刪除交易 | 是 |
+
+#### 取得投資組合（`GET /api/portfolios/{portfolioId}`）
+Response 欄位說明：
+- `id`：投資組合 ID
+- `name`：名稱
+- `baseCurrency`：基礎幣別
+- `totalMarketValue`：總市值（所有持倉現價總和）
+- `totalCost`：總成本（所有持倉成本總和）
+- `totalPnl`：總損益（總市值 - 總成本）
+- `totalPnlPercent`：總損益率 %
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "name": "Main",
+    "baseCurrency": "TWD",
+    "totalMarketValue": 150000,
+    "totalCost": 120000,
+    "totalPnl": 30000,
+    "totalPnlPercent": 25.0
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
 
 #### 新增交易（`POST /api/portfolios/{portfolioId}/trades`）
 ```json
@@ -252,6 +525,39 @@ Response（節錄）
 }
 ```
 
+#### 交易列表（`GET /api/portfolios/{portfolioId}/trades`）
+Query Parameters：
+- `from`：起始日期（YYYY-MM-DD，可選）
+- `to`：結束日期（YYYY-MM-DD，可選）
+- `page`：頁碼（預設 1）
+- `size`：每頁筆數（預設 20）
+- `sort`：排序方式（預設 `tradeDate,desc`）
+
+Response（節錄）
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "tradeId": "9001",
+        "instrumentId": "1001",
+        "tradeDate": "2026-01-07",
+        "side": "BUY",
+        "quantity": "10",
+        "price": "198.32",
+        "currency": "USD"
+      }
+    ],
+    "page": 1,
+    "size": 20,
+    "total": 1
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
 ---
 
 ## Files
@@ -260,7 +566,7 @@ Response（節錄）
 |---|---|---|---|
 | POST | `/api/files` | 上傳檔案（multipart） | 是 |
 | GET | `/api/files/{fileId}` | 取得檔案 metadata | 是 |
-| POST | `/api/files/presign` | ???? URL????? | 是 |
+| POST | `/api/files/presign` | 取得預簽 URL（尚未支援） | 是 |
 
 Response（`POST /api/files` 節錄）
 ```json
@@ -291,9 +597,11 @@ Response（`POST /api/files` 節錄）
 ```json
 {
   "fileId": "501",
-  "portfolioId": "2001"
+  "portfolioId": "2001",
+  "force": false
 }
 ```
+> **Note**: `force` 為可選參數，預設 `false`。設為 `true` 時會強制重新處理，忽略去重邏輯。
 
 Response（節錄）
 ```json
@@ -319,14 +627,50 @@ Response（節錄）
         "draftId": "9101",
         "instrumentId": "1001",
         "rawTicker": "AAPL",
+        "name": "Apple Inc.",
         "tradeDate": "2026-01-03",
+        "settlementDate": "2026-01-05",
         "side": "BUY",
         "quantity": "5",
         "price": "190.00",
         "currency": "USD",
-        "warnings": ["DATE_FORMAT_GUESS"]
+        "fee": "1.00",
+        "tax": "0",
+        "warnings": ["DATE_FORMAT_GUESS"],
+        "errors": [],
+        "rowHash": "b7b7f1c3d90a6c3f0d1a2f0e3b9d9c1d2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d"
       }
     ]
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+#### 更新草稿交易（`PATCH /api/ocr/drafts/{draftId}`）
+```json
+{
+  "instrumentId": "1001",
+  "rawTicker": "AAPL",
+  "name": "Apple Inc.",
+  "tradeDate": "2026-01-03",
+  "settlementDate": "2026-01-05",
+  "side": "BUY",
+  "quantity": "5",
+  "price": "190.00",
+  "currency": "USD",
+  "fee": "1.00",
+  "tax": "0"
+}
+```
+
+#### 確認匯入（`POST /api/ocr/jobs/{jobId}/confirm`）
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "importedCount": 5
   },
   "error": null,
   "traceId": "..."
@@ -340,21 +684,24 @@ Response（節錄）
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
 | POST | `/api/ai/analysis/stream` | AI 行情/持倉分析（SSE） | 是 |
-| GET | `/api/ai/reports` | 報告列表（v1） | 是 |
-| GET | `/api/ai/reports/{reportId}` | 報告詳情（v1） | 是 |
+| GET | `/api/ai/reports` | 報告列表 | 是 |
+| GET | `/api/ai/reports/{reportId}` | 報告詳情 | 是 |
 
 #### Request（`POST /api/ai/analysis/stream`）
 ```json
 {
+  "portfolioId": "2001",
   "instrumentId": "1001",
+  "reportType": "INSTRUMENT",
   "prompt": "請摘要最近一個月的趨勢與風險點"
 }
 ```
+> **Note**: `portfolioId` 與 `instrumentId` 擇一填寫，`reportType` 可為 `INSTRUMENT`、`PORTFOLIO`、`GENERAL`
 
 #### SSE Response（`text/event-stream`）
 ```
 event: meta
-data: {"requestId":"r-123","instrumentId":"1001"}
+data: {"requestId":"r-123","instrumentId":"1001","reportType":"INSTRUMENT"}
 
 event: delta
 data: {"text":"近一個月價格呈現..."}
@@ -364,6 +711,59 @@ data: {"text":"風險點包含..."}
 
 event: done
 data: {"reportId":"3001"}
+```
+
+#### SSE Error（未授權或內部錯誤時）
+```
+event: error
+data: {"code":"AUTH_UNAUTHORIZED","message":"Unauthorized"}
+```
+
+#### 報告列表（`GET /api/ai/reports`）
+Query Parameters：
+- `page`（預設 1）
+- `size`（預設 20，最大 100）
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "reportId": "3001",
+        "reportType": "INSTRUMENT",
+        "portfolioId": null,
+        "instrumentId": "1001",
+        "createdAt": "2026-01-30T12:00:00Z"
+      }
+    ],
+    "page": 1,
+    "size": 20,
+    "total": 1
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+#### 報告詳情（`GET /api/ai/reports/{reportId}`）
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "reportId": "3001",
+    "reportType": "INSTRUMENT",
+    "portfolioId": null,
+    "instrumentId": "1001",
+    "inputSummary": "...",
+    "outputText": "近一個月價格呈現上漲趨勢...",
+    "createdAt": "2026-01-30T12:00:00Z"
+  },
+  "error": null,
+  "traceId": "..."
+}
 ```
 
 ---
@@ -378,42 +778,19 @@ data: {"reportId":"3001"}
 ---
 
 ## 範例 Request/Response
-### 1) 取得交易列表（`GET /api/portfolios/{portfolioId}/trades`）
-Query：`from`、`to`、`page`、`size`
-
-Response（節錄）
-```json
-{
-  "success": true,
-  "data": {
-    "items": [
-      {
-        "tradeId": "9001",
-        "instrumentId": "1001",
-        "tradeDate": "2026-01-07",
-        "side": "BUY",
-        "quantity": "10",
-        "price": "198.32",
-        "currency": "USD"
-      }
-    ],
-    "page": 1,
-    "size": 20,
-    "total": 1
-  },
-  "error": null,
-  "traceId": "..."
-}
-```
-
-### 2) Rate limit（429）
+### 1) Rate limit（429）
 ```json
 {
   "success": false,
   "data": null,
   "error": {
     "code": "RATE_LIMITED",
-    "message": "Too many requests, please retry later."
+    "message": "行情供應商限流，請稍後再試。",
+    "details": {
+      "vendor": "Fugle",
+      "ticker": "2330",
+      "retryAfter": "60"
+    }
   },
   "traceId": "..."
 }

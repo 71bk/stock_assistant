@@ -49,6 +49,7 @@ class ParsedTrade(BaseModel):
     quantity: int = Field(description="Number of shares", gt=0)
     price: Decimal = Field(description="Price per share", gt=0)
     trade_date: date = Field(description="Trade date (converted to Western calendar)")
+    settlement_date: date | None = Field(default=None, description="Settlement date (converted to Western calendar)")
 
     # Optional fields
     currency: Currency = Field(default=Currency.TWD, description="Transaction currency")

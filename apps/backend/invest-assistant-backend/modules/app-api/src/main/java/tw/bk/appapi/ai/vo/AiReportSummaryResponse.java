@@ -1,0 +1,34 @@
+package tw.bk.appapi.ai.vo;
+
+import java.time.OffsetDateTime;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import tw.bk.apppersistence.entity.AiReportEntity;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class AiReportSummaryResponse {
+    private String reportId;
+
+    private String reportType;
+
+    private String portfolioId;
+
+    private String instrumentId;
+
+    private OffsetDateTime createdAt;
+
+    public static AiReportSummaryResponse from(AiReportEntity entity) {
+        return AiReportSummaryResponse.builder()
+                .reportId(entity.getId() != null ? entity.getId().toString() : null)
+                .reportType(entity.getReportType())
+                .portfolioId(entity.getPortfolioId() != null ? entity.getPortfolioId().toString() : null)
+                .instrumentId(entity.getInstrumentId() != null ? entity.getInstrumentId().toString() : null)
+                .createdAt(entity.getCreatedAt())
+                .build();
+    }
+}

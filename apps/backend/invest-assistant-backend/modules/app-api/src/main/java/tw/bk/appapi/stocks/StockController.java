@@ -132,8 +132,8 @@ public class StockController {
     @GetMapping("/quote")
     @Operation(summary = "取得即時報價", description = "查詢股票即時報價，支援 instrument_id 或 symbol_key（擇一）")
     public Result<QuoteResponse> getQuote(
-            @RequestParam(name = "instrument_id", required = false) String instrumentId,
-            @RequestParam(name = "symbol_key", required = false) String symbolKey) {
+            @RequestParam(required = false) String instrumentId,
+            @RequestParam(required = false) String symbolKey) {
 
         // Normalize 參數（去除空白、null 視為空）
         String normalizedInstrumentId = normalizeParam(instrumentId);
@@ -188,8 +188,8 @@ public class StockController {
     @GetMapping("/candles")
     @Operation(summary = "取得K線資料", description = "查詢歷史 K 線資料（OHLC），支援 instrument_id 或 symbol_key（擇一）")
     public Result<List<CandleResponse>> getCandles(
-            @RequestParam(name = "instrument_id", required = false) String instrumentId,
-            @RequestParam(name = "symbol_key", required = false) String symbolKey,
+            @RequestParam(required = false) String instrumentId,
+            @RequestParam(required = false) String symbolKey,
             @RequestParam(defaultValue = "1d") String interval,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {

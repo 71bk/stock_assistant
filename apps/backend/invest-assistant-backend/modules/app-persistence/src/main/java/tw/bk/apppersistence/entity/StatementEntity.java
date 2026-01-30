@@ -6,6 +6,8 @@ import jakarta.persistence.Table;
 import java.time.LocalDate;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import tw.bk.appcommon.model.BaseEntity;
 
 @Entity
@@ -37,6 +39,7 @@ public class StatementEntity extends BaseEntity {
     @Column(name = "raw_text")
     private String rawText;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "parsed_json", columnDefinition = "jsonb")
     private String parsedJson;
 }

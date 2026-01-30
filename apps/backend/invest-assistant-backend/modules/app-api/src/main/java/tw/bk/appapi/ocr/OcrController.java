@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,13 +31,15 @@ import tw.bk.appocr.service.OcrService;
 import tw.bk.apppersistence.entity.OcrJobEntity;
 import tw.bk.apppersistence.entity.StatementTradeEntity;
 
+@Slf4j
 @RestController
 @RequestMapping("/ocr")
 @RequiredArgsConstructor
 @Tag(name = "OCR", description = "OCR import APIs")
 public class OcrController {
 
-    private static final TypeReference<List<String>> LIST_STRING = new TypeReference<>() {};
+    private static final TypeReference<List<String>> LIST_STRING = new TypeReference<>() {
+    };
 
     private final OcrService ocrService;
     private final CurrentUserProvider currentUserProvider;
@@ -45,10 +48,15 @@ public class OcrController {
     @PostMapping("/jobs")
     @Operation(summary = "Create OCR job")
     public Result<OcrJobResponse> createJob(@Valid @RequestBody CreateOcrJobRequest request) {
+        log.info("接收到建立 OCR Job 請求: fileId={}, portfolioId={}, force={}",
+                request.getFileId(), request.getPortfolioId(), request.getForce());
         Long userId = requireUserId();
+        log.info("OCR Job userId={}", userId);
         Long fileId = parseId(request.getFileId());
         Long portfolioId = parseId(request.getPortfolioId());
-        OcrJobEntity job = ocrService.createJob(userId, fileId, portfolioId);
+        boolean force = Boolean.TRUE.equals(request.getForce());
+        OcrJobEntity job = ocrService.createJob(userId, fileId, portfolioId, force);
+        log.info("OCR Job 建立成功: jobId={}, status={}", job.getId(), job.getStatus());
         return Result.ok(OcrJobResponse.from(job));
     }
 
@@ -66,7 +74,10 @@ public class OcrController {
         Long userId = requireUserId();
         List<StatementTradeEntity> drafts = ocrService.getDrafts(userId, parseId(jobId));
         List<OcrDraftResponse> items = drafts.stream()
-                .map(draft -> OcrDraftResponse.from(draft, parseWarnings(draft.getWarningsJson())))
+                .map(draft -> OcrDraftResponse.from(
+                        draft,
+                        parseList(draft.getWarningsJson()),
+                        parseList(draft.getErrorsJson())))
                 .toList();
         return Result.ok(OcrDraftListResponse.builder().items(items).build());
     }
@@ -90,7 +101,10 @@ public class OcrController {
                 parseDecimalOrNull(request.getTax()));
 
         StatementTradeEntity updated = ocrService.updateDraft(userId, parseId(draftId), update);
-        return Result.ok(OcrDraftResponse.from(updated, parseWarnings(updated.getWarningsJson())));
+        return Result.ok(OcrDraftResponse.from(
+                updated,
+                parseList(updated.getWarningsJson()),
+                parseList(updated.getErrorsJson())));
     }
 
     @PostMapping("/jobs/{jobId}/confirm")
@@ -132,7 +146,7 @@ public class OcrController {
         }
     }
 
-    private List<String> parseWarnings(String json) {
+    private List<String> parseList(String json) {
         if (json == null || json.isBlank()) {
             return List.of();
         }

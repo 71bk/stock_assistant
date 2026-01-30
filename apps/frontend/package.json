@@ -10,10 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/plots": "^2.6.8",
     "@sentry/react": "^10.32.1",
     "antd": "^6.1.4",
     "axios": "^1.13.2",
     "dayjs": "^1.11.19",
+    "lightweight-charts": "^5.1.0",
     "lodash": "^4.17.21",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

@@ -51,7 +51,8 @@ def get_parse_prompt(broker_hint: str) -> str:
             "side": "BUY 或 SELL",
             "quantity": 數量 (整數),
             "price": 價格 (數字),
-            "trade_date": "YYYY-MM-DD (西元)",
+            "trade_date": "YYYY-MM-DD (成交日，西元)",
+            "settlement_date": "YYYY-MM-DD (交割日，西元，如有)",
             "currency": "TWD 或 USD",
             "fee": 手續費 (數字或 null),
             "tax": 稅金 (數字或 null),
@@ -70,8 +71,10 @@ def get_parse_prompt(broker_hint: str) -> str:
 1. 民國年轉西元年: 民國年 + 1911 = 西元年
 2. 買入 = BUY, 賣出 = SELL
 3. 台股用 TWD, 美股用 USD
-4. 如果某欄位無法確認，降低 confidence 分數並加入 warnings
-5. 只輸出 JSON，不要其他文字"""
+4. 成交日 (trade_date) 和交割日 (settlement_date) 通常是表格中的前兩個日期欄位
+5. 如果某欄位無法確認，降低 confidence 分數並加入 warnings
+6. 只輸出 JSON，不要其他文字"""
+
 
 
 class OcrService:
@@ -228,6 +231,7 @@ class OcrService:
                     quantity=int(trade_data.get("quantity", 0)),
                     price=Decimal(str(trade_data.get("price", 0))),
                     trade_date=date.fromisoformat(trade_data.get("trade_date", "1970-01-01")),
+                    settlement_date=date.fromisoformat(trade_data["settlement_date"]) if trade_data.get("settlement_date") else None,
                     currency=Currency(trade_data.get("currency", "TWD")),
                     fee=Decimal(str(trade_data["fee"])) if trade_data.get("fee") else None,
                     tax=Decimal(str(trade_data["tax"])) if trade_data.get("tax") else None,

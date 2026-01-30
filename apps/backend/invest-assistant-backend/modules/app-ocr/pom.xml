@@ -28,10 +28,18 @@
             <groupId>tw.bk</groupId>
             <artifactId>app-portfolio</artifactId>
         </dependency>
+        <dependency>
+            <groupId>tw.bk</groupId>
+            <artifactId>app-files</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Row, Col, Card, Statistic, Table, Typography, Tag, Skeleton } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
+import { Pie, Area } from '@ant-design/plots';
 import { useAuthStore } from '../../stores/auth.store';
 import { usePortfolioStore } from '../../stores/portfolio.store';
 import { formatCurrency } from '../../utils/format';
@@ -16,12 +17,54 @@ const MOCK_ACTIVITY = [
 
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
-  const { summary, isLoading, fetchPortfolioSummary } = usePortfolioStore();
+  const { summary, positions, recentTrades, isLoading, fetchPortfolioData, fetchRecentTrades } = usePortfolioStore();
   const baseCurrency = user?.preferences?.baseCurrency || 'TWD';
 
   useEffect(() => {
-    fetchPortfolioSummary();
-  }, [fetchPortfolioSummary]);
+    fetchPortfolioData(); // Fetch summary AND positions
+    fetchRecentTrades();
+  }, [fetchPortfolioData, fetchRecentTrades]);
+
+  // Chart Configs
+  // Calculate value for pie chart (fallback to cost if market value missing)
+  const pieData = positions.map((p) => ({
+    ...p,
+    // @ts-ignore
+    value: p.currentValue || (p.totalQuantity * p.avgCostNative) || 0,
+  }));
+
+  const pieConfig = {
+    data: pieData,
+    angleField: 'value',
+    colorField: 'ticker',
+    radius: 0.8,
+    label: {
+      text: (d: any) => `${d.ticker}\n${(d.value / (summary?.totalMarketValue || 1) * 100).toFixed(1)}%`,
+      position: 'spider',
+    },
+    legend: {
+      color: {
+        title: false,
+        position: 'right',
+        rowPadding: 5,
+      },
+    },
+  };
+
+  const areaConfig = {
+    data: [
+      { date: '2026-01-01', value: 100000 },
+      { date: '2026-01-08', value: 105000 },
+      { date: '2026-01-15', value: 103000 },
+      { date: '2026-01-22', value: 110000 },
+      { date: '2026-01-29', value: 115000 },
+    ],
+    xField: 'date',
+    yField: 'value',
+    style: {
+      fill: 'linear-gradient(-90deg, white 0%, #1677ff 100%)',
+    },
+  };
 
   if (isLoading && !summary) {
     return (
@@ -42,7 +85,7 @@ const Dashboard: React.FC = () => {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <Title level={2}>Dashboard</Title>
+        <Title level={2}>總覽</Title>
       </div>
 
       {/* KPI Cards */}
@@ -50,7 +93,7 @@ const Dashboard: React.FC = () => {
         <Col xs={24} sm={8}>
           <Card>
             <Statistic
-              title="Total Assets"
+              title="總資產"
               value={totalAssets}
               precision={0}
               prefix={baseCurrency === 'USD' ? '$' : 'NT$'}
@@ -61,10 +104,10 @@ const Dashboard: React.FC = () => {
         <Col xs={24} sm={8}>
           <Card>
             <Statistic
-              title="Total P/L"
+              title="總損益"
               value={totalPnl}
               precision={0}
-              styles={{ value: { color: totalPnl >= 0 ? '#3f8600' : '#cf1322' } }}
+              styles={{ content: { color: totalPnl >= 0 ? '#3f8600' : '#cf1322' } }}
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               formatter={(val) => formatCurrency(Number(val), baseCurrency)}
             />
@@ -73,22 +116,31 @@ const Dashboard: React.FC = () => {
         <Col xs={24} sm={8}>
           <Card>
             <Statistic
-              title="Total ROI"
+              title="報酬率"
               value={roi}
               precision={2}
-              styles={{ value: { color: roi >= 0 ? '#3f8600' : '#cf1322' } }}
+              styles={{ content: { color: roi >= 0 ? '#3f8600' : '#cf1322' } }}
               suffix="%"
             />
           </Card>
         </Col>
       </Row>
 
-      {/* Chart Placeholder */}
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
-        <Col span={24}>
-          <Card title="Asset Trend (30 Days)">
-            <div style={{ height: 300, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
-              Chart Component Placeholder
+        {/* Asset Trend */}
+        <Col xs={24} lg={14}>
+          <Card title="資產趨勢 (30天)">
+            <div style={{ height: 300 }}>
+              <Area {...areaConfig} />
+            </div>
+          </Card>
+        </Col>
+        
+        {/* Asset Allocation */}
+        <Col xs={24} lg={10}>
+          <Card title="資產分佈">
+            <div style={{ height: 300 }}>
+              <Pie {...pieConfig} />
             </div>
           </Card>
         </Col>
@@ -97,24 +149,24 @@ const Dashboard: React.FC = () => {
       {/* Recent Activity */}
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col span={24}>
-          <Card title="Recent Activity">
+          <Card title="近期活動">
             <Table
-              dataSource={MOCK_ACTIVITY}
-              rowKey="id"
+              dataSource={recentTrades}
+              rowKey="tradeId"
               pagination={false}
               columns={[
-                { title: 'Date', dataIndex: 'date' },
+                { title: '日期', dataIndex: 'tradeDate' },
                 {
-                  title: 'Type',
-                  dataIndex: 'type',
+                  title: '類型',
+                  dataIndex: 'side',
                   render: (type) => (
                     <Tag color={type === 'BUY' ? 'blue' : 'volcano'}>{type}</Tag>
                   )
                 },
-                { title: 'Symbol', dataIndex: 'symbol', render: (text) => <b>{text}</b> },
-                { title: 'Qty', dataIndex: 'qty' },
-                { title: 'Price', dataIndex: 'price', render: (val) => val.toFixed(2) },
-                { title: 'Amount', dataIndex: 'amount', render: (val) => formatCurrency(val, baseCurrency === 'TWD' && val > 10000 ? 'TWD' : 'USD') }, // Simple mock logic
+                { title: '代號', dataIndex: 'instrumentId', render: (text) => <b>{text}</b> },
+                { title: '數量', dataIndex: 'quantity' },
+                { title: '價格', dataIndex: 'price', render: (val) => Number(val).toFixed(2) },
+                { title: '金額', dataIndex: 'netAmount', render: (val, record) => formatCurrency(Number(val || (record.price * record.quantity)), record.currency) },
               ]}
             />
           </Card>
