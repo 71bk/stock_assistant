@@ -87,13 +87,16 @@ public class AiController {
         SseEmitter emitter = new SseEmitter(0L);
         String requestId = "r-" + UUID.randomUUID();
 
+        // ⚠️ 重要：在進入 async 之前先抓取 userId
+        // 因為 SecurityContext 是 thread-local，不會傳遞到 async 執行緒
+        final Long userId = requireUserId();
+
         // 使用 async 執行，避免阻塞 servlet 執行緒
         CompletableFuture.runAsync(() -> {
             AiReportContext context;
 
             // Step 1: 準備上下文
             try {
-                Long userId = requireUserId();
                 AiAnalysisInput input = AiAnalysisInput.builder()
                         .userId(userId)
                         .portfolioId(parseIdOrNull(request.getPortfolioId()))

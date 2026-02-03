@@ -18,7 +18,7 @@ const MOCK_ACTIVITY = [
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
   const { summary, positions, recentTrades, isLoading, fetchPortfolioData, fetchRecentTrades } = usePortfolioStore();
-  const baseCurrency = user?.preferences?.baseCurrency || 'TWD';
+  const baseCurrency = user?.baseCurrency || 'TWD';
 
   useEffect(() => {
     fetchPortfolioData(); // Fetch summary AND positions

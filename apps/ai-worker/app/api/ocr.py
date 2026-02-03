@@ -77,8 +77,10 @@ async def process_ocr(
         return result
 
     except Exception as e:
-        logger.error("OCR processing failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}") from e
+        import traceback
+        error_msg = str(e) if str(e) else repr(e)
+        logger.error("OCR processing failed", user_id=user_id, error=error_msg, traceback=traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {error_msg}") from e
 
 
 @router.post("/parse-text", response_model=OcrResponse)

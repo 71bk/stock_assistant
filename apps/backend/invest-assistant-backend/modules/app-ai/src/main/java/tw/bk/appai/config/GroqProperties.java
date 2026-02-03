@@ -17,7 +17,7 @@ public class GroqProperties {
     private String apiKey;
 
     /** 使用的模型名稱 */
-    private String model = "llama-3.3-70b-versatile";
+    private String model = "openai/gpt-oss-120b";
 
     /** 生成溫度（0.0-2.0），越低越確定性 */
     private Double temperature = 0.2;

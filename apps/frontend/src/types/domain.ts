@@ -3,10 +3,8 @@ export interface User {
   email: string;
   displayName: string;
   pictureUrl?: string;
-  preferences?: {
-    baseCurrency?: string;
-    timezone?: string;
-  };
+  baseCurrency: string;
+  displayTimezone: string;
 }
 
 export interface AuthState {

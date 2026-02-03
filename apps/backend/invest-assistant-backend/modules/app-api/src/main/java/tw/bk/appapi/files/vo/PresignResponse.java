@@ -1,6 +1,5 @@
 package tw.bk.appapi.files.vo;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,19 +13,14 @@ import tw.bk.apppersistence.entity.FileEntity;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PresignResponse {
-    @JsonProperty("file_id")
     private String fileId;
 
-    @JsonProperty("object_key")
     private String objectKey;
 
-    @JsonProperty("upload_url")
     private String uploadUrl;
 
-    @JsonProperty("method")
     private String method;
 
-    @JsonProperty("headers")
     private Map<String, String> headers;
 
     public static PresignResponse from(PresignResult result) {

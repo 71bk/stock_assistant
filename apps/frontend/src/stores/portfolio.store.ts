@@ -19,8 +19,8 @@ interface PortfolioState {
   fetchPortfolioSummary: (portfolioId?: string) => Promise<void>;
   fetchRecentTrades: (portfolioId?: string) => Promise<void>;
   fetchTrades: (portfolioId?: string, page?: number, size?: number) => Promise<void>;
-  addTrade: (trade: any) => Promise<void>;
-  updateTrade: (tradeId: string, trade: any) => Promise<void>;
+  addTrade: (trade: Omit<Trade, 'tradeId'>) => Promise<void>;
+  updateTrade: (tradeId: string, trade: Partial<Trade>) => Promise<void>;
   deleteTrade: (tradeId: string) => Promise<void>;
 }
 
@@ -40,11 +40,10 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
 
     try {
       const res = await portfoliosApi.getPortfolios();
-      const data = (res as unknown as ApiResponse<any>).data;
-      // Handle both PageResponse (data.items) and List (data)
-      const list = Array.isArray(data) ? data : data?.items;
+      // res is ApiResponse<PortfolioSummary[]>
+      const list = res.data;
       
-      if (list && list.length > 0) {
+      if (Array.isArray(list) && list.length > 0) {
         const pid = String(list[0].id); // Ensure string
         set({ currentPortfolioId: pid });
         return pid;

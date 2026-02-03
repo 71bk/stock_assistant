@@ -17,18 +17,23 @@ export interface Quote {
   instrumentId: string;
   symbolKey: string;
   price: string;
+  open: string;
+  high: string;
+  low: string;
+  previousClose: string;
+  volume: number;
   change: string;
   changePercent: string;
   timestamp: string;
 }
 
 export interface Candle {
-  ts: string;
-  o: number;
-  h: number;
-  l: number;
-  c: number;
-  v: number;
+  timestamp: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: number;
 }
 
 export const stocksApi = {
@@ -36,7 +41,7 @@ export const stocksApi = {
     http.get<ApiResponse<Instrument[]>>('/instruments/search', { params: { q: query } }),
 
   getQuote: (symbolKey: string) =>
-    http.get<ApiResponse<any>>('/stocks/quote', { params: { symbolKey } }),
+    http.get<ApiResponse<Quote>>('/stocks/quote', { params: { symbolKey } }),
 
   getCandles: (symbolKey: string, interval: string, from?: string, to?: string) =>
     http.get<ApiResponse<Candle[]>>('/stocks/candles', {
@@ -44,12 +49,12 @@ export const stocksApi = {
     }),
 
   getMarkets: () =>
-    http.get<ApiResponse<any[]>>('/stocks/markets'),
+    http.get<ApiResponse<Array<{ code: string; name: string }>>>('/stocks/markets'),
 
   getExchanges: (market?: string) =>
-    http.get<ApiResponse<any[]>>('/stocks/exchanges', { params: { market } }),
+    http.get<ApiResponse<Array<{ code: string; name: string; market: string }>>>('/stocks/exchanges', { params: { market } }),
 
-  getTickers: (params: any) =>
+  getTickers: (params: { type: string; exchange?: string; market?: string }) =>
     http.get<ApiResponse<any>>('/stocks/tickers', { params }),
 
   getInstruments: (page = 1, size = 20) =>

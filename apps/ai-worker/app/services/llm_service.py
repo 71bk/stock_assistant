@@ -174,7 +174,7 @@ class GeminiClient(BaseLlmClient):
             else:
                 contents.append({"role": role, "parts": [{"text": msg["content"]}]})
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:  # 增加 timeout 以處理大型文件
             response = await client.post(
                 f"{self.base_url}/models/{self.settings.text_model}:generateContent",
                 params={"key": self.api_key},

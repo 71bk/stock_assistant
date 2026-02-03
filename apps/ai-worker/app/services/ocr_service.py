@@ -1,6 +1,7 @@
 """OCR Service - handles image/PDF processing and trade extraction."""
 
 import base64
+import io
 import json
 import re
 from datetime import date
@@ -8,11 +9,20 @@ from decimal import Decimal
 from enum import Enum
 
 import structlog
+from PIL import Image
 
 from app.config import get_settings
 from app.models.schemas import Currency, OcrRequest, OcrResponse, ParsedTrade, TradeSide
 from app.services.llm_service import LlmService
 from app.services.tesseract_service import TesseractService
+
+# Try to import pdf2image for PDF support
+try:
+    from pdf2image import convert_from_bytes
+    PDF_SUPPORT = True
+except ImportError:
+    PDF_SUPPORT = False
+    convert_from_bytes = None  # type: ignore
 
 logger = structlog.get_logger()
 
@@ -107,6 +117,58 @@ class OcrService:
             content_type=request.content_type,
         )
 
+        # Handle PDF: convert to image first
+        image_bytes = content
+        if request.content_type == "application/pdf":
+            if not PDF_SUPPORT:
+                logger.error("PDF support not available - pdf2image not installed")
+                return OcrResponse(
+                    raw_text="",
+                    trades=[],
+                    confidence=0.0,
+                    warnings=["PDF 支援尚未安裝，請安裝 pdf2image 和 Poppler"],
+                    ocr_method="none",
+                )
+            
+            try:
+                logger.info("Converting PDF to images")
+                # 指定 Poppler 路徑（Windows 需要明確指定）
+                poppler_path = r"C:\poppler\poppler-25.12.0\Library\bin"
+                images = convert_from_bytes(content, poppler_path=poppler_path)
+                if not images:
+                    raise ValueError("No pages extracted from PDF")
+                
+                # Handle multiple pages: stitch all pages vertically into one long image
+                if len(images) == 1:
+                    merged_image = images[0]
+                else:
+                    # Calculate total height and max width
+                    total_height = sum(img.height for img in images)
+                    max_width = max(img.width for img in images)
+                    
+                    # Create merged image
+                    merged_image = Image.new("RGB", (max_width, total_height), "white")
+                    y_offset = 0
+                    for img in images:
+                        merged_image.paste(img, (0, y_offset))
+                        y_offset += img.height
+                    
+                    logger.info("PDF pages merged", pages=len(images), total_height=total_height)
+                
+                img_buffer = io.BytesIO()
+                merged_image.save(img_buffer, format="PNG")
+                image_bytes = img_buffer.getvalue()
+                logger.info("PDF converted to image", pages=len(images))
+            except Exception as e:
+                logger.error("PDF conversion failed", error=str(e))
+                return OcrResponse(
+                    raw_text="",
+                    trades=[],
+                    confidence=0.0,
+                    warnings=[f"PDF 轉換失敗: {str(e)}"],
+                    ocr_method="none",
+                )
+
         raw_text = ""
         ocr_method = OcrMethod.TESSERACT
         extraction_confidence = 0.0
@@ -114,7 +176,7 @@ class OcrService:
         # Path A: Try Tesseract first
         if self.tesseract.is_available():
             try:
-                raw_text, extraction_confidence = self.tesseract.extract_text(content)
+                raw_text, extraction_confidence = self.tesseract.extract_text(image_bytes)
                 logger.info(
                     "Tesseract extraction",
                     text_length=len(raw_text),
@@ -145,11 +207,13 @@ class OcrService:
             ocr_method = OcrMethod.VISION_LLM
 
             # Encode image to base64
-            image_base64 = base64.b64encode(content).decode("utf-8")
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-            # Map content type
+            # Map content type (PDF 已轉換成 PNG)
             media_type = request.content_type
-            if media_type == "image/jpg":
+            if media_type == "application/pdf":
+                media_type = "image/png"  # PDF 已轉換成 PNG 圖片
+            elif media_type == "image/jpg":
                 media_type = "image/jpeg"
 
             # Extract text using Vision LLM
@@ -195,6 +259,13 @@ class OcrService:
         """
         logger.info("Parsing text", user_id=user_id, text_length=len(text), broker=broker)
 
+        # 限制文字長度，避免超過 LLM token 限制
+        # Gemini 2.0 Flash 總 token 限制約 32K，保留更多空間給輸出
+        max_text_length = 8000  # 約 2600 tokens，保守設定以確保輸出空間充足
+        if len(text) > max_text_length:
+            logger.warning("Text too long, truncating", original_length=len(text), max_length=max_text_length)
+            text = text[:max_text_length] + "\n\n[文字已截斷...]"
+
         broker_hint = f"券商: {broker}" if broker else "券商未知"
 
         messages = [
@@ -202,7 +273,7 @@ class OcrService:
             {"role": "user", "content": f"請解析以下交易資料：\n\n{text}"},
         ]
 
-        response_text = await self.llm.chat(messages, temperature=0.1, json_mode=True)
+        response_text = await self.llm.chat(messages, temperature=0.1, max_tokens=8192, json_mode=True)
 
         # Parse LLM response
         try:

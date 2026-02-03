@@ -26,6 +26,7 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.client.AiWorkerOcrClient;
 import tw.bk.appocr.client.AiWorkerOcrResponse;
 import tw.bk.appocr.client.AiWorkerParsedTrade;
+import tw.bk.appocr.model.ConfirmResult;
 import tw.bk.appocr.model.OcrDraftUpdate;
 import tw.bk.appportfolio.model.TradeCommand;
 import tw.bk.appportfolio.model.TradeSide;
@@ -41,6 +42,7 @@ import tw.bk.apppersistence.repository.OcrJobRepository;
 import tw.bk.apppersistence.repository.PortfolioRepository;
 import tw.bk.apppersistence.repository.StatementRepository;
 import tw.bk.apppersistence.repository.StatementTradeRepository;
+import tw.bk.apppersistence.repository.StockTradeRepository;
 import tw.bk.appocr.queue.OcrDedupeService;
 import tw.bk.appocr.queue.OcrQueueService;
 import tw.bk.appfiles.config.FileStorageProperties;
@@ -72,6 +74,7 @@ public class OcrService {
     private final OcrQueueService queueService;
     private final OcrDedupeService dedupeService;
     private final FileStorageProperties fileStorageProperties;
+    private final StockTradeRepository stockTradeRepository;
 
     @Value("${app.ocr.queue.max-running-minutes:30}")
     private long maxRunningMinutes;
@@ -284,41 +287,153 @@ public class OcrService {
         return statementTradeRepository.save(draft);
     }
 
+    /**
+     * Confirm and import selected drafts.
+     *
+     * @param userId           User ID
+     * @param jobId            OCR Job ID
+     * @param selectedDraftIds Draft IDs to import. If null or empty, imports all
+     *                         drafts.
+     * @return ConfirmResult with importedCount and errors list
+     */
     @Transactional
-    public int confirm(Long userId, Long jobId) {
+    public ConfirmResult confirm(Long userId, Long jobId, Set<Long> selectedDraftIds) {
         OcrJobEntity job = getJob(userId, jobId);
         if (job.getStatementId() == null) {
-            return 0;
+            return ConfirmResult.builder().importedCount(0).errors(List.of()).build();
         }
         StatementEntity statement = requireStatement(job.getStatementId(), userId);
-        List<StatementTradeEntity> drafts = statementTradeRepository.findByStatementIdOrderByIdAsc(statement.getId());
-        if (drafts.isEmpty()) {
-            return 0;
+        List<StatementTradeEntity> allDrafts = statementTradeRepository
+                .findByStatementIdOrderByIdAsc(statement.getId());
+        if (allDrafts.isEmpty()) {
+            return ConfirmResult.builder().importedCount(0).errors(List.of()).build();
         }
 
-        List<TradeCommand> commands = new ArrayList<>();
-        for (StatementTradeEntity draft : drafts) {
-            commands.add(toTradeCommand(draft));
+        // Filter drafts to import
+        List<StatementTradeEntity> draftsToImport;
+        if (selectedDraftIds == null || selectedDraftIds.isEmpty()) {
+            // Import all drafts (backward compatible)
+            draftsToImport = allDrafts;
+        } else {
+            // Import only selected drafts
+            draftsToImport = allDrafts.stream()
+                    .filter(d -> selectedDraftIds.contains(d.getId()))
+                    .toList();
         }
 
+        if (draftsToImport.isEmpty()) {
+            return ConfirmResult.builder().importedCount(0).errors(List.of()).build();
+        }
+
+        // Validate and import drafts
         int importedCount = 0;
-        for (TradeCommand command : commands) {
-            portfolioService.createTrade(userId, statement.getPortfolioId(), command);
-            importedCount++;
+        List<Long> importedIds = new ArrayList<>();
+        List<ConfirmResult.DraftError> errors = new ArrayList<>();
+
+        for (StatementTradeEntity draft : draftsToImport) {
+            // Validate: check instrumentId
+            if (draft.getInstrumentId() == null) {
+                errors.add(ConfirmResult.DraftError.builder()
+                        .draftId(draft.getId())
+                        .reason("缺少股票代碼 (instrumentId)")
+                        .build());
+                continue;
+            }
+
+            // Validate: check duplicate
+            boolean isDuplicate = stockTradeRepository
+                    .existsByPortfolioIdAndInstrumentIdAndTradeDateAndSideAndQuantityAndPrice(
+                            statement.getPortfolioId(),
+                            draft.getInstrumentId(),
+                            draft.getTradeDate(),
+                            draft.getSide(),
+                            draft.getQuantity(),
+                            draft.getPrice());
+            if (isDuplicate) {
+                errors.add(ConfirmResult.DraftError.builder()
+                        .draftId(draft.getId())
+                        .reason("重複交易（相同股票、日期、買賣、數量、價格）")
+                        .build());
+                continue;
+            }
+
+            // Import the draft
+            try {
+                TradeCommand command = toTradeCommand(draft);
+                portfolioService.createTrade(userId, statement.getPortfolioId(), command);
+                importedIds.add(draft.getId());
+                importedCount++;
+            } catch (BusinessException ex) {
+                log.warn("Failed to import draft: draftId={}, error={}", draft.getId(), ex.getMessage());
+                errors.add(ConfirmResult.DraftError.builder()
+                        .draftId(draft.getId())
+                        .reason(ex.getMessage())
+                        .build());
+            }
         }
 
-        statement.setStatus(STATUS_CONFIRMED);
-        statementRepository.save(statement);
+        // Delete only imported drafts
+        for (Long draftId : importedIds) {
+            statementTradeRepository.deleteById(draftId);
+        }
+        log.info("已匯入並刪除草稿: statementId={}, importedCount={}, errorCount={}",
+                statement.getId(), importedCount, errors.size());
 
-        // 刪除草稿資料（已匯入正式交易表）
-        statementTradeRepository.deleteByStatementId(statement.getId());
-        log.info("已刪除草稿: statementId={}, count={}", statement.getId(), drafts.size());
+        // Check if all drafts are processed
+        List<StatementTradeEntity> remainingDrafts = statementTradeRepository
+                .findByStatementIdOrderByIdAsc(statement.getId());
+        if (remainingDrafts.isEmpty()) {
+            // All drafts processed, mark as confirmed
+            statement.setStatus(STATUS_CONFIRMED);
+            statementRepository.save(statement);
+            job.setProgress(100);
+            job.setStatus(JOB_DONE);
+            job.setErrorMessage(null);
+            ocrJobRepository.save(job);
+            log.info("所有草稿已處理完畢，Job 狀態更新為 DONE: jobId={}", jobId);
+        }
 
-        job.setProgress(100);
-        job.setStatus(JOB_DONE);
-        job.setErrorMessage(null);
-        ocrJobRepository.save(job);
-        return importedCount;
+        return ConfirmResult.builder()
+                .importedCount(importedCount)
+                .errors(errors)
+                .build();
+    }
+
+    /**
+     * Delete a single draft.
+     *
+     * @param userId  User ID
+     * @param draftId Draft ID to delete
+     */
+    @Transactional
+    public void deleteDraft(Long userId, Long draftId) {
+        StatementTradeEntity draft = statementTradeRepository.findById(draftId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Draft not found"));
+
+        // Verify ownership
+        StatementEntity statement = requireStatement(draft.getStatementId(), userId);
+
+        statementTradeRepository.deleteById(draftId);
+        log.info("已刪除草稿: draftId={}, statementId={}", draftId, statement.getId());
+
+        // Check if all drafts are deleted
+        List<StatementTradeEntity> remainingDrafts = statementTradeRepository
+                .findByStatementIdOrderByIdAsc(statement.getId());
+        if (remainingDrafts.isEmpty()) {
+            // All drafts deleted (either imported or manually deleted), mark as confirmed
+            statement.setStatus(STATUS_CONFIRMED);
+            statementRepository.save(statement);
+
+            // Find and update the job
+            OcrJobEntity job = ocrJobRepository.findByStatementId(statement.getId()).orElse(null);
+            if (job != null) {
+                job.setProgress(100);
+                job.setStatus(JOB_DONE);
+                job.setErrorMessage(null);
+                ocrJobRepository.save(job);
+                log.info("所有草稿已處理完畢，Job 狀態更新為 DONE: jobId={}", job.getId());
+            }
+        }
     }
 
     private StatementEntity requireStatement(Long statementId, Long userId) {
@@ -374,6 +489,24 @@ public class OcrService {
 
         entity.setWarningsJson(toJson(trade.warnings()));
         entity.setErrorsJson("[]");
+
+        // 檢查是否已存在相同的交易（重複檢測）
+        if (instrument != null && entity.getTradeDate() != null && entity.getSide() != null
+                && entity.getQuantity() != null && entity.getPrice() != null) {
+            boolean exists = stockTradeRepository
+                    .existsByPortfolioIdAndInstrumentIdAndTradeDateAndSideAndQuantityAndPrice(
+                            statement.getPortfolioId(),
+                            instrument.getId(),
+                            entity.getTradeDate(),
+                            entity.getSide(),
+                            entity.getQuantity(),
+                            entity.getPrice());
+            if (exists) {
+                List<String> warnings = new ArrayList<>(trade.warnings() != null ? trade.warnings() : List.of());
+                warnings.add("⚠️ 此交易可能已存在（相同股票、日期、買賣、數量、價格）");
+                entity.setWarningsJson(toJson(warnings));
+            }
+        }
 
         entity.setRowHash(buildRowHash(statement.getId(), entity));
         return entity;

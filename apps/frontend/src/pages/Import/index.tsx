@@ -7,7 +7,7 @@ import {
 import {
   InboxOutlined, FileImageOutlined, CheckCircleOutlined,
   ExclamationCircleOutlined, DeleteOutlined, SaveOutlined,
-  ReloadOutlined
+  ReloadOutlined, UploadOutlined
 } from '@ant-design/icons';
 import { useImportStore } from '../../stores/import.store';
 import type { DraftTrade } from '../../api/ocr.api';
@@ -50,15 +50,25 @@ const UploadStep: React.FC = () => {
 
 // --- Step 1: Processing ---
 const ProcessingStep: React.FC = () => {
-  const { progress, jobStatus } = useImportStore();
+  const { progress, jobStatus, reset, reprocessJob } = useImportStore();
 
   return (
     <Card style={{ textAlign: 'center', padding: 60 }}>
-      <Title level={4}>文件解析中...</Title>
+      <Title level={4}>{jobStatus === 'FAILED' ? '解析失敗' : '文件解析中...'}</Title>
       <Progress type="circle" percent={progress} status={jobStatus === 'FAILED' ? 'exception' : undefined} />
       <div style={{ marginTop: 20 }}>
         {jobStatus === 'FAILED' ? (
-          <Text type="danger">OCR 解析失敗，請嘗試其他影像。</Text>
+          <Space direction="vertical" size="middle">
+            <Text type="danger">OCR 解析失敗，請嘗試其他影像或重試。</Text>
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
+                重新嘗試
+              </Button>
+              <Button type="primary" icon={<UploadOutlined />} onClick={reset}>
+                重新上傳
+              </Button>
+            </Space>
+          </Space>
         ) : (
           <Text type="secondary">正在辨識日期、代號與金額...</Text>
         )}
@@ -69,7 +79,7 @@ const ProcessingStep: React.FC = () => {
 
 // --- Step 2: Review ---
 const ReviewStep: React.FC = () => {
-  const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob } = useImportStore();
+  const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob, isLoading } = useImportStore();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>(
     draftTrades.filter(t => t.status !== 'ERROR').map(t => t.draftId) // Select valid ones by default
   );
@@ -92,21 +102,44 @@ const ReviewStep: React.FC = () => {
     {
       title: '狀態',
       key: 'status',
-      width: 80,
+      width: 110,
       render: (_: any, record: DraftTrade) => {
-        if (record.status === 'VALID') return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
-        if (record.status === 'WARNING') return <Tooltip title={record.warnings.join(', ')}><ExclamationCircleOutlined style={{ color: '#faad14' }} /></Tooltip>;
-        return <Tooltip title={record.warnings.join(', ')}><ExclamationCircleOutlined style={{ color: '#f5222d' }} /></Tooltip>;
+        if (record.status === 'VALID') return <Tag icon={<CheckCircleOutlined />} color="success">正常</Tag>;
+        if (record.status === 'WARNING') {
+          const isDuplicate = record.warnings.some(w => w.includes('重複'));
+          return (
+            <Tooltip title={record.warnings.join(', ')}>
+              <Tag icon={<ExclamationCircleOutlined />} color="warning">
+                {isDuplicate ? '可能重複' : '警告'}
+              </Tag>
+            </Tooltip>
+          );
+        }
+        return (
+          <Tooltip title={record.warnings.join(', ')}>
+            <Tag icon={<ExclamationCircleOutlined />} color="error">錯誤</Tag>
+          </Tooltip>
+        );
       },
     },
     {
-      title: '日期',
+      title: '成交日',
       dataIndex: 'tradeDate',
       render: (text: string, record: DraftTrade) => {
         if (isEditing(record)) {
           return <DatePicker defaultValue={dayjs(text)} onChange={(d) => d && updateDraftTrade(record.draftId, { tradeDate: d.format('YYYY-MM-DD') })} />;
         }
         return text;
+      }
+    },
+    {
+      title: '交割日',
+      dataIndex: 'settlementDate',
+      render: (text: string | null, record: DraftTrade) => {
+        if (isEditing(record)) {
+          return <DatePicker defaultValue={text ? dayjs(text) : undefined} onChange={(d) => updateDraftTrade(record.draftId, { settlementDate: d ? d.format('YYYY-MM-DD') : null } as any)} />;
+        }
+        return text || '-';
       }
     },
     {
@@ -176,6 +209,19 @@ const ReviewStep: React.FC = () => {
       }
     },
     {
+      title: '淨收付',
+      dataIndex: 'netAmount',
+      render: (val: number | null) => {
+        if (val == null) return '-';
+        const formatted = Math.abs(val).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // 負數表示客戶淨付（買入），用紅色括號；正數表示客戶淨收（賣出），用綠色
+        if (val < 0) {
+          return <span style={{ color: '#cf1322' }}>({formatted})</span>;
+        }
+        return <span style={{ color: '#389e0d' }}>{formatted}</span>;
+      }
+    },
+    {
       title: '操作',
       key: 'action',
       render: (_: any, record: DraftTrade) => {
@@ -186,8 +232,18 @@ const ReviewStep: React.FC = () => {
           </Space>
         ) : (
           <Space>
+            <Tooltip title="單筆匯入">
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={<ImportOutlined />}
+                onClick={() => confirmTrades([record.draftId])}
+                disabled={record.status === 'ERROR'}
+              />
+            </Tooltip>
             <Button size="small" onClick={() => edit(record)}>編輯</Button>
-            <Popconfirm title="刪除?" onConfirm={() => deleteDraftTrade(record.draftId)}>
+            <Popconfirm title="刪除此筆草稿?" onConfirm={() => deleteDraftTrade(record.draftId)}>
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
           </Space>
@@ -202,13 +258,23 @@ const ReviewStep: React.FC = () => {
 
   return (
     <div>
-      <Alert
-        message={`找到 ${draftTrades.length} 筆交易`}
-        description="請校對以下細節，確認無誤後再匯入。"
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-      />
+      {draftTrades.some(t => t.status !== 'VALID') ? (
+        <Alert
+          message="發現異常資料"
+          description={`在 ${draftTrades.length} 筆交易中，有 ${draftTrades.filter(t => t.status !== 'VALID').length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      ) : (
+        <Alert
+          message={`找到 ${draftTrades.length} 筆交易`}
+          description="請校對以下細節，確認無誤後再匯入。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       <Table
         rowSelection={{
@@ -220,6 +286,11 @@ const ReviewStep: React.FC = () => {
         rowKey="draftId"
         pagination={false}
         scroll={{ x: 800 }}
+        rowClassName={(record) => {
+          if (record.status === 'ERROR') return 'row-error';
+          if (record.status === 'WARNING') return 'row-warning';
+          return '';
+        }}
       />
 
       <div style={{ marginTop: 24, textAlign: 'right' }}>
@@ -228,7 +299,7 @@ const ReviewStep: React.FC = () => {
           <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
             重新辨識
           </Button>
-          <Button type="primary" size="large" disabled={selectedRowKeys.length === 0} onClick={handleConfirm}>
+          <Button type="primary" size="large" disabled={selectedRowKeys.length === 0} loading={isLoading} onClick={handleConfirm}>
             確認匯入
           </Button>
         </Space>

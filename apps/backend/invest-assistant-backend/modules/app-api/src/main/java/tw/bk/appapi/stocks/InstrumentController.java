@@ -2,6 +2,7 @@ package tw.bk.appapi.stocks;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
+import tw.bk.appapi.stocks.dto.CreateInstrumentRequest;
 import tw.bk.appapi.stocks.vo.InstrumentResponse;
 import tw.bk.appapi.stocks.vo.InstrumentDetailResponse;
 import tw.bk.appapi.stocks.vo.EtfProfileResponse;
@@ -36,6 +38,23 @@ public class InstrumentController {
 
     private final InstrumentService instrumentService;
     private final EtfProfileService etfProfileService;
+
+    /**
+     * 手動建立商品
+     */
+    @PostMapping
+    @Operation(summary = "建立商品", description = "手動建立一個新的商品（用於 Fugle 沒有的標的）")
+    public Result<InstrumentResponse> createInstrument(@Valid @RequestBody CreateInstrumentRequest request) {
+        InstrumentEntity entity = instrumentService.createInstrument(
+                request.getTicker(),
+                request.getNameZh(),
+                request.getNameEn(),
+                request.getMarket(),
+                request.getExchange(),
+                request.getCurrency(),
+                request.getAssetType());
+        return Result.ok(InstrumentResponse.from(entity));
+    }
 
     /**
      * 搜尋商品（自動補全用）

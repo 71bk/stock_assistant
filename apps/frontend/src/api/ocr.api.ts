@@ -8,12 +8,15 @@ export interface DraftTrade {
   rawTicker: string;
   name: string;
   tradeDate: string;
+  settlementDate: string | null;
   side: 'BUY' | 'SELL';
-  quantity: number;
-  price: number;
+  quantity: string | number;
+  price: string | number;
   currency: string;
-  fee: number;
-  tax: number;
+  fee: string | number;
+  tax: string | number;
+  /** 客戶淨收/淨付金額（買入為負，賣出為正） */
+  netAmount: number | null;
   confidence?: number;
   warnings: string[];
   status?: 'VALID' | 'WARNING' | 'ERROR';
@@ -41,7 +44,7 @@ export const ocrApi = {
       },
       timeout: 60000,
     })) as unknown as ApiResponse<{ fileId: string }>;
-    return fileRes.data.fileId || (fileRes.data as any).file_id;
+    return fileRes.data.fileId;
   },
 
   // Deprecated: Use uploadFileOnly + createOcrJob
@@ -66,9 +69,12 @@ export const ocrApi = {
   updateDraft: (draftId: string, updates: Partial<DraftTrade>) =>
     http.patch<ApiResponse<DraftTrade>>(`/ocr/drafts/${draftId}`, updates),
 
-  confirmImport: (jobId: string, statementId: string, trades: DraftTrade[]) =>
-    http.post<ApiResponse<{ importedCount: number }>>(`/ocr/jobs/${jobId}/confirm`, {
-      statementId,
-      trades,
-    }),
+  confirmImport: (jobId: string, draftIds?: string[]) =>
+    http.post<ApiResponse<{
+      importedCount: number;
+      errors: Array<{ draftId: string; reason: string }>;
+    }>>(`/ocr/jobs/${jobId}/confirm`, draftIds?.length ? { draftIds } : {}),
+
+  deleteDraft: (draftId: string) =>
+    http.delete<ApiResponse<void>>(`/ocr/drafts/${draftId}`),
 };

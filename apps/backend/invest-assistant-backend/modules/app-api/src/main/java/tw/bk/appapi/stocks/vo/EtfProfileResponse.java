@@ -1,6 +1,5 @@
 package tw.bk.appapi.stocks.vo;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 import tw.bk.apppersistence.entity.EtfProfileEntity;
@@ -12,13 +11,10 @@ import tw.bk.apppersistence.entity.EtfProfileEntity;
 @Builder
 public class EtfProfileResponse {
 
-    @JsonProperty("underlying_type")
     private String underlyingType;
 
-    @JsonProperty("underlying_name")
     private String underlyingName;
 
-    @JsonProperty("as_of_date")
     private String asOfDate;
 
     public static EtfProfileResponse from(EtfProfileEntity entity) {

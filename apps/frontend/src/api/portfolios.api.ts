@@ -6,13 +6,13 @@ export interface Trade {
   instrumentId: string;
   tradeDate: string;
   side: string;
-  quantity: number;
-  price: number;
+  quantity: string | number;
+  price: string | number;
   currency: string;
-  grossAmount?: number;
-  fee?: number;
-  tax?: number;
-  netAmount?: number;
+  grossAmount?: string | number;
+  fee?: string | number;
+  tax?: string | number;
+  netAmount?: string | number;
 }
 
 export interface Position {
@@ -52,13 +52,13 @@ export const portfoliosApi = {
     http.get<ApiResponse<Position[]>>(`/portfolios/${id}/positions`),
 
   addTrade: (portfolioId: string, trade: any) =>
-    http.post<ApiResponse<{ trade_id: string }>>(`/portfolios/${portfolioId}/trades`, trade),
+    http.post<ApiResponse<{ tradeId: string }>>(`/portfolios/${portfolioId}/trades`, trade),
 
   getTrades: (id: string = 'default', page = 1, size = 20) =>
     http.get<PageResponse<Trade>>(`/portfolios/${id}/trades`, { params: { page, size } }),
 
   getPortfolios: () =>
-    http.get<ApiResponse<PageResponse<PortfolioSummary>>>('/portfolios'),
+    http.get<ApiResponse<PortfolioSummary[]>>('/portfolios'),
 
   createPortfolio: (data: { name: string; baseCurrency: string }) =>
     http.post<ApiResponse<{ id: string }>>('/portfolios', data),

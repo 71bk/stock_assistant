@@ -1,25 +1,22 @@
-package tw.bk.appapi.ocr.vo;
+package tw.bk.appocr.model;
 
 import java.util.List;
-import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
+/**
+ * Result of OCR confirm operation.
+ */
 @Data
 @Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class OcrConfirmResponse {
+public class ConfirmResult {
     private int importedCount;
     private List<DraftError> errors;
 
     @Data
     @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
     public static class DraftError {
-        private String draftId;
+        private Long draftId;
         private String reason;
     }
 }

@@ -62,7 +62,9 @@ export const InstrumentSearch: React.FC<InstrumentSearchProps> = ({ onSelect, st
             <span>
               <Tag color={d.market === 'US' ? 'blue' : 'green'}>{d.market}</Tag>
               <Text strong>{d.ticker}</Text>
-              <Text type="secondary" style={{ marginLeft: 8 }}>{d.nameZh || d.nameEn}</Text>
+              <Text type="secondary" style={{ marginLeft: 8 }}>
+                {d.nameZh || d.nameEn}
+              </Text>
             </span>
             <Text type="secondary">{d.exchange}</Text>
           </div>

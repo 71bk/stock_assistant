@@ -1,17 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Card, Row, Col, Statistic, Button, Tag, Typography } from 'antd';
-import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import { usePortfolioStore } from '../../stores/portfolio.store';
+import { useAiStore } from '../../stores/ai.store';
 import { formatCurrency } from '../../utils/format';
 import { AddTradeModal } from './components/AddTradeModal';
+import { AiAnalysisModal } from '../../components/ai/AiAnalysisModal';
 
 const { Title } = Typography;
 
 const Portfolio: React.FC = () => {
   const navigate = useNavigate();
   const { summary, positions, isLoading, fetchPortfolioData } = usePortfolioStore();
+  const { startAnalysis, resetAnalysis } = useAiStore();
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
   useEffect(() => {
     fetchPortfolioData();
@@ -20,6 +25,21 @@ const Portfolio: React.FC = () => {
   const handleTradeSuccess = () => {
     fetchPortfolioData();
     setIsModalOpen(false);
+  };
+
+  const handleStartAiAnalysis = async () => {
+    if (!summary?.id) return;
+    setIsAiModalOpen(true);
+    await startAnalysis({
+      portfolioId: summary.id,
+      reportType: 'PORTFOLIO',
+      prompt: '請根據我目前的投資組合，分析整體的資產分佈、損益表現，並提供未來的配置建議。'
+    });
+  };
+
+  const handleCloseAiModal = () => {
+    setIsAiModalOpen(false);
+    resetAnalysis();
   };
 
   const renderKPI = () => (
@@ -135,8 +155,15 @@ const Portfolio: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>我的投資組合</Title>
-        <div>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchPortfolioData()} style={{ marginRight: 8 }}>重新整理</Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button
+            icon={<RobotOutlined />}
+            onClick={handleStartAiAnalysis}
+            disabled={!summary}
+          >
+            AI 組合分析
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchPortfolioData()}>重新整理</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>新增交易</Button>
         </div>
       </div>
@@ -157,6 +184,12 @@ const Portfolio: React.FC = () => {
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         onSuccess={handleTradeSuccess}
+      />
+
+      <AiAnalysisModal
+        open={isAiModalOpen}
+        onClose={handleCloseAiModal}
+        title="投資組合 AI 深度分析"
       />
     </div>
   );

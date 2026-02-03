@@ -6,4 +6,6 @@ import tw.bk.apppersistence.entity.OcrJobEntity;
 
 public interface OcrJobRepository extends JpaRepository<OcrJobEntity, Long> {
     Optional<OcrJobEntity> findByIdAndUserId(Long id, Long userId);
+
+    Optional<OcrJobEntity> findByStatementId(Long statementId);
 }

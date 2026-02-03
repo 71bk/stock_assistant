@@ -4,7 +4,9 @@ import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { usePortfolioStore } from '../../stores/portfolio.store';
 import { formatCurrency } from '../../utils/format';
 import { AddTradeModal } from '../Portfolio/components/AddTradeModal';
+import { stocksApi } from '../../api/stocks.api';
 import type { Trade } from '../../api/portfolios.api';
+import type { Instrument } from '../../api/stocks.api';
 
 const { Title } = Typography;
 
@@ -12,10 +14,45 @@ const Trades: React.FC = () => {
   const { trades, isLoading, fetchTrades, deleteTrade } = usePortfolioStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [instruments, setInstruments] = useState<Record<string, Instrument>>({});
 
   useEffect(() => {
     fetchTrades();
   }, [fetchTrades]);
+
+  useEffect(() => {
+    const fetchInstruments = async () => {
+      const idsToFetch = new Set<string>();
+      trades.forEach((t) => {
+        if (!instruments[t.instrumentId]) {
+          idsToFetch.add(t.instrumentId);
+        }
+      });
+
+      if (idsToFetch.size === 0) return;
+
+      const fetchedMap: Record<string, Instrument> = {};
+      await Promise.all(
+        Array.from(idsToFetch).map(async (id) => {
+          try {
+            const res = await stocksApi.getInstrumentById(id);
+            const data = (res as any).data;
+            if (data) {
+              fetchedMap[id] = data;
+            }
+          } catch (e) {
+            console.error(`Failed to fetch instrument ${id}`, e);
+          }
+        })
+      );
+
+      setInstruments((prev) => ({ ...prev, ...fetchedMap }));
+    };
+
+    if (trades.length > 0) {
+      fetchInstruments();
+    }
+  }, [trades]);
 
   const handleEdit = (trade: Trade) => {
     setEditingTrade(trade);
@@ -48,7 +85,19 @@ const Trades: React.FC = () => {
                 <Tag color={type === 'BUY' ? 'blue' : 'volcano'}>{type}</Tag>
               )
             },
-            { title: '代號', dataIndex: 'instrumentId', render: (text) => <b>{text}</b> },
+            {
+              title: '代號',
+              dataIndex: 'instrumentId',
+              render: (text, record) => {
+                const inst = instruments[record.instrumentId];
+                return (
+                  <div>
+                    <div style={{ fontWeight: 'bold' }}>{inst ? inst.ticker : text}</div>
+                    {inst && <div style={{ fontSize: 12, color: '#888' }}>{inst.nameZh || inst.nameEn}</div>}
+                  </div>
+                );
+              },
+            },
             { title: '數量', dataIndex: 'quantity' },
             { title: '價格', dataIndex: 'price', render: (val) => Number(val).toFixed(2) },
             { title: '金額', dataIndex: 'netAmount', render: (val, record: any) => formatCurrency(Number(val || (record.price * record.quantity)), record.currency) },

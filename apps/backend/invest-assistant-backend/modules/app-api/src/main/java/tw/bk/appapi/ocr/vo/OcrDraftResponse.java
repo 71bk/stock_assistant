@@ -25,6 +25,8 @@ public class OcrDraftResponse {
     private String currency;
     private String fee;
     private String tax;
+    /** 客戶淨收/淨付金額（買入為負，賣出為正） */
+    private String netAmount;
     private List<String> warnings;
     private List<String> errors;
     private String rowHash;
@@ -43,6 +45,7 @@ public class OcrDraftResponse {
                 .currency(entity.getCurrency())
                 .fee(entity.getFee() != null ? entity.getFee().toPlainString() : null)
                 .tax(entity.getTax() != null ? entity.getTax().toPlainString() : null)
+                .netAmount(entity.getNetAmount() != null ? entity.getNetAmount().toPlainString() : null)
                 .warnings(warnings)
                 .errors(errors)
                 .rowHash(entity.getRowHash())

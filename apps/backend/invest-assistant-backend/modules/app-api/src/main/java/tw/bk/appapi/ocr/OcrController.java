@@ -6,19 +6,23 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tw.bk.appapi.ocr.dto.ConfirmOcrRequest;
 import tw.bk.appapi.ocr.dto.CreateOcrJobRequest;
 import tw.bk.appapi.ocr.dto.UpdateOcrDraftRequest;
 import tw.bk.appapi.ocr.vo.OcrConfirmResponse;
+import tw.bk.appapi.ocr.vo.OcrConfirmResponse.DraftError;
 import tw.bk.appapi.ocr.vo.OcrDraftListResponse;
 import tw.bk.appapi.ocr.vo.OcrDraftResponse;
 import tw.bk.appapi.ocr.vo.OcrJobResponse;
@@ -82,7 +86,8 @@ public class OcrController {
         return Result.ok(OcrDraftListResponse.builder().items(items).build());
     }
 
-    @PatchMapping("/drafts/{draftId}")
+    @RequestMapping(value = "/drafts/{draftId}", method = { org.springframework.web.bind.annotation.RequestMethod.PUT,
+            org.springframework.web.bind.annotation.RequestMethod.PATCH })
     @Operation(summary = "Update draft trade")
     public Result<OcrDraftResponse> updateDraft(@PathVariable String draftId,
             @RequestBody UpdateOcrDraftRequest request) {
@@ -108,11 +113,42 @@ public class OcrController {
     }
 
     @PostMapping("/jobs/{jobId}/confirm")
-    @Operation(summary = "Confirm OCR import")
-    public Result<OcrConfirmResponse> confirm(@PathVariable String jobId) {
+    @Operation(summary = "Confirm OCR import", description = "Import selected drafts. If draftIds is null/empty, imports all drafts.")
+    public Result<OcrConfirmResponse> confirm(
+            @PathVariable String jobId,
+            @RequestBody(required = false) ConfirmOcrRequest request) {
         Long userId = requireUserId();
-        int importedCount = ocrService.confirm(userId, parseId(jobId));
-        return Result.ok(OcrConfirmResponse.builder().importedCount(importedCount).build());
+        Set<Long> selectedIds = null;
+        if (request != null && request.getDraftIds() != null && !request.getDraftIds().isEmpty()) {
+            selectedIds = new HashSet<>();
+            for (String id : request.getDraftIds()) {
+                selectedIds.add(parseId(id));
+            }
+        }
+        var result = ocrService.confirm(userId, parseId(jobId), selectedIds);
+
+        // Convert ConfirmResult to OcrConfirmResponse
+        List<DraftError> errors = result.getErrors() != null
+                ? result.getErrors().stream()
+                        .map(e -> DraftError.builder()
+                                .draftId(String.valueOf(e.getDraftId()))
+                                .reason(e.getReason())
+                                .build())
+                        .toList()
+                : List.of();
+
+        return Result.ok(OcrConfirmResponse.builder()
+                .importedCount(result.getImportedCount())
+                .errors(errors)
+                .build());
+    }
+
+    @DeleteMapping("/drafts/{draftId}")
+    @Operation(summary = "Delete draft trade")
+    public Result<Void> deleteDraft(@PathVariable String draftId) {
+        Long userId = requireUserId();
+        ocrService.deleteDraft(userId, parseId(draftId));
+        return Result.ok();
     }
 
     private Long requireUserId() {

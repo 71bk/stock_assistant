@@ -90,7 +90,9 @@ public class PortfolioController {
         Long userId = requireUserId();
         Long id = parseId(portfolioId);
         PortfolioEntity portfolio = portfolioService.getPortfolio(userId, id);
-        tw.bk.appportfolio.model.PortfolioSummary summary = portfolioService.getPortfolioSummary(userId, id);
+        QuoteProvider quoteProvider = createQuoteProvider();
+        tw.bk.appportfolio.model.PortfolioSummary summary = portfolioService.getPortfolioSummary(userId, id,
+                quoteProvider);
         return Result.ok(PortfolioResponse.fromWithSummary(
                 portfolio,
                 summary.totalMarketValue(),

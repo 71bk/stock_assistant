@@ -77,14 +77,15 @@ public class PortfolioService {
     }
 
     /**
-     * Calculate portfolio summary statistics.
+     * Calculate portfolio summary statistics with real-time quotes.
      * 
-     * @param userId      User ID
-     * @param portfolioId Portfolio ID
+     * @param userId        User ID
+     * @param portfolioId   Portfolio ID
+     * @param quoteProvider Quote provider for real-time prices
      * @return PortfolioSummary with totalMarketValue, totalCost, totalPnl,
      *         totalPnlPercent
      */
-    public PortfolioSummary getPortfolioSummary(Long userId, Long portfolioId) {
+    public PortfolioSummary getPortfolioSummary(Long userId, Long portfolioId, QuoteProvider quoteProvider) {
         getPortfolio(userId, portfolioId);
         List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
 
@@ -104,10 +105,15 @@ public class PortfolioService {
                     .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
             totalCost = totalCost.add(positionCost);
 
-            // For market value, we use avgCost as placeholder since we don't have real-time
-            // price yet
-            // TODO: Integrate with StockQuoteService to get real-time prices
-            BigDecimal currentPrice = avgCost; // Placeholder: use avgCost as current price
+            // Get real-time price from quote provider, fallback to avgCost if unavailable
+            BigDecimal currentPrice = avgCost;
+            if (quoteProvider != null) {
+                InstrumentEntity instrument = instrumentRepository.findById(position.getInstrumentId()).orElse(null);
+                if (instrument != null && instrument.getSymbolKey() != null) {
+                    currentPrice = quoteProvider.getCurrentPrice(instrument.getSymbolKey())
+                            .orElse(avgCost);
+                }
+            }
             BigDecimal positionMarketValue = currentPrice.multiply(quantity)
                     .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
             totalMarketValue = totalMarketValue.add(positionMarketValue);

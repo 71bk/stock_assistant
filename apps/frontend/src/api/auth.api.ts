@@ -24,4 +24,4 @@ export const authApi = {
 };
 
 // 用於前端跳轉的 URL (非 AJAX 呼叫)
-export const GOOGLE_LOGIN_URL = `${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/google/login`;
+export const GOOGLE_LOGIN_URL = `${import.meta.env.VITE_API_BASE_URL || '/api'}/oauth2/authorization/google`;

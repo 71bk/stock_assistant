@@ -16,6 +16,7 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.model.MarketCode;
 import tw.bk.appstocks.adapter.dto.FugleCandlesResponse;
 import tw.bk.appstocks.adapter.dto.FugleQuoteResponse;
+import tw.bk.appstocks.adapter.dto.FugleTickerResponse;
 import tw.bk.appstocks.config.StockMarketProperties;
 import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
@@ -184,6 +185,29 @@ public class FugleClient implements StockMarketClient {
             return Optional.empty();
         } catch (Exception ex) {
             log.error("Failed to fetch tickers from Fugle", ex);
+            return Optional.empty();
+        }
+    }
+
+    public Optional<FugleTickerResponse> getTickerDetail(String ticker) {
+        if (ticker == null || ticker.isBlank()) {
+            return Optional.empty();
+        }
+        String symbol = ticker.trim();
+        try {
+            String url = buildUrl("/intraday/ticker", symbol);
+            FugleTickerResponse response = withApiKey(restClient.get().uri(url))
+                    .retrieve()
+                    .body(FugleTickerResponse.class);
+            return Optional.ofNullable(response);
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 429) {
+                throw rateLimited("Fugle", symbol, ex.getResponseHeaders());
+            }
+            log.error("Failed to fetch ticker detail from Fugle: {}", symbol, ex);
+            return Optional.empty();
+        } catch (Exception ex) {
+            log.error("Failed to fetch ticker detail from Fugle: {}", symbol, ex);
             return Optional.empty();
         }
     }

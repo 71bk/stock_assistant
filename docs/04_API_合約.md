@@ -29,6 +29,15 @@
   - SSE：`text/event-stream`
 - **分頁**：`page`（1 起算）、`size`（預設 20）、`sort=field,desc`
 - **Trace**：回傳 `traceId` 便於追查
+- **LLM（AI 分析）**：Groq（OpenAI Compatible）
+  - 預設模型：`openai/gpt-oss-120b`
+  - 環境變數：
+    - `APP_AI_GROQ_BASE_URL`（預設 `https://api.groq.com/openai/v1`）
+    - `APP_AI_GROQ_API_KEY`
+    - `APP_AI_GROQ_MODEL`（預設 `openai/gpt-oss-120b`）
+    - `APP_AI_GROQ_TEMPERATURE`（預設 `0.2`）
+    - `APP_AI_GROQ_MAX_TOKENS`（預設 `512`）
+    - `APP_AI_GROQ_TOP_P`（預設 `1.0`）
 
 ---
 
@@ -88,6 +97,38 @@
 | 429 | `RATE_LIMITED` | 超過速率限制 |
 | 500 | `INTERNAL_ERROR` | 未預期錯誤 |
 | 501 | `NOT_IMPLEMENTED` | 功能尚未實作 |
+
+---
+
+## Admin
+### Endpoints
+| Method | Path | 說明 | Auth |
+|---|---|---|---|
+| POST | `/api/admin/instruments/sync` | 從 Fugle 同步 Instrument | 見下方 |
+
+#### 認證方式
+- 若 **未設定** `APP_ADMIN_API_KEY` → 只要登入即可
+- 若 **已設定** `APP_ADMIN_API_KEY` → 必須帶 `X-Admin-Key` header
+
+#### 同步 Instrument（`POST /api/admin/instruments/sync`）
+Request Headers（若已設定 API Key）：
+```
+X-Admin-Key: your-secret-key
+```
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "added": 150,
+    "skipped": 2000
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+> 從 Fugle `/intraday/tickers` 匯入 TWSE/TPEx 的 EQUITY（含 ETF）。只新增不存在的 ticker。
 
 ---
 
@@ -170,6 +211,7 @@ Response
 | GET | `/api/stocks/quote` | 即時報價 | 否 |
 | GET | `/api/stocks/candles` | K 線資料 | 否 |
 | GET | `/api/instruments` | 商品列表（分頁） | 否 |
+| POST | `/api/instruments` | 手動建立商品 | 是 |
 | GET | `/api/instruments/search` | 搜尋商品（自動補全） | 否 |
 | GET | `/api/instruments/{symbolKey}` | 取得商品詳情 | 否 |
 
@@ -402,6 +444,54 @@ Response：`Result<PageResponse<InstrumentResponse>>`
 
 ---
 
+#### 手動建立商品（`POST /api/instruments`）
+Request：
+```json
+{
+  "ticker": "OLD123",
+  "nameZh": "已下市公司",
+  "nameEn": "Delisted Company",
+  "market": "TW",
+  "exchange": "TWSE",
+  "currency": "TWD",
+  "assetType": "STOCK"
+}
+```
+
+| 欄位 | 必填 | 說明 |
+|------|------|------|
+| ticker | ✅ | 股票代碼 |
+| nameZh | - | 中文名稱 |
+| nameEn | - | 英文名稱 |
+| market | ✅ | 市場代碼（TW/US） |
+| exchange | ✅ | 交易所代碼（TWSE/TPEx/XNAS 等） |
+| currency | ✅ | 幣別（TWD/USD） |
+| assetType | - | 類型，預設 STOCK |
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "instrumentId": "12345",
+    "symbolKey": "TW:TWSE:OLD123",
+    "ticker": "OLD123",
+    "nameZh": "已下市公司",
+    "nameEn": "Delisted Company",
+    "market": "TW",
+    "exchange": "TWSE",
+    "currency": "TWD",
+    "assetType": "STOCK"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+> **Note**: 若商品已存在（相同 symbol_key），會回傳 409 CONFLICT 錯誤。
+
+---
+
 #### 搜尋商品（`GET /api/instruments/search`）
 Query Parameters：
 - `q`：搜尋關鍵字（必填）
@@ -591,7 +681,8 @@ Response（`POST /api/files` 節錄）
 | GET | `/api/ocr/jobs/{jobId}` | 查詢 Job 狀態 | 是 |
 | GET | `/api/ocr/jobs/{jobId}/drafts` | 取得草稿交易 | 是 |
 | PATCH | `/api/ocr/drafts/{draftId}` | 更新草稿交易 | 是 |
-| POST | `/api/ocr/jobs/{jobId}/confirm` | 確認匯入 | 是 |
+| DELETE | `/api/ocr/drafts/{draftId}` | 刪除草稿交易 | 是 |
+| POST | `/api/ocr/jobs/{jobId}/confirm` | 確認匯入（支援部分匯入） | 是 |
 
 #### 建立 OCR Job（`POST /api/ocr/jobs`）
 ```json
@@ -664,18 +755,58 @@ Response（節錄）
 }
 ```
 
+#### 刪除草稿交易（`DELETE /api/ocr/drafts/{draftId}`）
+刪除單一草稿交易，不會匯入至正式交易表。
+
+Response：
+```json
+{
+  "success": true,
+  "data": null,
+  "error": null,
+  "traceId": "..."
+}
+```
+
+> **Note**: 當所有草稿都被刪除或匯入後，Job 狀態會自動更新為 `DONE`。
+
 #### 確認匯入（`POST /api/ocr/jobs/{jobId}/confirm`）
+支援**部分匯入**：只匯入指定的草稿，保留其他草稿供後續處理。
+
+Request（可選）：
+```json
+{
+  "draftIds": ["9101", "9102"]
+}
+```
+
+| 情境 | Request Body | 行為 |
+|------|--------------|------|
+| 匯入全部 | `null` 或 `{}` | 匯入所有草稿（向後相容） |
+| 部分匯入 | `{"draftIds": ["9101", "9102"]}` | 只匯入指定的草稿，其他保留 |
+
 Response：
 ```json
 {
   "success": true,
   "data": {
-    "importedCount": 5
+    "importedCount": 2,
+    "errors": [
+      {"draftId": "9103", "reason": "缺少股票代碼 (instrumentId)"},
+      {"draftId": "9104", "reason": "重複交易（相同股票、日期、買賣、數量、價格）"}
+    ]
   },
   "error": null,
   "traceId": "..."
 }
 ```
+
+**errors 陣列**：列出無法匯入的草稿及原因
+- `缺少股票代碼 (instrumentId)`：草稿沒有對應的股票
+- `重複交易（相同股票、日期、買賣、數量、價格）`：已存在相同的交易記錄
+
+> **Note**: 已成功匯入的草稿會被刪除。有錯誤的草稿會保留在列表中，供使用者修正或刪除。
+
 
 ---
 

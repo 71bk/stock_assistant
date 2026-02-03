@@ -83,4 +83,9 @@ public interface InstrumentRepository extends JpaRepository<InstrumentEntity, Lo
         @EntityGraph(attributePaths = { "market", "exchange" })
         @Query("SELECT i FROM InstrumentEntity i")
         Page<InstrumentEntity> findAllWithRelations(Pageable pageable);
+
+        /**
+         * Find by symbol_key list.
+         */
+        List<InstrumentEntity> findBySymbolKeyIn(List<String> symbolKeys);
 }

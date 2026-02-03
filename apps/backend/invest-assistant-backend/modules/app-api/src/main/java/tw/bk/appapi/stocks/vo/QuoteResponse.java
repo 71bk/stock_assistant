@@ -1,6 +1,5 @@
 package tw.bk.appapi.stocks.vo;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,51 +15,33 @@ import tw.bk.appstocks.model.Quote;
 @AllArgsConstructor
 public class QuoteResponse {
 
-    /**
-     * 商品 ID（數字 ID）
-     */
-    @JsonProperty("instrument_id")
+    /** 商品 ID（數字 ID） */
     private String instrumentId;
 
-    /**
-     * 商品識別碼
-     */
-    @JsonProperty("symbol_key")
+    /** 商品識別碼 */
     private String symbolKey;
 
-    /**
-     * 現價
-     */
-    @JsonProperty("price")
+    /** 現價 */
     private String price;
 
-    /**
-     * 漲跌金額
-     */
-    @JsonProperty("change")
+    /** 漲跌金額 */
     private String change;
 
-    /**
-     * 漲跌幅 %
-     */
-    @JsonProperty("change_pct")
+    /** 漲跌幅 % */
     private String changePct;
 
-    /**
-     * 報價時間 (UTC ISO 8601)
-     */
-    @JsonProperty("ts_utc")
+    /** 報價時間 (UTC ISO 8601) */
     private String tsUtc;
 
     /**
-     * 從 Quote 模型轉換（合約格式）
+     * 從 Quote 模型轉換
      */
     public static QuoteResponse from(String symbolKey, Quote quote) {
         return from(null, symbolKey, quote);
     }
 
     /**
-     * 從 Quote 模型轉換（合約格式，含 instrument_id）
+     * 從 Quote 模型轉換（含 instrumentId）
      */
     public static QuoteResponse from(String instrumentId, String symbolKey, Quote quote) {
         return QuoteResponse.builder()
