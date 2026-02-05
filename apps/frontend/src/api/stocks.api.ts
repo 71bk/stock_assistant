@@ -1,5 +1,5 @@
 import { http } from '../utils/http';
-import type { ApiResponse, PageResponse } from '../types/api';
+import type { PageResponse } from '../types/api';
 
 export interface Instrument {
   instrumentId: string;
@@ -24,6 +24,7 @@ export interface Quote {
   volume: number;
   change: string;
   changePercent: string;
+  changePct?: string; // 兼容舊欄位
   timestamp: string;
 }
 
@@ -36,33 +37,62 @@ export interface Candle {
   volume: number;
 }
 
+export interface EtfProfile {
+  instrumentId: string;
+  underlyingType: string;
+  underlyingName: string;
+  asOfDate: string;
+}
+
+export interface WarrantProfile {
+  instrumentId: string;
+  underlyingSymbol: string;
+  expiryDate: string;
+}
+
+export interface TickerItem {
+  symbol: string;
+  name: string;
+}
+
+export interface TickersResponse {
+  date: string;
+  type: string;
+  exchange?: string;
+  market?: string;
+  data: TickerItem[];
+}
+
 export const stocksApi = {
   search: (query: string) =>
-    http.get<ApiResponse<Instrument[]>>('/instruments/search', { params: { q: query } }),
+    http.get<Instrument[]>('/instruments/search', { params: { q: query } }),
 
   getQuote: (symbolKey: string) =>
-    http.get<ApiResponse<Quote>>('/stocks/quote', { params: { symbolKey } }),
+    http.get<Quote>('/stocks/quote', { params: { symbolKey } }),
 
   getCandles: (symbolKey: string, interval: string, from?: string, to?: string) =>
-    http.get<ApiResponse<Candle[]>>('/stocks/candles', {
+    http.get<Candle[]>('/stocks/candles', {
       params: { symbolKey, interval, from, to },
     }),
 
   getMarkets: () =>
-    http.get<ApiResponse<Array<{ code: string; name: string }>>>('/stocks/markets'),
+    http.get<Array<{ code: string; name: string }>>('/stocks/markets'),
 
   getExchanges: (market?: string) =>
-    http.get<ApiResponse<Array<{ code: string; name: string; market: string }>>>('/stocks/exchanges', { params: { market } }),
+    http.get<Array<{ code: string; name: string; market: string }>>('/stocks/exchanges', { params: { market } }),
 
   getTickers: (params: { type: string; exchange?: string; market?: string }) =>
-    http.get<ApiResponse<any>>('/stocks/tickers', { params }),
+    http.get<TickersResponse>('/stocks/tickers', { params }),
 
   getInstruments: (page = 1, size = 20) =>
-    http.get<ApiResponse<PageResponse<Instrument>>>('/instruments', { params: { page, size } }),
+    http.get<PageResponse<Instrument>>('/instruments', { params: { page, size } }),
 
   getInstrumentDetail: (symbolKey: string) =>
-    http.get<ApiResponse<{ instrument: Instrument; etfProfile: any }>>(`/instruments/${symbolKey}`),
+    http.get<{ instrument: Instrument; etfProfile: EtfProfile | null; warrantProfile: WarrantProfile | null }>(`/instruments/${symbolKey}`),
 
   getInstrumentById: (instrumentId: string) =>
-    http.get<ApiResponse<Instrument>>(`/stocks/instruments/${instrumentId}`),
+    http.get<Instrument>(`/stocks/instruments/${instrumentId}`),
+
+  addInstrument: (instrument: Omit<Instrument, 'instrumentId' | 'symbolKey'>) =>
+    http.post<Instrument>('/instruments', instrument),
 };

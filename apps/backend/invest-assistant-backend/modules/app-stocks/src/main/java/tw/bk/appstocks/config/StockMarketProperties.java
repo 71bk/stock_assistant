@@ -14,6 +14,8 @@ public class StockMarketProperties {
 
     private Alpaca alpaca = new Alpaca();
     private Fugle fugle = new Fugle();
+    private Tpex tpex = new Tpex();
+    private Twse twse = new Twse();
     private Cache cache = new Cache();
 
     @Data
@@ -27,6 +29,16 @@ public class StockMarketProperties {
     public static class Fugle {
         private String apiKey;
         private String baseUrl = "https://api.fugle.tw/marketdata/v1.0/stock/";
+    }
+
+    @Data
+    public static class Tpex {
+        private String baseUrl = "https://www.tpex.org.tw/openapi";
+    }
+
+    @Data
+    public static class Twse {
+        private String isinUrl = "https://isin.twse.com.tw/isin/class_main.jsp?issuetype=4&market=2";
     }
 
     @Data

@@ -1,10 +1,10 @@
 import { http } from '../utils/http';
-import type { ApiResponse, PageResponse } from '../types/api';
 
 export interface Trade {
   tradeId: string;
   instrumentId: string;
   tradeDate: string;
+  settlementDate?: string | null;
   side: string;
   quantity: string | number;
   price: string | number;
@@ -44,28 +44,42 @@ export interface PortfolioSummary {
   totalPnlPercent: number;
 }
 
+export interface CreateTradeRequest {
+  instrumentId: string;
+  tradeDate: string;
+  settlementDate?: string | null;
+  side: string;
+  quantity: string | number;
+  price: string | number;
+  currency: string;
+  fee?: string | number;
+  tax?: string | number;
+}
+
+export type UpdateTradeRequest = Partial<CreateTradeRequest>;
+
 export const portfoliosApi = {
   getSummary: (id: string = 'default') =>
-    http.get<ApiResponse<PortfolioSummary>>(`/portfolios/${id}`),
+    http.get<PortfolioSummary>(`/portfolios/${id}`),
     
   getPositions: (id: string = 'default') =>
-    http.get<ApiResponse<Position[]>>(`/portfolios/${id}/positions`),
+    http.get<Position[]>(`/portfolios/${id}/positions`),
 
-  addTrade: (portfolioId: string, trade: any) =>
-    http.post<ApiResponse<{ tradeId: string }>>(`/portfolios/${portfolioId}/trades`, trade),
+  addTrade: (portfolioId: string, trade: CreateTradeRequest) =>
+    http.post<{ tradeId: string }>(`/portfolios/${portfolioId}/trades`, trade),
 
   getTrades: (id: string = 'default', page = 1, size = 20) =>
-    http.get<PageResponse<Trade>>(`/portfolios/${id}/trades`, { params: { page, size } }),
+    http.get<{ items: Trade[]; page: number; size: number; total: number }>(`/portfolios/${id}/trades`, { params: { page, size } }),
 
   getPortfolios: () =>
-    http.get<ApiResponse<PortfolioSummary[]>>('/portfolios'),
+    http.get<PortfolioSummary[]>('/portfolios'),
 
   createPortfolio: (data: { name: string; baseCurrency: string }) =>
-    http.post<ApiResponse<{ id: string }>>('/portfolios', data),
+    http.post<{ id: string }>('/portfolios', data),
 
-  updateTrade: (tradeId: string, trade: any) =>
-    http.patch<ApiResponse<{ tradeId: string }>>(`/trades/${tradeId}`, trade),
+  updateTrade: (tradeId: string, trade: UpdateTradeRequest) =>
+    http.patch<{ tradeId: string }>(`/trades/${tradeId}`, trade),
 
   deleteTrade: (tradeId: string) =>
-    http.delete<ApiResponse<void>>(`/trades/${tradeId}`),
+    http.delete<void>(`/trades/${tradeId}`),
 };

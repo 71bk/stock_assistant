@@ -1,8 +1,9 @@
 import React from "react";
-import { ConfigProvider } from "antd";
+import { ConfigProvider, theme as antdThemeAlgorithm } from "antd";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
-import zhCN from "antd/locale/zh_CN";
+import zhTW from "antd/locale/zh_TW";
 import { antdTheme } from "@/styles/antd-theme";
+import { useUIStore } from "@/stores/ui.store";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,12 +25,15 @@ interface AppProvidersProps {
  * - i18n（可選）
  */
 export function AppProviders({ children }: AppProvidersProps) {
+  const { theme } = useUIStore();
+
   return (
     <QueryClientProvider client={queryClient}>
       <ConfigProvider
-        locale={zhCN}
+        locale={zhTW}
         theme={{
-          token: antdTheme,
+          ...antdTheme,
+          algorithm: theme === 'dark' ? antdThemeAlgorithm.darkAlgorithm : antdThemeAlgorithm.defaultAlgorithm,
         }}
       >
         {children}

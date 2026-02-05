@@ -105,6 +105,7 @@
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
 | POST | `/api/admin/instruments/sync` | 從 Fugle 同步 Instrument | 見下方 |
+| POST | `/api/admin/instruments/sync-warrants` | 同步權證（TPEx + TWSE fallback） | 見下方 |
 
 #### 認證方式
 - 若 **未設定** `APP_ADMIN_API_KEY` → 只要登入即可
@@ -129,6 +130,25 @@ Response：
 }
 ```
 > 從 Fugle `/intraday/tickers` 匯入 TWSE/TPEx 的 EQUITY（含 ETF）。只新增不存在的 ticker。
+
+#### 同步權證（`POST /api/admin/instruments/sync-warrants`）
+TPEx 權證以官方 OpenAPI；TWSE 以 ISIN 名冊作 fallback（名冊-only）。
+
+Headers：
+```
+X-Admin-Key: your-secret-key
+```
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "added": 120,
+    "skipped": 500
+  }
+}
+```
 
 ---
 
@@ -522,6 +542,7 @@ Response：
 ---
 
 #### 商品詳情（`GET /api/instruments/{symbolKey}`）
+回傳內容新增 warrantProfile（僅 asset_type=WARRANT 時有）
 Response：`Result<InstrumentDetailResponse>`
 ```json
 {
@@ -538,7 +559,8 @@ Response：`Result<InstrumentDetailResponse>`
       "currency": "USD",
       "assetType": "STOCK"
     },
-    "etfProfile": null
+    "etfProfile": null,
+    "warrantProfile": null
   },
   "error": null,
   "traceId": "..."
@@ -683,6 +705,9 @@ Response（`POST /api/files` 節錄）
 | PATCH | `/api/ocr/drafts/{draftId}` | 更新草稿交易 | 是 |
 | DELETE | `/api/ocr/drafts/{draftId}` | 刪除草稿交易 | 是 |
 | POST | `/api/ocr/jobs/{jobId}/confirm` | 確認匯入（支援部分匯入） | 是 |
+| POST | `/api/ocr/jobs/{jobId}/retry` | 重新排隊 OCR Job | 是 |
+| POST | /api/ocr/jobs/{jobId}/reparse | 重新解析（建立新 statement） | 是 |
+| POST | `/api/ocr/jobs/{jobId}/cancel` | 取消 OCR Job（軟取消） | 是 |
 
 #### 建立 OCR Job（`POST /api/ocr/jobs`）
 ```json
@@ -707,6 +732,34 @@ Response（節錄）
   "traceId": "..."
 }
 ```
+欄位說明（warrantProfile）：
+- `underlyingSymbol`：標的代號
+- `expiryDate`：到期日（YYYY-MM-DD）
+
+#### 查詢 Job 狀態（`GET /api/ocr/jobs/{jobId}`）
+Response（節錄）
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "8001",
+    "statementId": "7001",
+    "status": "RUNNING",
+    "progress": 30,
+    "errorMessage": null
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+| 狀態 | 說明 |
+|------|------|
+| QUEUED | 已排隊，等待處理 |
+| RUNNING | 處理中 |
+| DONE | 已完成 |
+| FAILED | 處理失敗 |
+| CANCELLED | 已取消（結果會被丟棄） |
 
 #### 草稿交易（`GET /api/ocr/jobs/{jobId}/drafts` 節錄）
 ```json
@@ -727,9 +780,11 @@ Response（節錄）
         "currency": "USD",
         "fee": "1.00",
         "tax": "0",
+        "netAmount": "-951.00",
         "warnings": ["DATE_FORMAT_GUESS"],
         "errors": [],
-        "rowHash": "b7b7f1c3d90a6c3f0d1a2f0e3b9d9c1d2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d"
+        "rowHash": "b7b7f1c3d90a6c3f0d1a2f0e3b9d9c1d2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d",
+        "duplicate": false
       }
     ]
   },
@@ -737,6 +792,33 @@ Response（節錄）
   "traceId": "..."
 }
 ```
+
+| 欄位 | 類型 | 說明 |
+|------|------|------|
+| draftId | string | 草稿 ID |
+| instrumentId | string | 商品 ID（若已匹配） |
+| rawTicker | string | OCR 辨識的原始股票代碼 |
+| name | string | 股票名稱 |
+| tradeDate | string | 交易日期（YYYY-MM-DD） |
+| settlementDate | string | 交割日期（YYYY-MM-DD） |
+| side | string | 買賣方向（BUY/SELL） |
+| quantity | string | 數量 |
+| price | string | 價格 |
+| currency | string | 幣別 |
+| fee | string | 手續費 |
+| tax | string | 稅金 |
+| netAmount | string | 客戶淨收/淨付金額（v1.3 新增） |
+| warnings | array | 警告訊息 |
+| errors | array | 錯誤訊息 |
+| rowHash | string | 列雜湊（用於去重） |
+| **duplicate** | **boolean** | **v1.3 新增**：是否已有相同交易存在於 `stock_trades` 表 |
+```
+
+警告碼（`warnings`）：
+
+| code | 說明 |
+|------|------|
+| SETTLEMENT_BEFORE_TRADE | 交割日早於成交日 |
 
 #### 更新草稿交易（`PATCH /api/ocr/drafts/{draftId}`）
 ```json
@@ -807,6 +889,163 @@ Response：
 
 > **Note**: 已成功匯入的草稿會被刪除。有錯誤的草稿會保留在列表中，供使用者修正或刪除。
 
+#### 重跑 OCR（`POST /api/ocr/jobs/{jobId}/retry`）
+重新排隊 OCR Job；若 job 仍在執行或已完成，需 `force=true` 才會重跑。
+
+Query Params：
+- `force`（boolean, optional，預設 `false`）
+
+Response（節錄）
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "8001",
+    "statementId": "7001",
+    "status": "QUEUED"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+#### 重新解析（`POST /api/ocr/jobs/{jobId}/reparse`）
+建立新的 statement 並重新解析；舊 statement 會標記為 `SUPERSEDED`。
+
+Query Params：
+- `force`（boolean, optional，預設 `false`）
+
+Response：同「查詢 Job 狀態」。
+#### 取消 OCR（`POST /api/ocr/jobs/{jobId}/cancel`）
+將 OCR Job 標記為 `CANCELLED`。若 job 正在執行，AI Worker 回來的結果會被丟棄。
+
+Response（節錄）
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "8001",
+    "statementId": "7001",
+    "status": "CANCELLED"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+
+---
+
+## AI 對話（Chat）
+### Endpoints
+| Method | Path | 說明 | Auth |
+|---|---|---|---|
+| POST | `/api/ai/conversations` | 建立對話 | 是 |
+| GET | `/api/ai/conversations` | 對話列表 | 是 |
+| GET | `/api/ai/conversations/{id}` | 對話詳情（含訊息） | 是 |
+| POST | `/api/ai/conversations/{id}/messages` | 傳送訊息（SSE） | 是 |
+
+#### 建立對話（`POST /api/ai/conversations`）
+```json
+{
+  "title": "我的投資筆記"
+}
+```
+Response（節錄）
+```json
+{
+  "success": true,
+  "data": {
+    "conversationId": "9001",
+    "title": "我的投資筆記",
+    "createdAt": "2026-02-04T12:00:00Z",
+    "updatedAt": "2026-02-04T12:00:00Z"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+#### 對話列表（`GET /api/ai/conversations`）
+Response（節錄）
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "conversationId": "9001",
+      "title": "我的投資筆記",
+      "createdAt": "2026-02-04T12:00:00Z",
+      "updatedAt": "2026-02-04T12:10:00Z"
+    }
+  ],
+  "error": null,
+  "traceId": "..."
+}
+```
+
+#### 對話詳情（`GET /api/ai/conversations/{id}`）
+Query Parameters：
+- `limit`（預設 20）
+
+Response（節錄）
+```json
+{
+  "success": true,
+  "data": {
+    "conversationId": "9001",
+    "title": "我的投資筆記",
+    "summary": null,
+    "createdAt": "2026-02-04T12:00:00Z",
+    "updatedAt": "2026-02-04T12:10:00Z",
+    "messages": [
+      {
+        "messageId": "9101",
+        "role": "user",
+        "content": "幫我看一下今天的持倉",
+        "status": null,
+        "createdAt": "2026-02-04T12:09:00Z"
+      },
+      {
+        "messageId": "9102",
+        "role": "assistant",
+        "content": "好的，我先整理你的持倉摘要。",
+        "status": "COMPLETED",
+        "createdAt": "2026-02-04T12:09:05Z"
+      }
+    ]
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+#### 傳送訊息（`POST /api/ai/conversations/{id}/messages`）
+```json
+{
+  "content": "幫我整理一下今天的市場摘要",
+  "clientMessageId": "c-20260204-0001"
+}
+```
+> **Note**: `clientMessageId` 為可選，重送相同 `clientMessageId` 會回 409 / SSE error。
+
+#### SSE Response（`text/event-stream`）
+```
+event: meta
+data: {"requestId":"c-123","conversationId":"9001","userMessageId":"9101"}
+
+event: delta
+data: {"text":"今日市場重點..."}
+
+event: done
+data: {"assistantMessageId":"9102"}
+```
+
+#### SSE Error
+```
+event: error
+data: {"code":"VALIDATION_ERROR","message":"Message content is required"}
+```
 
 ---
 
@@ -815,8 +1054,8 @@ Response：
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
 | POST | `/api/ai/analysis/stream` | AI 行情/持倉分析（SSE） | 是 |
-| GET | `/api/ai/reports` | 報告列表 | 是 |
-| GET | `/api/ai/reports/{reportId}` | 報告詳情 | 是 |
+| GET | `/api/ai/reports` | 報告列表（v1） | 是 |
+| GET | `/api/ai/reports/{reportId}` | 報告詳情（v1） | 是 |
 
 #### Request（`POST /api/ai/analysis/stream`）
 ```json
@@ -908,6 +1147,90 @@ Response：
 
 ---
 
+## AI Worker RAG API（Python，v1.3）
+> Base URL: `http://{ai-worker-host}:8000`
+
+### Endpoints
+| Method | Path | 說明 | Auth |
+|---|---|---|---|
+| POST | `/ingest` | 文件 ingestion（multipart） | 否 |
+| POST | `/ingest/text` | 純文字 ingestion | 否 |
+| POST | `/query` | RAG 問答（向量檢索） | 否 |
+
+#### 文件 Ingestion（`POST /ingest`）
+Request（multipart/form-data）：
+- `file`：上傳的文件（PDF、TXT、MD）
+- `user_id`：使用者 ID（必填）
+- `title`：文件標題（可選）
+- `source_type`：來源類型（預設 `upload`）
+- `tags`：標籤（逗號分隔）
+
+Response：
+```json
+{
+  "document_id": "123",
+  "title": "Monthly Report",
+  "chunks_count": 15,
+  "status": "completed",
+  "message": "Ingestion completed"
+}
+```
+
+**錯誤回傳（v1.3 新增）：**
+| HTTP | 說明 |
+|------|------|
+| 400 | 文件內容為空或格式錯誤 |
+| 429 | 超過 ingestion 並發限制（需設定 `INGEST_REJECT_ON_LIMIT=true`） |
+| 500 | Ingestion 失敗 |
+
+#### 純文字 Ingestion（`POST /ingest/text`）
+Request（form-data）：
+- `text`：文字內容（必填）
+- `user_id`：使用者 ID（必填）
+- `title`：文件標題（必填）
+- `source_type`：來源類型（預設 `note`）
+- `tags`：標籤（逗號分隔）
+
+Response：同上
+
+#### RAG Query（`POST /query`）
+Request（JSON）：
+```json
+{
+  "user_id": 123,
+  "query": "什麼是 AI Worker？",
+  "top_k": 5,
+  "source_type": "upload"
+}
+```
+
+Response：
+```json
+{
+  "chunks": [
+    {
+      "content": "AI Worker 是一個 Python FastAPI 服務...",
+      "document_id": "123",
+      "chunk_index": 3,
+      "score": 0.92
+    }
+  ]
+}
+```
+
+> **v1.3 增強**：Query 端新增 embedding retry/backoff 機制，遇到 API 限流時會自動重試（指數退避 + jitter）。
+
+### 環境變數（AI Worker）
+| 變數 | 說明 | 預設值 |
+|------|------|--------|
+| `INGEST_CONCURRENCY` | Ingestion 並發數 | 5 |
+| `INGEST_REJECT_ON_LIMIT` | 超量時是否回傳 429（否則排隊等待） | `false` |
+| `EMBEDDING_MAX_RETRIES` | Embedding API 最大重試次數 | 5 |
+| `EMBEDDING_BACKOFF_BASE` | 重試基礎延遲（秒） | 0.5 |
+| `EMBEDDING_BACKOFF_CAP` | 重試最大延遲（秒） | 8.0 |
+
+---
+
 ## 範例 Request/Response
 ### 1) Rate limit（429）
 ```json
@@ -916,12 +1239,7 @@ Response：
   "data": null,
   "error": {
     "code": "RATE_LIMITED",
-    "message": "行情供應商限流，請稍後再試。",
-    "details": {
-      "vendor": "Fugle",
-      "ticker": "2330",
-      "retryAfter": "60"
-    }
+    "message": "Too many requests, please retry later."
   },
   "traceId": "..."
 }

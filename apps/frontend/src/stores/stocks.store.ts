@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { stocksApi } from "../api/stocks.api";
 import type { Instrument, Quote } from "../api/stocks.api";
-import type { ApiResponse } from "../types/api";
 
 interface StocksState {
   instruments: Instrument[];
@@ -49,7 +48,7 @@ export const useStocksStore = create<StocksState>((set) => ({
     // set({ isLoading: true }); // Optional: don't block UI for quote
     try {
       const res = await stocksApi.getQuote(symbolKey);
-      const quote = (res as unknown as ApiResponse<Quote>).data;
+      const quote = res;
       set((state) => ({
         quotes: {
           ...state.quotes,

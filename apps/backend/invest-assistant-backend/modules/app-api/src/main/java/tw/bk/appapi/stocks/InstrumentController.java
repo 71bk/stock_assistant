@@ -15,12 +15,14 @@ import tw.bk.appapi.stocks.dto.CreateInstrumentRequest;
 import tw.bk.appapi.stocks.vo.InstrumentResponse;
 import tw.bk.appapi.stocks.vo.InstrumentDetailResponse;
 import tw.bk.appapi.stocks.vo.EtfProfileResponse;
+import tw.bk.appapi.stocks.vo.WarrantProfileResponse;
 
 import tw.bk.appcommon.error.ErrorCode;
 import tw.bk.appcommon.model.MarketCode;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.appstocks.service.InstrumentService;
 import tw.bk.appstocks.service.EtfProfileService;
+import tw.bk.appstocks.service.WarrantProfileService;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -38,6 +40,7 @@ public class InstrumentController {
 
     private final InstrumentService instrumentService;
     private final EtfProfileService etfProfileService;
+    private final WarrantProfileService warrantProfileService;
 
     /**
      * 手動建立商品
@@ -87,13 +90,19 @@ public class InstrumentController {
 
         // 如果是 ETF，查詢 ETF profile
         EtfProfileResponse etfProfile = null;
-        if ("ETF".equals(entity.getAssetType())) {
+        WarrantProfileResponse warrantProfile = null;
+        if ("ETF".equalsIgnoreCase(entity.getAssetType())) {
             etfProfile = etfProfileService.findByInstrumentId(entity.getId())
                     .map(EtfProfileResponse::from)
                     .orElse(null);
         }
+        if ("WARRANT".equalsIgnoreCase(entity.getAssetType())) {
+            warrantProfile = warrantProfileService.findByInstrumentId(entity.getId())
+                    .map(WarrantProfileResponse::from)
+                    .orElse(null);
+        }
 
-        return Result.ok(InstrumentDetailResponse.of(instrument, etfProfile));
+        return Result.ok(InstrumentDetailResponse.of(instrument, etfProfile, warrantProfile));
     }
 
     /**

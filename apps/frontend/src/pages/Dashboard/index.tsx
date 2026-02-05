@@ -5,15 +5,9 @@ import { Pie, Area } from '@ant-design/plots';
 import { useAuthStore } from '../../stores/auth.store';
 import { usePortfolioStore } from '../../stores/portfolio.store';
 import { formatCurrency } from '../../utils/format';
+import type { Trade } from '../../api/portfolios.api';
 
 const { Title } = Typography;
-
-// MOCK_ACTIVITY can be moved to store or kept here if it's purely UI mock until API is ready
-const MOCK_ACTIVITY = [
-  { id: '1', date: '2026-01-08', type: 'BUY', symbol: 'AAPL', qty: 10, price: 185.50, amount: 1855.00 },
-  { id: '2', date: '2026-01-07', type: 'SELL', symbol: 'TSLA', qty: 5, price: 240.00, amount: 1200.00 },
-  { id: '3', date: '2026-01-05', type: 'BUY', symbol: '2330', qty: 1000, price: 580, amount: 580000 },
-];
 
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
@@ -29,7 +23,6 @@ const Dashboard: React.FC = () => {
   // Calculate value for pie chart (fallback to cost if market value missing)
   const pieData = positions.map((p) => ({
     ...p,
-    // @ts-ignore
     value: p.currentValue || (p.totalQuantity * p.avgCostNative) || 0,
   }));
 
@@ -39,7 +32,7 @@ const Dashboard: React.FC = () => {
     colorField: 'ticker',
     radius: 0.8,
     label: {
-      text: (d: any) => `${d.ticker}\n${(d.value / (summary?.totalMarketValue || 1) * 100).toFixed(1)}%`,
+      text: (d: { ticker: string; value: number }) => `${d.ticker}\n${(d.value / (summary?.totalMarketValue || 1) * 100).toFixed(1)}%`,
       position: 'spider',
     },
     legend: {
@@ -135,7 +128,7 @@ const Dashboard: React.FC = () => {
             </div>
           </Card>
         </Col>
-        
+
         {/* Asset Allocation */}
         <Col xs={24} lg={10}>
           <Card title="資產分佈">
@@ -165,8 +158,8 @@ const Dashboard: React.FC = () => {
                 },
                 { title: '代號', dataIndex: 'instrumentId', render: (text) => <b>{text}</b> },
                 { title: '數量', dataIndex: 'quantity' },
-                { title: '價格', dataIndex: 'price', render: (val) => Number(val).toFixed(2) },
-                { title: '金額', dataIndex: 'netAmount', render: (val, record) => formatCurrency(Number(val || (record.price * record.quantity)), record.currency) },
+                { title: '價格', dataIndex: 'price', render: (val: string | number) => Number(val).toFixed(2) },
+                { title: '金額', dataIndex: 'netAmount', render: (val: string | number, record: Trade) => formatCurrency(Number(val || (Number(record.price) * Number(record.quantity))), record.currency) },
               ]}
             />
           </Card>

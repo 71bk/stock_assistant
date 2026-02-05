@@ -2,34 +2,34 @@ import React, { useState } from 'react';
 import {
   Steps, Card, Upload, Typography, Button, Progress, Table,
   Tag, Tooltip, Space, Popconfirm, InputNumber, DatePicker, Select,
-  Alert, Result, message
+  Alert, Result, message, Input
 } from 'antd';
 import {
-  InboxOutlined, FileImageOutlined, CheckCircleOutlined,
+  InboxOutlined, CheckCircleOutlined,
   ExclamationCircleOutlined, DeleteOutlined, SaveOutlined,
-  ReloadOutlined, UploadOutlined
+  ReloadOutlined, UploadOutlined, ImportOutlined
 } from '@ant-design/icons';
-import { useImportStore } from '../../stores/import.store';
+import { useImportFlow } from '../../hooks/useImportFlow';
 import type { DraftTrade } from '../../api/ocr.api';
+import type { GetProp, UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
-
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
 
 // --- Step 0: Upload ---
 const UploadStep: React.FC = () => {
-  const { uploadFile } = useImportStore();
+  const { uploadFile } = useImportFlow();
 
   const props = {
     name: 'file',
     multiple: false,
     showUploadList: false,
     accept: '.jpg,.jpeg,.pdf',
-    customRequest: async (options: any) => {
+    customRequest: async (options: Parameters<GetProp<UploadProps, 'customRequest'>>[0]) => {
       const { file, onSuccess } = options;
-      await uploadFile(file);
-      onSuccess("ok");
+      await uploadFile(file as File);
+      onSuccess?.("ok");
     },
   };
 
@@ -50,7 +50,7 @@ const UploadStep: React.FC = () => {
 
 // --- Step 1: Processing ---
 const ProcessingStep: React.FC = () => {
-  const { progress, jobStatus, reset, reprocessJob } = useImportStore();
+  const { progress, jobStatus, reset, reprocessJob, cancelJob } = useImportFlow();
 
   return (
     <Card style={{ textAlign: 'center', padding: 60 }}>
@@ -58,7 +58,7 @@ const ProcessingStep: React.FC = () => {
       <Progress type="circle" percent={progress} status={jobStatus === 'FAILED' ? 'exception' : undefined} />
       <div style={{ marginTop: 20 }}>
         {jobStatus === 'FAILED' ? (
-          <Space direction="vertical" size="middle">
+          <Space orientation="vertical" size="middle">
             <Text type="danger">OCR 解析失敗，請嘗試其他影像或重試。</Text>
             <Space>
               <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
@@ -70,7 +70,17 @@ const ProcessingStep: React.FC = () => {
             </Space>
           </Space>
         ) : (
-          <Text type="secondary">正在辨識日期、代號與金額...</Text>
+          <Space orientation="vertical" size="middle">
+            <Text type="secondary">正在辨識日期、代號與金額...</Text>
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={reprocessJob} size="small">
+                重新解析
+              </Button>
+              <Button danger onClick={cancelJob} size="small">
+                取消任務
+              </Button>
+            </Space>
+          </Space>
         )}
       </div>
     </Card>
@@ -79,11 +89,22 @@ const ProcessingStep: React.FC = () => {
 
 // --- Step 2: Review ---
 const ReviewStep: React.FC = () => {
-  const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob, isLoading } = useImportStore();
+  const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob, isLoading, currentStep } = useImportFlow();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>(
     draftTrades.filter(t => t.status !== 'ERROR').map(t => t.draftId) // Select valid ones by default
   );
   const [editingKey, setEditingKey] = useState<string>('');
+
+  // Clear editing state when step changes
+  React.useEffect(() => {
+    setEditingKey('');
+  }, [currentStep]);
+
+  // Synchronize selection when draftTrades change (e.g., after a partial import success)
+  React.useEffect(() => {
+    const validDraftIds = draftTrades.map(t => t.draftId);
+    setSelectedRowKeys(prev => prev.filter(key => validDraftIds.includes(key as string)));
+  }, [draftTrades]);
 
   const isEditing = (record: DraftTrade) => record.draftId === editingKey;
 
@@ -91,10 +112,8 @@ const ReviewStep: React.FC = () => {
     setEditingKey(record.draftId);
   };
 
-  const save = (id: string) => {
-    // In a real form, we'd validate and gather values.
-    // Here we assume the input onChange handlers updated the store or local state.
-    // Since we are using store directly in render for simplicity, we just exit edit mode.
+  const handleSave = () => {
+    // Input onChange handlers already updated the store.
     setEditingKey('');
   };
 
@@ -103,20 +122,35 @@ const ReviewStep: React.FC = () => {
       title: '狀態',
       key: 'status',
       width: 110,
-      render: (_: any, record: DraftTrade) => {
+      render: (_: unknown, record: DraftTrade) => {
         if (record.status === 'VALID') return <Tag icon={<CheckCircleOutlined />} color="success">正常</Tag>;
+
+        const formatMessage = (msg: string) => {
+          if (msg === 'SETTLEMENT_BEFORE_TRADE') return '交割日不可早於成交日';
+          return msg;
+        };
+
+        const warnings = (record.warnings || []).map(formatMessage);
+        const errors = (record.errors || []).map(formatMessage);
+
         if (record.status === 'WARNING') {
           const isDuplicate = record.warnings.some(w => w.includes('重複'));
+          const isSettlementError = record.warnings.includes('SETTLEMENT_BEFORE_TRADE');
+
+          let label = '警告';
+          if (isDuplicate) label = '可能重複';
+          if (isSettlementError) label = '日期錯誤';
+
           return (
-            <Tooltip title={record.warnings.join(', ')}>
+            <Tooltip title={warnings.join(', ')}>
               <Tag icon={<ExclamationCircleOutlined />} color="warning">
-                {isDuplicate ? '可能重複' : '警告'}
+                {label}
               </Tag>
             </Tooltip>
           );
         }
         return (
-          <Tooltip title={record.warnings.join(', ')}>
+          <Tooltip title={[...errors, ...warnings].join(', ')}>
             <Tag icon={<ExclamationCircleOutlined />} color="error">錯誤</Tag>
           </Tooltip>
         );
@@ -125,9 +159,28 @@ const ReviewStep: React.FC = () => {
     {
       title: '成交日',
       dataIndex: 'tradeDate',
+      width: 160,
       render: (text: string, record: DraftTrade) => {
         if (isEditing(record)) {
-          return <DatePicker defaultValue={dayjs(text)} onChange={(d) => d && updateDraftTrade(record.draftId, { tradeDate: d.format('YYYY-MM-DD') })} />;
+          return (
+            <DatePicker
+              style={{ width: '100%' }}
+              value={record.tradeDate ? dayjs(record.tradeDate) : null}
+              format="YYYY-MM-DD"
+              placeholder="選擇日期"
+              onChange={(d) => {
+                if (d && d.isValid()) {
+                  if (d.isAfter(dayjs())) {
+                    message.error('成交日不可為未來日期，請重新選擇');
+                    return;
+                  }
+                  const formatted = d.format('YYYY-MM-DD');
+                  updateDraftTrade(record.draftId, { tradeDate: formatted });
+                }
+              }}
+              allowClear
+            />
+          );
         }
         return text;
       }
@@ -135,9 +188,23 @@ const ReviewStep: React.FC = () => {
     {
       title: '交割日',
       dataIndex: 'settlementDate',
+      width: 160,
       render: (text: string | null, record: DraftTrade) => {
         if (isEditing(record)) {
-          return <DatePicker defaultValue={text ? dayjs(text) : undefined} onChange={(d) => updateDraftTrade(record.draftId, { settlementDate: d ? d.format('YYYY-MM-DD') : null } as any)} />;
+          return (
+            <DatePicker
+              style={{ width: '100%', minWidth: '110px' }}
+              value={record.settlementDate ? dayjs(record.settlementDate) : null}
+              format="YYYY-MM-DD"
+              placeholder="選擇日期"
+              disabledDate={(current) => {
+                if (!record.tradeDate) return current.isAfter(dayjs());
+                return current.isBefore(dayjs(record.tradeDate)) || current.isAfter(dayjs());
+              }}
+              onChange={(d) => updateDraftTrade(record.draftId, { settlementDate: d ? d.format('YYYY-MM-DD') : null })}
+              allowClear
+            />
+          );
         }
         return text || '-';
       }
@@ -146,7 +213,7 @@ const ReviewStep: React.FC = () => {
       title: '代號',
       dataIndex: 'rawTicker',
       render: (text: string, record: DraftTrade) => {
-        if (isEditing(record)) return <input value={text} onChange={(e) => updateDraftTrade(record.draftId, { rawTicker: e.target.value })} style={{ width: 80 }} />;
+        if (isEditing(record)) return <Input value={text} onChange={(e) => updateDraftTrade(record.draftId, { rawTicker: e.target.value })} style={{ width: 100 }} />;
         return <Text strong>{text}</Text>;
       }
     },
@@ -174,7 +241,7 @@ const ReviewStep: React.FC = () => {
       title: '數量',
       dataIndex: 'quantity',
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v && updateDraftTrade(record.draftId, { quantity: v })} style={{ width: 80 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { quantity: v })} style={{ width: 100 }} />;
         return val;
       }
     },
@@ -182,7 +249,7 @@ const ReviewStep: React.FC = () => {
       title: '價格',
       dataIndex: 'price',
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v && updateDraftTrade(record.draftId, { price: v })} style={{ width: 100 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { price: v })} style={{ width: 120 }} />;
         return Number(val || 0).toFixed(2);
       }
     },
@@ -196,7 +263,7 @@ const ReviewStep: React.FC = () => {
       title: '手續費',
       dataIndex: 'fee',
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v != null && updateDraftTrade(record.draftId, { fee: v })} style={{ width: 80 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { fee: v })} style={{ width: 100 }} />;
         return Number(val || 0).toFixed(2);
       }
     },
@@ -204,7 +271,7 @@ const ReviewStep: React.FC = () => {
       title: '稅金',
       dataIndex: 'tax',
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} onChange={(v) => v != null && updateDraftTrade(record.draftId, { tax: v })} style={{ width: 80 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { tax: v })} style={{ width: 100 }} />;
         return Number(val || 0).toFixed(2);
       }
     },
@@ -224,11 +291,12 @@ const ReviewStep: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: DraftTrade) => {
+      render: (_: unknown, record: DraftTrade) => {
         const editable = isEditing(record);
         return editable ? (
           <Space>
-            <Button type="primary" size="small" icon={<SaveOutlined />} onClick={() => save(record.draftId)} />
+            <Button type="primary" size="small" icon={<SaveOutlined />} onClick={handleSave}>儲存</Button>
+            <Button size="small" onClick={() => setEditingKey('')}>取消</Button>
           </Space>
         ) : (
           <Space>
@@ -260,7 +328,7 @@ const ReviewStep: React.FC = () => {
     <div>
       {draftTrades.some(t => t.status !== 'VALID') ? (
         <Alert
-          message="發現異常資料"
+          title="發現異常資料"
           description={`在 ${draftTrades.length} 筆交易中，有 ${draftTrades.filter(t => t.status !== 'VALID').length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
           type="warning"
           showIcon
@@ -268,7 +336,7 @@ const ReviewStep: React.FC = () => {
         />
       ) : (
         <Alert
-          message={`找到 ${draftTrades.length} 筆交易`}
+          title={`找到 ${draftTrades.length} 筆交易`}
           description="請校對以下細節，確認無誤後再匯入。"
           type="info"
           showIcon
@@ -285,7 +353,7 @@ const ReviewStep: React.FC = () => {
         columns={columns}
         rowKey="draftId"
         pagination={false}
-        scroll={{ x: 800 }}
+        scroll={{ x: 1400 }}
         rowClassName={(record) => {
           if (record.status === 'ERROR') return 'row-error';
           if (record.status === 'WARNING') return 'row-warning';
@@ -310,7 +378,7 @@ const ReviewStep: React.FC = () => {
 
 // --- Step 3: Result ---
 const ResultStep: React.FC = () => {
-  const { reset } = useImportStore();
+  const { reset } = useImportFlow();
   const navigate = useNavigate();
 
   return (
@@ -333,8 +401,7 @@ const ResultStep: React.FC = () => {
 
 // --- Main Page ---
 const ImportPage: React.FC = () => {
-  const { currentStep, jobStatus } = useImportStore();
-  const { setStep } = useImportStore(); // Actually setStep isn't used directly by steps usually, managed by store flow
+  const { currentStep, jobStatus } = useImportFlow();
 
   // Determine which component to render
   let content = <UploadStep />;

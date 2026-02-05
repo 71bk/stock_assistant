@@ -5,12 +5,13 @@
 
 import React, { useEffect } from 'react';
 import { Typography, Card, Row, Col, Statistic, Tag, Empty, Button } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, RobotOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ArrowDownOutlined, RobotOutlined, PlusOutlined } from '@ant-design/icons';
 import { InstrumentSearch } from '../../components/common/InstrumentSearch';
 import { PriceChart } from '../../components/charts/PriceChart';
 import { useStocksStore } from '../../stores/stocks.store';
 import { useAiStore } from '../../stores/ai.store';
 import { AiAnalysisModal } from '../../components/ai/AiAnalysisModal';
+import { AddInstrumentModal } from '../../components/stocks/AddInstrumentModal';
 
 const { Title, Text } = Typography;
 
@@ -18,6 +19,7 @@ const Stocks: React.FC = () => {
   const { selectedInstrument, quotes, setSelectedInstrument, fetchQuote } = useStocksStore();
   const { startAnalysis, resetAnalysis } = useAiStore();
   const [isAiModalOpen, setIsAiModalOpen] = React.useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = React.useState(false);
 
   useEffect(() => {
     if (selectedInstrument?.symbolKey) {
@@ -27,7 +29,8 @@ const Stocks: React.FC = () => {
 
   const symbolKey = selectedInstrument?.symbolKey;
   const quote = symbolKey ? quotes[symbolKey] : null;
-  const isUp = quote ? parseFloat(quote.change) >= 0 : false;
+  const changeVal = quote ? parseFloat(quote.change) : 0;
+  const isUp = changeVal >= 0;
 
   const handleStartAiAnalysis = async () => {
     if (!selectedInstrument?.instrumentId) return;
@@ -47,11 +50,18 @@ const Stocks: React.FC = () => {
   return (
     <div>
       <Title level={2}>股票行情</Title>
-      
+
       <Card style={{ marginBottom: 24 }}>
         <div style={{ maxWidth: 600, margin: '0 auto' }}>
           <Text style={{ display: 'block', marginBottom: 8 }}>搜尋代號或名稱：</Text>
-          <InstrumentSearch onSelect={setSelectedInstrument} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <InstrumentSearch onSelect={setSelectedInstrument} />
+            <Button
+              icon={<PlusOutlined />}
+              onClick={() => setIsAddModalOpen(true)}
+              title="新增找不到的標的"
+            />
+          </div>
         </div>
       </Card>
 
@@ -100,7 +110,7 @@ const Stocks: React.FC = () => {
               <Col span={6}>
                 <Statistic
                   title="漲跌幅"
-                  value={quote?.changePercent || (quote as any)?.changePct || '-'}
+                  value={quote?.changePercent || quote?.changePct || '-'}
                   precision={2}
                   styles={{ content: { color: isUp ? '#3f8600' : '#cf1322' } }}
                   suffix="%"
@@ -124,6 +134,15 @@ const Stocks: React.FC = () => {
         open={isAiModalOpen}
         onClose={handleCloseAiModal}
         title={`${selectedInstrument?.ticker} AI 行情解析`}
+      />
+
+      <AddInstrumentModal
+        open={isAddModalOpen}
+        onCancel={() => setIsAddModalOpen(false)}
+        onSuccess={(instrument) => {
+          setSelectedInstrument(instrument);
+          setIsAddModalOpen(false);
+        }}
       />
     </div>
   );

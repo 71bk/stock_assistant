@@ -1,8 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { createChart, CandlestickSeries } from 'lightweight-charts';
 import { stocksApi } from '../../api/stocks.api';
 import type { Candle } from '../../api/stocks.api';
-import type { ApiResponse } from '../../types/api';
 
 interface PriceChartProps {
   symbolKey: string;
@@ -19,7 +18,7 @@ export function PriceChart({
   height = 400,
 }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<any>(null);
+  const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -49,7 +48,7 @@ export function PriceChart({
     const fetchData = async () => {
       try {
         const res = await stocksApi.getCandles(symbolKey, interval);
-        const candles = (res as unknown as ApiResponse<Candle[]>).data;
+        const candles = res as unknown as Candle[];
 
         if (candles && Array.isArray(candles)) {
           const chartData = candles.map((c) => ({

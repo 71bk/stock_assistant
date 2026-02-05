@@ -2,9 +2,7 @@ import { create } from 'zustand';
 import { ocrApi } from '../api/ocr.api';
 import { stocksApi } from '../api/stocks.api';
 import type { DraftTrade, OcrJob } from '../api/ocr.api';
-import type { ApiResponse } from '../types/api';
-import { message } from 'antd';
-import { usePortfolioStore } from './portfolio.store';
+import { msg, mdl } from '../utils/antd-globals';
 
 interface ImportState {
   currentStep: number;
@@ -16,9 +14,12 @@ interface ImportState {
   statementId: string | null;
   isPolling: boolean;
   isLoading: boolean;
+  pollingIntervalId: number | null;
+  activePollingJobId: string | null;
 
-  uploadFile: (file: File) => Promise<void>;
-  reprocessJob: () => Promise<void>;
+  uploadFile: (file: File, portfolioId: string) => Promise<void>;
+  reprocessJob: (portfolioId: string) => Promise<void>;
+  cancelJob: () => Promise<void>;
   pollJob: (jobId: string) => void;
   reset: () => void;
   updateDraftTrade: (id: string, updates: Partial<DraftTrade>) => Promise<void>;
@@ -37,6 +38,8 @@ export const useImportStore = create<ImportState>((set, get) => ({
   statementId: null,
   isPolling: false,
   isLoading: false,
+  pollingIntervalId: null,
+  activePollingJobId: null,
 
   setStep: (step) => set({ currentStep: step }),
 
@@ -49,110 +52,169 @@ export const useImportStore = create<ImportState>((set, get) => ({
       progress: 0,
       draftTrades: [],
       statementId: null,
+      pollingIntervalId: null,
+      activePollingJobId: null,
     }),
 
-  uploadFile: async (file) => {
+  uploadFile: async (file, portfolioId) => {
+    if (get().isLoading) return;
     try {
-      set({ currentStep: 1, progress: 0, jobStatus: 'QUEUED' });
-
-      const portfolioId = await usePortfolioStore.getState().initPortfolioId();
-      if (!portfolioId) throw new Error('No portfolio found');
+      set({ isLoading: true, currentStep: 1, progress: 0, jobStatus: 'QUEUED' });
 
       const fileId = await ocrApi.uploadFileOnly(file);
       set({ fileId });
 
       const res = await ocrApi.createOcrJob(fileId, portfolioId);
-      // @ts-ignore
-      const jobId = res.data.jobId;
+      const jobId = res.jobId;
+      if (!jobId) throw new Error('Failed to create OCR job');
+
       set({ activeJobId: jobId, isPolling: true });
       get().pollJob(jobId);
-    } catch (e) {
+    } catch (error) {
+      console.error('Upload file failed', error);
       set({ jobStatus: 'FAILED', isPolling: false });
-      message.error('Upload failed');
+      msg.error('Upload failed');
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  reprocessJob: async () => {
-    const { fileId } = get();
-    if (!fileId) return;
+  reprocessJob: async (portfolioId) => {
+    if (get().isLoading) return;
+    const { activeJobId, fileId, pollingIntervalId } = get();
 
     try {
-      const portfolioId = await usePortfolioStore.getState().initPortfolioId();
-      if (!portfolioId) return;
+      set({ isLoading: true });
+      if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+      }
 
-      set({ jobStatus: 'QUEUED', progress: 0, draftTrades: [], activeJobId: null, isPolling: true });
+      set({ jobStatus: 'QUEUED', progress: 0, draftTrades: [], statementId: null, isPolling: true, pollingIntervalId: null, activePollingJobId: null });
 
-      const res = await ocrApi.createOcrJob(fileId, portfolioId, true);
-      // @ts-ignore
-      const jobId = res.data.jobId;
+      let jobId = activeJobId;
+      if (jobId) {
+        const res = await ocrApi.reparseJob(jobId, true);
+        jobId = res.jobId;
+      } else if (fileId) {
+        const res = await ocrApi.createOcrJob(fileId, portfolioId, true);
+        jobId = res.jobId;
+      }
+
+      if (!jobId) throw new Error('Failed to start OCR job');
+
       set({ activeJobId: jobId });
       get().pollJob(jobId);
-    } catch (e) {
+    } catch (error) {
+      console.error('Reprocess job failed', error);
       set({ jobStatus: 'FAILED', isPolling: false });
-      message.error('Reprocess failed');
+      msg.error('重新辨識失敗');
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  cancelJob: async () => {
+    const { activeJobId, pollingIntervalId } = get();
+    if (!activeJobId) return;
+
+    try {
+      await ocrApi.cancelJob(activeJobId);
+      if (pollingIntervalId) {
+          clearInterval(pollingIntervalId);
+      }
+      set({ jobStatus: 'CANCELLED', isPolling: false, pollingIntervalId: null, activePollingJobId: null });
+      msg.info('任務已取消');
+    } catch (error) {
+      console.error('Cancel job failed', error);
+      msg.error('取消失敗');
     }
   },
 
   pollJob: (jobId: string) => {
+    if (!jobId) return;
+
+    const { pollingIntervalId, activePollingJobId } = get();
+    if (activePollingJobId === jobId && pollingIntervalId) {
+      return;
+    }
+
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+    }
+
+    set({ activePollingJobId: jobId });
+
     const interval = setInterval(async () => {
       try {
-        const res = await ocrApi.getJob(jobId);
-        const job = (res as unknown as ApiResponse<OcrJob>).data;
+        const job = await ocrApi.getJob(jobId);
 
         set({ jobStatus: job.status, progress: job.progress });
 
-        if (job.status === 'DONE' || job.status === 'FAILED') {
+        if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') {
           clearInterval(interval);
-          set({ isPolling: false });
+          set({ isPolling: false, pollingIntervalId: null, activePollingJobId: null });
           if (job.status === 'DONE') {
             try {
-              const draftsRes = await ocrApi.getDrafts(jobId);
-              // @ts-ignore
-              const trades = draftsRes.data.items;
+              const res = await ocrApi.getDrafts(jobId);
+              const trades = res.items;
               set({
                 draftTrades: trades,
-                statementId: job.statementId,
+                statementId: job.statementId || null,
               });
-              message.success('OCR Processing Complete');
+              msg.success('OCR Processing Complete');
             } catch (err) {
               console.error('Failed to fetch drafts', err);
-              message.error('Failed to load drafts');
+              msg.error('Failed to load drafts');
             }
           }
         }
-      } catch (e) {
+      } catch (error) {
+        console.error('Polling job failed', error);
         clearInterval(interval);
-        set({ isPolling: false, jobStatus: 'FAILED' });
+        set({ isPolling: false, jobStatus: 'FAILED', pollingIntervalId: null });
       }
     }, 2000);
+
+    set({ pollingIntervalId: interval as unknown as number });
   },
 
   updateDraftTrade: async (id, updates) => {
+    if (get().isLoading) return;
     try {
-      await ocrApi.updateDraft(id, updates);
+      set({ isLoading: true });
+      const updatedDraft = await ocrApi.updateDraft(id, updates);
       set((state) => ({
         draftTrades: state.draftTrades.map((t) =>
-          t.draftId === id ? { ...t, ...updates, status: 'VALID' } : t
+          t.draftId === id ? updatedDraft : t
         ),
       }));
-    } catch (e) {
-      message.error('Failed to update draft');
+    } catch (error) {
+      console.error('Update draft failed', error);
+      msg.error('Failed to update draft');
+    } finally {
+      set({ isLoading: false });
     }
   },
 
   deleteDraftTrade: async (id) => {
+    if (get().isLoading) return;
     try {
+      set({ isLoading: true });
       await ocrApi.deleteDraft(id);
       set((state) => ({
         draftTrades: state.draftTrades.filter((t) => t.draftId !== id),
       }));
-      message.success('草稿已刪除');
-    } catch (e) {
-      message.error('刪除草稿失敗');
+      msg.success('草稿已刪除');
+    } catch (error) {
+      console.error('Delete draft failed', error);
+      msg.error('刪除草稿失敗');
+    } finally {
+      set({ isLoading: false });
     }
   },
 
   confirmTrades: async (selectedIds) => {
+    if (get().isLoading) return;
     const { activeJobId, statementId, draftTrades } = get();
     const tradesToImport = draftTrades.filter((t) => selectedIds.includes(t.draftId));
 
@@ -163,9 +225,9 @@ export const useImportStore = create<ImportState>((set, get) => ({
       // Step 1: Ensure all selected trades have instrumentId
       for (const trade of tradesToImport) {
         if (!trade.instrumentId) {
-          const searchRes = await stocksApi.search(trade.rawTicker);
-          const instruments = searchRes.data as any;
-          if (instruments && instruments.length > 0) {
+          const res = await stocksApi.search(trade.rawTicker);
+          const instruments = res;
+          if (Array.isArray(instruments) && instruments.length > 0) {
             const first = instruments[0];
             const instId = first.instrumentId;
             await ocrApi.updateDraft(trade.draftId, { instrumentId: instId });
@@ -175,36 +237,45 @@ export const useImportStore = create<ImportState>((set, get) => ({
       }
 
       // Step 2: Call confirm with draftIds (removed statementId parameter)
-      const result = await ocrApi.confirmImport(activeJobId, selectedIds);
-      const { importedCount, errors } = result.data as any;
+      const res = await ocrApi.confirmImport(activeJobId, selectedIds);
+      const { importedCount, errors } = res;
 
       // Step 3: Handle errors if any
       if (errors && errors.length > 0) {
         // Mark drafts with errors
-        const errorMap = new Map(errors.map((e: any) => [e.draftId, e.reason]));
+        const errorMap = new Map(errors.map((e: { draftId: string; reason: string }) => [e.draftId, e.reason]));
         set((state) => ({
-          draftTrades: state.draftTrades.map((t) => {
-            const errorReason = errorMap.get(t.draftId);
-            if (errorReason) {
-              return {
-                ...t,
-                status: 'ERROR' as const,
-                errors: [...(t.errors || []), errorReason],
-              };
-            }
-            // Remove successfully imported drafts
-            if (selectedIds.includes(t.draftId) && !errorMap.has(t.draftId)) {
-              return null;
-            }
-            return t;
-          }).filter(Boolean) as DraftTrade[],
+          draftTrades: state.draftTrades
+            .map((t) => {
+              const errorReason = errorMap.get(t.draftId);
+              if (errorReason) {
+                return {
+                  ...t,
+                  status: 'ERROR' as const,
+                  errors: [...(t.errors || []), errorReason],
+                };
+              }
+
+              // 若在 selectedIds 中但沒在 errorMap 中，代表成功導入，返回 null 稍後過濾掉
+              if (selectedIds.includes(t.draftId)) {
+                return null;
+              }
+
+              // 其他未選中的交易，原樣保留
+              return t;
+            })
+            .filter((t): t is DraftTrade => t !== null),
         }));
 
         if (importedCount > 0) {
-          message.success(`已成功匯入 ${importedCount} 筆交易`);
+          msg.success(`已成功匯入 ${importedCount} 筆交易`);
         }
         if (errors.length > 0) {
-          message.warning(`${errors.length} 筆交易匯入失敗，請查看錯誤訊息`);
+          mdl.error({
+            title: '部分交易匯入失敗',
+            content: errors.map((err: { reason: string }) => err.reason).join('\n'),
+            destroyOnHidden: true,
+          });
         }
       } else {
         // All successful - remove imported drafts from local state
@@ -215,12 +286,12 @@ export const useImportStore = create<ImportState>((set, get) => ({
         if (remainingDrafts.length === 0) {
           set({ currentStep: 2 });
         } else {
-          message.success(`已成功匯入 ${importedCount} 筆交易`);
+          msg.success(`已成功匯入 ${importedCount} 筆交易`);
         }
       }
     } catch (e) {
       console.error('Import confirmation failed', e);
-      message.error('匯入確認失敗，請確保已選取項目的標的代號正確');
+      msg.error('匯入確認失敗，請確保已選取項目的標的代號正確');
     } finally {
       set({ isLoading: false });
     }

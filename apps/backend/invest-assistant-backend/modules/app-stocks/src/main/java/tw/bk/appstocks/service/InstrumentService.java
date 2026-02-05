@@ -47,8 +47,9 @@ public class InstrumentService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR,
                         "不支援的交易所: " + exchangeCode + " (市場: " + marketCode + ")"));
 
-        // Build symbol_key
-        String symbolKey = marketCode.toUpperCase() + ":" + exchangeCode.toUpperCase() + ":" + ticker.toUpperCase();
+        // Build symbol_key with MIC to keep uniqueness consistent with sync process
+        String symbolKey = marketCode.toUpperCase() + ":" + exchange.getMic().toUpperCase() + ":"
+                + ticker.toUpperCase();
 
         // Check if already exists
         if (instrumentRepository.findBySymbolKey(symbolKey).isPresent()) {

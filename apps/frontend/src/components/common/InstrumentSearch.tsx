@@ -3,7 +3,6 @@ import { Select, Spin, Tag, Empty, Typography } from 'antd';
 import { debounce } from 'lodash';
 import { stocksApi } from '../../api/stocks.api';
 import type { Instrument } from '../../api/stocks.api';
-import type { ApiResponse } from '../../types/api';
 
 const { Text } = Typography;
 
@@ -17,15 +16,14 @@ export const InstrumentSearch: React.FC<InstrumentSearchProps> = ({ onSelect, st
   const [options, setOptions] = useState<Instrument[]>([]);
 
   // Mock search function
-  const fetchInstruments = async (value: string) => {
+  const fetchInstruments = React.useCallback(async (value: string) => {
     if (!value) {
       setOptions([]);
       return;
     }
     setFetching(true);
     try {
-      const res = await stocksApi.search(value);
-      const data = (res as unknown as ApiResponse<Instrument[]>).data;
+      const data = await stocksApi.search(value);
       setOptions(data);
     } catch (e) {
       console.error(e);
@@ -33,17 +31,18 @@ export const InstrumentSearch: React.FC<InstrumentSearchProps> = ({ onSelect, st
     } finally {
       setFetching(false);
     }
-  };
+  }, []);
 
   const debounceFetcher = useMemo(() => {
     const loadOptions = (value: string) => {
       fetchInstruments(value);
     };
     return debounce(loadOptions, 600);
-  }, []);
+  }, [fetchInstruments]);
 
   return (
     <Select
+      loading={fetching}
       showSearch
       placeholder="搜尋代號 (如 AAPL, 2330)"
       filterOption={false}

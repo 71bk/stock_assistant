@@ -76,9 +76,14 @@ public class PortfolioService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
     }
 
+    private PortfolioEntity lockPortfolio(Long userId, Long portfolioId) {
+        return portfolioRepository.findByIdAndUserIdForUpdate(portfolioId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
+    }
+
     /**
      * Calculate portfolio summary statistics with real-time quotes.
-     * 
+     *
      * @param userId        User ID
      * @param portfolioId   Portfolio ID
      * @param quoteProvider Quote provider for real-time prices
@@ -226,7 +231,7 @@ public class PortfolioService {
 
     @Transactional
     public StockTradeEntity createTrade(Long userId, Long portfolioId, TradeCommand command) {
-        getPortfolio(userId, portfolioId);
+        lockPortfolio(userId, portfolioId);
         InstrumentEntity instrument = requireInstrument(command.instrumentId());
         validateCurrency(instrument, command.currency());
 
@@ -251,7 +256,7 @@ public class PortfolioService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Trade not found"));
 
         Long portfolioId = trade.getPortfolioId();
-        getPortfolio(userId, portfolioId);
+        lockPortfolio(userId, portfolioId);
 
         Long originalInstrumentId = trade.getInstrumentId();
         InstrumentEntity instrument = requireInstrument(command.instrumentId());
@@ -279,6 +284,7 @@ public class PortfolioService {
 
         Long portfolioId = trade.getPortfolioId();
         Long instrumentId = trade.getInstrumentId();
+        lockPortfolio(userId, portfolioId);
         tradeRepository.delete(trade);
         tradeRepository.flush();
         rebuildPosition(userId, portfolioId, instrumentId);

@@ -7,6 +7,7 @@ import { useAiStore } from '../../stores/ai.store';
 import { formatCurrency } from '../../utils/format';
 import { AddTradeModal } from './components/AddTradeModal';
 import { AiAnalysisModal } from '../../components/ai/AiAnalysisModal';
+import type { Position } from '../../api/portfolios.api';
 
 const { Title } = Typography;
 
@@ -14,7 +15,7 @@ const Portfolio: React.FC = () => {
   const navigate = useNavigate();
   const { summary, positions, isLoading, fetchPortfolioData } = usePortfolioStore();
   const { startAnalysis, resetAnalysis } = useAiStore();
-  
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
@@ -87,7 +88,7 @@ const Portfolio: React.FC = () => {
       title: '商品',
       dataIndex: 'ticker',
       key: 'ticker',
-      render: (text: string, record: any) => (
+      render: (text: string, record: Position) => (
         <div>
           <div style={{ fontWeight: 'bold' }}>{text}</div>
           <div style={{ fontSize: 12, color: '#888' }}>{record.name}</div>
@@ -107,14 +108,14 @@ const Portfolio: React.FC = () => {
       dataIndex: 'avgCostNative',
       key: 'avgCostNative',
       align: 'right' as const,
-      render: (val: number, record: any) => val != null ? formatCurrency(val, record.currency) : '-',
+      render: (val: number, record: Position) => val != null ? formatCurrency(val, record.currency) : '-',
     },
     {
       title: '現價',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
       align: 'right' as const,
-      render: (val: number, record: any) => (
+      render: (val: number, record: Position) => (
         <span style={{ fontWeight: 'bold' }}>{val != null ? formatCurrency(val, record.currency) : '-'}</span>
       ),
     },
@@ -123,17 +124,19 @@ const Portfolio: React.FC = () => {
       dataIndex: 'currentValue',
       key: 'currentValue',
       align: 'right' as const,
-      render: (val: number, record: any) => val != null ? formatCurrency(val, record.currency) : '-',
+      render: (val: number, record: Position) => val != null ? formatCurrency(val, record.currency) : '-',
     },
     {
       title: '未實現損益',
       dataIndex: 'unrealizedPnl',
       key: 'unrealizedPnl',
       align: 'right' as const,
-      render: (val: number, record: any) => (
+      render: (val: number, record: Position) => (
         <div style={{ color: (val || 0) >= 0 ? '#3f8600' : '#cf1322' }}>
           <div>{val != null ? formatCurrency(val, record.currency) : '-'}</div>
-          <div style={{ fontSize: 12 }}>{record.unrealizedPnlPercent ?? '-'}%</div>
+          <div style={{ fontSize: 12 }}>
+            {record.unrealizedPnlPercent != null ? `${Number(record.unrealizedPnlPercent).toFixed(2)}%` : '-'}
+          </div>
         </div>
       ),
     },

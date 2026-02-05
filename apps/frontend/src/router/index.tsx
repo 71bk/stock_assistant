@@ -1,3 +1,5 @@
+import { createBrowserRouter } from 'react-router-dom';
+import { routeConfig } from './routes';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { MainLayout } from '../components/layout/MainLayout';
 import { AuthLayout } from '../components/layout/AuthLayout';
@@ -11,6 +13,7 @@ import Reports from '../pages/Reports';
 import Settings from '../pages/Settings';
 import Stocks from '../pages/Stocks';
 
+export const router = createBrowserRouter(routeConfig);
 export const router = createBrowserRouter([
   {
     path: '/login',

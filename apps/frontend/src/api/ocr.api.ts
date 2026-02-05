@@ -1,5 +1,4 @@
 import { http } from '../utils/http';
-import type { ApiResponse } from '../types/api';
 
 export interface DraftTrade {
   draftId: string;
@@ -16,35 +15,48 @@ export interface DraftTrade {
   fee: string | number;
   tax: string | number;
   /** 客戶淨收/淨付金額（買入為負，賣出為正） */
-  netAmount: number | null;
+  netAmount: string | null;
   confidence?: number;
   warnings: string[];
   status?: 'VALID' | 'WARNING' | 'ERROR';
   errors: string[];
+  duplicate?: boolean;
 }
 
 export interface OcrJob {
-  id: string;
-  status: 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
+  jobId: string;
+  status: 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';
   progress: number;
-  error?: string;
+  errorMessage?: string | null;
   statementId?: string;
-  result?: {
-    trades: DraftTrade[];
-  };
+}
+
+export interface CreateOcrJobResponse {
+  jobId: string;
+  statementId?: string;
+  status: string;
+}
+
+export interface GetDraftsResponse {
+  items: DraftTrade[];
+}
+
+export interface ConfirmImportResponse {
+  importedCount: number;
+  errors: Array<{ draftId: string; reason: string }>;
 }
 
 export const ocrApi = {
   uploadFileOnly: async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    const fileRes = (await http.post<ApiResponse<{ fileId: string }>>('/files', formData, {
+    const res = await http.post<{ fileId: string; sha256: string }>('/files', formData, {
       headers: {
         'Content-Type': undefined,
       },
       timeout: 60000,
-    })) as unknown as ApiResponse<{ fileId: string }>;
-    return fileRes.data.fileId;
+    });
+    return res.fileId;
   },
 
   // Deprecated: Use uploadFileOnly + createOcrJob
@@ -54,27 +66,33 @@ export const ocrApi = {
   },
 
   createOcrJob: (fileId: string, portfolioId: string, force = false) =>
-    http.post<ApiResponse<{ jobId: string }>>('/ocr/jobs', {
+    http.post<CreateOcrJobResponse>('/ocr/jobs', {
       fileId,
       portfolioId,
       force,
     }),
 
   getJob: (jobId: string) =>
-    http.get<ApiResponse<OcrJob>>(`/ocr/jobs/${jobId}`),
+    http.get<OcrJob>(`/ocr/jobs/${jobId}`),
 
   getDrafts: (jobId: string) =>
-    http.get<ApiResponse<{ items: DraftTrade[] }>>(`/ocr/jobs/${jobId}/drafts`),
+    http.get<GetDraftsResponse>(`/ocr/jobs/${jobId}/drafts`),
 
   updateDraft: (draftId: string, updates: Partial<DraftTrade>) =>
-    http.patch<ApiResponse<DraftTrade>>(`/ocr/drafts/${draftId}`, updates),
+    http.patch<DraftTrade>(`/ocr/drafts/${draftId}`, updates),
 
   confirmImport: (jobId: string, draftIds?: string[]) =>
-    http.post<ApiResponse<{
-      importedCount: number;
-      errors: Array<{ draftId: string; reason: string }>;
-    }>>(`/ocr/jobs/${jobId}/confirm`, draftIds?.length ? { draftIds } : {}),
+    http.post<ConfirmImportResponse>(`/ocr/jobs/${jobId}/confirm`, draftIds?.length ? { draftIds } : {}),
 
   deleteDraft: (draftId: string) =>
-    http.delete<ApiResponse<void>>(`/ocr/drafts/${draftId}`),
+    http.delete<void>(`/ocr/drafts/${draftId}`),
+
+  retryJob: (jobId: string, force = false) =>
+    http.post<CreateOcrJobResponse>(`/ocr/jobs/${jobId}/retry`, {}, { params: { force } }),
+
+  reparseJob: (jobId: string, force = false) =>
+    http.post<CreateOcrJobResponse>(`/ocr/jobs/${jobId}/reparse`, {}, { params: { force } }),
+
+  cancelJob: (jobId: string) =>
+    http.post<OcrJob>(`/ocr/jobs/${jobId}/cancel`),
 };

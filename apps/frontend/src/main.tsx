@@ -5,29 +5,23 @@ import App from './app/App';
 import './styles/global.css';
 
 Sentry.init({
-  dsn: import.meta.env.VITE_SENTRY_DSN,
+  dsn: "https://ad9e4479e68e0eef5600a269f11cb9bd@o4510673121968128.ingest.us.sentry.io/4510826173169664",
+  // Setting this option to true will send default PII data to Sentry.
+  // For example, automatic IP address collection on events
+  sendDefaultPii: true,
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || "dev",
 
   // Performance Monitoring
   tracesSampleRate: import.meta.env.PROD ? 0.1 : 1.0,
 
-  // Session Replay (optional but recommended)
-  replaysSessionSampleRate: 0.1, // 10% of sessions
-  replaysOnErrorSampleRate: 1.0, // 100% when error occurs
+  // Session Replay
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1.0,
 
   integrations: [
     Sentry.browserTracingIntegration(),
     Sentry.replayIntegration(),
   ],
-
-  // Filter out sensitive data
-  beforeSend(event) {
-    // Remove sensitive information if needed
-    if (event.request) {
-      delete event.request.cookies;
-    }
-    return event;
-  },
 });
 
 

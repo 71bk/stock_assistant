@@ -11,15 +11,17 @@ interface AuthState {
   checkAuth: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true, // Start loading to check session
 
   login: () => {
      // After Google OAuth redirect, we might re-fetch user
-     set({ isAuthenticated: true });
-     useAuthStore.getState().checkAuth();
+     if (!get().isAuthenticated) {
+       set({ isAuthenticated: true });
+       get().checkAuth();
+     }
   },
 
   logout: async () => {
@@ -38,11 +40,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true });
     try {
       // Call /auth/me to validate session and get user info
-      const response = await authApi.getMe();
-      // Ensure the response data matches the User interface
-      const userData = response.data;
+      const userData = await authApi.getMe();
       set({ user: userData, isAuthenticated: true });
-
     } catch (error) {
       console.error(error);
       // If 401/403, we are not authenticated
