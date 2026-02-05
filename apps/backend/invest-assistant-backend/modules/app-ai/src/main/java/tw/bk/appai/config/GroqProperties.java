@@ -28,6 +28,9 @@ public class GroqProperties {
     /** Top-p 採樣參數 */
     private Double topP = 1.0;
 
+    /** Request timeout (seconds) */
+    private Integer timeoutSeconds = 60;
+
     public String getBaseUrl() {
         return baseUrl;
     }
@@ -74,5 +77,13 @@ public class GroqProperties {
 
     public void setTopP(Double topP) {
         this.topP = topP;
+    }
+
+    public Integer getTimeoutSeconds() {
+        return timeoutSeconds;
+    }
+
+    public void setTimeoutSeconds(Integer timeoutSeconds) {
+        this.timeoutSeconds = timeoutSeconds;
     }
 }
