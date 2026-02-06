@@ -1,5 +1,8 @@
-package tw.bk.appcommon.error;
+package tw.bk.appcommon.enums;
 
+/**
+ * 錯誤代碼對應 HTTP 狀態碼
+ */
 public enum ErrorCode {
     VALIDATION_ERROR(400, "VALIDATION_ERROR", "Validation error"),
     AUTH_UNAUTHORIZED(401, "AUTH_UNAUTHORIZED", "Unauthorized"),

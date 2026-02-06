@@ -1,12 +1,13 @@
-﻿package tw.bk.appstocks.service;
+package tw.bk.appstocks.service;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.AssetType;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
-import tw.bk.appcommon.model.MarketCode;
+import tw.bk.appcommon.enums.MarketCode;
 import tw.bk.appstocks.config.StockMarketProperties;
 import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
@@ -38,6 +39,7 @@ public class StockQuoteService {
     private final List<StockMarketClient> stockMarketClients;
     private final StockCacheService cacheService;
     private final StockMarketProperties properties;
+    private final WarrantQuoteService warrantQuoteService;
     private Map<MarketCode, StockMarketClient> clientMap = Collections.emptyMap();
     private final ConcurrentHashMap<String, CompletableFuture<Object>> inflight = new ConcurrentHashMap<>();
 
@@ -72,11 +74,13 @@ public class StockQuoteService {
                 return cachedAgain.get();
             }
 
-            //  2. 查詢商品資訊
+            // 2. 查詢商品資訊
             InstrumentEntity instrument = instrumentRepository.findBySymbolKeyWithRelations(symbolKey)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "???????? " + symbolKey));
-            if ("WARRANT".equalsIgnoreCase(instrument.getAssetType())) {
-                throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Warrant quote not supported");
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
+            if (AssetType.WARRANT.equals(instrument.getAssetTypeEnum())) {
+                Quote quote = warrantQuoteService.getQuote(instrument.getTicker());
+                cacheService.set(cacheKey, quote, properties.getCache().getQuoteTtl());
+                return quote;
             }
 
             // 3. 根據市場選擇對應的 client
@@ -84,13 +88,13 @@ public class StockQuoteService {
             MarketCode marketCode = MarketCode.requireSupported(
                     marketCodeValue,
                     ErrorCode.INTERNAL_ERROR,
-                    "無法取得股票報價:  " + marketCodeValue);
+                    "無法取得股票報價: " + marketCodeValue);
             StockMarketClient client = getClientByMarket(marketCode);
 
             // 4. 呼叫第三方 API
             Quote quote = client.getQuote(instrument.getTicker())
                     .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR,
-                            "?⊥????∠巨?勗: " + symbolKey));
+                            "無法取得報價資料: " + symbolKey));
 
             // 5. 寫入快取
             cacheService.set(cacheKey, quote, properties.getCache().getQuoteTtl());
@@ -99,7 +103,7 @@ public class StockQuoteService {
     }
 
     public List<Candle> getCandles(String symbolKey, String interval, LocalDate from, LocalDate to) {
-        // 1. 瑼Ｘ敹怠?
+        // 1. 檢查快取
         String cacheKey = String.format("candles:%s:%s:%s:%s",
                 symbolKey, interval, from, to);
         Optional<List<Candle>> cached = cacheService.getList(cacheKey, Candle.class);
@@ -113,25 +117,28 @@ public class StockQuoteService {
                 return cachedAgain.get();
             }
 
-            // 2. ?亥岷??鞈?
+            // 2. 查詢商品資訊
             InstrumentEntity instrument = instrumentRepository.findBySymbolKeyWithRelations(symbolKey)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "??銝??? " + symbolKey));
-            if ("WARRANT".equalsIgnoreCase(instrument.getAssetType())) {
-                throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Warrant candles not supported");
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
+            if (AssetType.WARRANT.equals(instrument.getAssetTypeEnum())) {
+                List<Candle> candles = warrantQuoteService.getCandles(
+                        instrument.getTicker(), interval, from, to);
+                cacheService.setList(cacheKey, candles, properties.getCache().getCandlesTtl());
+                return candles;
             }
 
-            // 3. ?寞?撣?豢?撠???client
+            // 3. 根據市場選擇對應的 client
             String marketCodeValue = instrument.getMarket() != null ? instrument.getMarket().getCode() : null;
             MarketCode marketCode = MarketCode.requireSupported(
                     marketCodeValue,
                     ErrorCode.INTERNAL_ERROR,
-                    "銝?渡?撣: " + marketCodeValue);
+                    "不支援的市場: " + marketCodeValue);
             StockMarketClient client = getClientByMarket(marketCode);
 
-            // 4. ?澆蝚砌???API
+            // 4. 呼叫第三方 API
             List<Candle> candles = client.getCandles(instrument.getTicker(), interval, from, to);
 
-            // 5. 撖怠敹怠?嚗蝺??翰?????瘀?
+            // 5. 寫入快取（空結果也快取避免重複請求）
             cacheService.setList(cacheKey, candles, properties.getCache().getCandlesTtl());
             return candles;
         });
@@ -179,6 +186,3 @@ public class StockQuoteService {
         return client;
     }
 }
-
-
-

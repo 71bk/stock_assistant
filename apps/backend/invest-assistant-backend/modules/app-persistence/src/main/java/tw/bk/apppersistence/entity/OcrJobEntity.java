@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.appcommon.model.BaseEntity;
 
 @Entity
@@ -29,4 +30,8 @@ public class OcrJobEntity extends BaseEntity {
 
     @Column(name = "error_message")
     private String errorMessage;
+
+    public OcrJobStatus getStatusEnum() {
+        return OcrJobStatus.from(status);
+    }
 }

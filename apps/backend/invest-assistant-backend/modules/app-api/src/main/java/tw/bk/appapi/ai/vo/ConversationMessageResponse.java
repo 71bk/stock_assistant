@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appcommon.enums.ConversationMessageStatus;
+import tw.bk.appcommon.enums.ConversationRole;
 import tw.bk.apppersistence.entity.ConversationMessageEntity;
 
 @Data
@@ -13,17 +15,17 @@ import tw.bk.apppersistence.entity.ConversationMessageEntity;
 @AllArgsConstructor
 public class ConversationMessageResponse {
     private String messageId;
-    private String role;
+    private ConversationRole role;
     private String content;
-    private String status;
+    private ConversationMessageStatus status;
     private OffsetDateTime createdAt;
 
     public static ConversationMessageResponse from(ConversationMessageEntity entity) {
         return ConversationMessageResponse.builder()
                 .messageId(entity.getId() != null ? entity.getId().toString() : null)
-                .role(entity.getRole())
+                .role(entity.getRoleEnum())
                 .content(entity.getContent())
-                .status(entity.getStatus())
+                .status(entity.getStatusEnum())
                 .createdAt(entity.getCreatedAt())
                 .build();
     }

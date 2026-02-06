@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appcommon.enums.AssetType;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 
 /**
@@ -58,7 +59,7 @@ public class InstrumentResponse {
     /**
      * 資產類型（STOCK, ETF）
      */
-    private String assetType;
+    private AssetType assetType;
 
     /**
      * 從 Entity 轉換
@@ -73,7 +74,7 @@ public class InstrumentResponse {
                 .market(entity.getMarket() != null ? entity.getMarket().getCode() : null)
                 .exchange(entity.getExchange() != null ? entity.getExchange().getCode() : null)
                 .currency(entity.getCurrency())
-                .assetType(entity.getAssetType())
+                .assetType(entity.getAssetTypeEnum())
                 .build();
     }
 }

@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.admin.config.AdminProperties;
 import tw.bk.appapi.admin.vo.InstrumentSyncResponse;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
@@ -32,6 +32,18 @@ public class AdminInstrumentController {
             @RequestHeader(value = ADMIN_HEADER, required = false) String adminKey) {
         requireAdminKey(adminKey);
         InstrumentSyncService.SyncResult result = instrumentSyncService.syncTwEquityInstruments();
+        return Result.ok(InstrumentSyncResponse.builder()
+                .added(result.added())
+                .skipped(result.skipped())
+                .build());
+    }
+
+    @PostMapping("/sync-warrants")
+    @Operation(summary = "Sync TW Warrants from TWSE and TPEx")
+    public Result<InstrumentSyncResponse> syncWarrants(
+            @RequestHeader(value = ADMIN_HEADER, required = false) String adminKey) {
+        requireAdminKey(adminKey);
+        InstrumentSyncService.SyncResult result = instrumentSyncService.syncTwWarrantInstruments();
         return Result.ok(InstrumentSyncResponse.builder()
                 .added(result.added())
                 .skipped(result.skipped())

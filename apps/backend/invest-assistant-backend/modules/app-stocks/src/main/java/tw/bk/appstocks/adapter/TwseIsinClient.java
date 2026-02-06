@@ -12,7 +12,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Component;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appstocks.config.StockMarketProperties;
 
@@ -35,43 +35,58 @@ public class TwseIsinClient {
                     .userAgent("Mozilla/5.0")
                     .timeout(15000)
                     .get();
-            Element table = doc.selectFirst("table.h4");
-            if (table == null) {
-                table = doc.selectFirst("table");
-            }
-            if (table == null) {
+            Elements tables = doc.select("table");
+            if (tables == null || tables.isEmpty()) {
+                log.warn("TWSE ISIN table not found: url={}", url);
                 return List.of();
             }
-            List<TwseIsinItem> results = new ArrayList<>();
-            Elements rows = table.select("tr");
-            for (Element row : rows) {
-                Elements tds = row.select("td");
-                if (tds.size() < 2) {
-                    continue;
+
+            for (Element table : tables) {
+                List<TwseIsinItem> results = new ArrayList<>();
+                Elements rows = table.select("tr");
+                for (Element row : rows) {
+                    Elements tds = row.select("td");
+                    if (tds.size() < 2) {
+                        continue;
+                    }
+                    String combined = normalizeSpace(tds.get(0).text());
+                    if (combined == null || combined.isBlank()) {
+                        continue;
+                    }
+                    if (combined.startsWith("有價證券代號")) {
+                        continue;
+                    }
+                    String code = null;
+                    String name = null;
+                    Matcher matcher = CODE_NAME_PATTERN.matcher(combined);
+                    if (matcher.find()) {
+                        code = matcher.group(1);
+                        name = matcher.group(2);
+                    } else {
+                        // Fallback: some tables separate code/name into different columns
+                        String codeCell = normalizeSpace(tds.get(0).text());
+                        String nameCell = normalizeSpace(tds.get(1).text());
+                        if (codeCell != null && !codeCell.isBlank()) {
+                            code = codeCell;
+                            name = nameCell;
+                        }
+                    }
+                    if (code == null || code.isBlank()) {
+                        continue;
+                    }
+                    String normalizedCode = code.trim();
+                    if (!CODE_PATTERN.matcher(normalizedCode).matches()) {
+                        continue;
+                    }
+                    results.add(new TwseIsinItem(normalizedCode, trimOrNull(name)));
                 }
-                String combined = normalizeSpace(tds.get(0).text());
-                if (combined == null || combined.isBlank()) {
-                    continue;
+                if (!results.isEmpty()) {
+                    return results;
                 }
-                if (combined.startsWith("有價證券代號")) {
-                    continue;
-                }
-                Matcher matcher = CODE_NAME_PATTERN.matcher(combined);
-                if (!matcher.find()) {
-                    continue;
-                }
-                String code = matcher.group(1);
-                String name = matcher.group(2);
-                if (code == null || code.isBlank()) {
-                    continue;
-                }
-                String normalizedCode = code.trim();
-                if (!CODE_PATTERN.matcher(normalizedCode).matches()) {
-                    continue;
-                }
-                results.add(new TwseIsinItem(normalizedCode, trimOrNull(name)));
             }
-            return results;
+
+            log.warn("TWSE ISIN returned empty results: url={}", url);
+            return List.of();
         } catch (IOException ex) {
             log.error("Failed to fetch TWSE ISIN page: {}", ex.getMessage(), ex);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "TWSE ISIN fetch failed");

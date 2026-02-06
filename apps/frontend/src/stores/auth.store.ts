@@ -17,11 +17,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true, // Start loading to check session
 
   login: () => {
-     // After Google OAuth redirect, we might re-fetch user
-     if (!get().isAuthenticated) {
-       set({ isAuthenticated: true });
-       get().checkAuth();
-     }
+    // After Google OAuth redirect, we might re-fetch user
+    if (!get().isAuthenticated) {
+      set({ isAuthenticated: true });
+      get().checkAuth();
+    }
   },
 
   logout: async () => {
@@ -32,7 +32,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } finally {
       // Always clean up state even if API fails
       set({ user: null, isAuthenticated: false });
-      window.location.href = '/login';
+      window.location.href = '/auth/login';
     }
   },
 

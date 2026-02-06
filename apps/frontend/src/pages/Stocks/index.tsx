@@ -121,7 +121,11 @@ const Stocks: React.FC = () => {
           </Card>
 
           <Card title="股價走勢 (K線圖)">
-             <PriceChart symbolKey={symbolKey!} height={500} />
+             <PriceChart
+               symbolKey={symbolKey!}
+               assetType={selectedInstrument.assetType}
+               height={500}
+             />
           </Card>
         </>
       ) : (

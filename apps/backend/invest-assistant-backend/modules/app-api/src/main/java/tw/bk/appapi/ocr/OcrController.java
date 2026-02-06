@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.ocr.dto.ConfirmOcrRequest;
 import tw.bk.appapi.ocr.dto.CreateOcrJobRequest;
@@ -26,7 +27,7 @@ import tw.bk.appapi.ocr.vo.OcrConfirmResponse.DraftError;
 import tw.bk.appapi.ocr.vo.OcrDraftListResponse;
 import tw.bk.appapi.ocr.vo.OcrDraftResponse;
 import tw.bk.appapi.ocr.vo.OcrJobResponse;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
@@ -143,7 +144,19 @@ public class OcrController {
                 .build());
     }
 
-    @DeleteMapping("/drafts/{draftId}")
+    
+    @PostMapping("/jobs/{jobId}/reparse")
+    @Operation(summary = "Reparse OCR job")
+    public Result<OcrJobResponse> reparse(
+            @PathVariable String jobId,
+            @RequestParam(required = false) Boolean force) {
+        Long userId = requireUserId();
+        boolean isForce = Boolean.TRUE.equals(force);
+        OcrJobEntity job = ocrService.reparse(userId, parseId(jobId), isForce);
+        return Result.ok(OcrJobResponse.from(job));
+    }
+
+@DeleteMapping("/drafts/{draftId}")
     @Operation(summary = "Delete draft trade")
     public Result<Void> deleteDraft(@PathVariable String draftId) {
         Long userId = requireUserId();

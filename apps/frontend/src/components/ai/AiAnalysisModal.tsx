@@ -1,7 +1,12 @@
 import React from 'react';
-import { Modal, Typography, Divider, Spin, Empty, Button } from 'antd';
+import { Modal, Divider, Spin, Empty, Button } from 'antd';
 import { RobotOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import { useAiStore } from '../../stores/ai.store';
+import { preprocessMarkdown } from '../../utils/format';
 
 interface AiAnalysisModalProps {
   open: boolean;
@@ -38,12 +43,17 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ open, onClose,
         )}
         
         {analysisStream ? (
-          <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8', fontSize: '15px' }}>
-            {analysisStream}
+          <div className="markdown-content">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw, rehypeSanitize]}
+            >
+              {preprocessMarkdown(analysisStream)}
+            </ReactMarkdown>
             {isAnalyzing && (
-              <span style={{ marginLeft: 4 }}>
+              <div style={{ marginTop: 8 }}>
                 <Spin size="small" />
-              </span>
+              </div>
             )}
           </div>
         ) : !isAnalyzing ? (

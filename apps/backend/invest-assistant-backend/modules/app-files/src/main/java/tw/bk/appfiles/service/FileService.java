@@ -15,7 +15,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.FileProvider;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appfiles.config.FileStorageProperties;
 import tw.bk.apppersistence.entity.FileEntity;
@@ -41,9 +42,9 @@ import tw.bk.appfiles.model.PresignResult;
 @Service
 @RequiredArgsConstructor
 public class FileService {
-    private static final String PROVIDER_LOCAL = "local";
-    private static final String PROVIDER_S3 = "s3";
-    private static final String PROVIDER_MINIO = "minio";
+    private static final String PROVIDER_LOCAL = FileProvider.LOCAL.name().toLowerCase(Locale.ROOT);
+    private static final String PROVIDER_S3 = FileProvider.S3.name().toLowerCase(Locale.ROOT);
+    private static final String PROVIDER_MINIO = FileProvider.MINIO.name().toLowerCase(Locale.ROOT);
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
 
     private final FileRepository fileRepository;

@@ -1,5 +1,7 @@
 package tw.bk.appportfolio.model;
 
+import tw.bk.appcommon.enums.TradeSide;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 

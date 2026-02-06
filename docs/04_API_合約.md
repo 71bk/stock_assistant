@@ -10,7 +10,7 @@
 - **資源命名**：名詞複數（`portfolios` / `trades` / `stocks`）
 - **動作型**：僅在必要時使用（如 `:id/confirm`）
 - **ID 形式**：回傳與輸入皆使用 **字串**（避免 JS 精度問題；DB 可為 BIGINT/UUID）
-- **時間/日期**：全部 **UTC**；`TIMESTAMP` 用 ISO 8601（例 `2026-01-07T12:34:56Z`），`DATE` 用 `YYYY-MM-DD`
+- **時間/日期**：`TIMESTAMP` 一律使用 ISO 8601 **含時區**（例 `2026-01-07T12:34:56Z` 或 `2026-01-07T12:34:56+08:00`），`DATE` 用 `YYYY-MM-DD`
 - **金額/數量**：建議以 **字串**傳遞（DECIMAL），前端用 decimal library；若使用 number 需注意精度
 - **DTO/VO 命名**：
   - **Request**：放置於 `dto` package，命名為 `*Request`（例 `CreateTradeRequest`）
@@ -132,7 +132,7 @@ Response：
 > 從 Fugle `/intraday/tickers` 匯入 TWSE/TPEx 的 EQUITY（含 ETF）。只新增不存在的 ticker。
 
 #### 同步權證（`POST /api/admin/instruments/sync-warrants`）
-TPEx 權證以官方 OpenAPI；TWSE 以 ISIN 名冊作 fallback（名冊-only）。
+TPEx 權證以官方 OpenAPI `/tpex_warrant_issue` 作為**基本資料主來源**；TWSE 以 ISIN 名冊作 fallback（名冊-only）。
 
 Headers：
 ```
@@ -162,6 +162,11 @@ Response：
 | GET | `/api/auth/me` | 取得登入使用者資訊 | 是 |
 | POST | `/api/auth/refresh` | 旋轉 refresh、刷新 access | 是（refresh cookie） |
 | POST | `/api/auth/logout` | 登出並撤銷 refresh session | 是 |
+
+#### 認證/參數說明
+- `GET /api/auth/me`：需要有效 `access_token` Cookie
+- `POST /api/auth/refresh`：需要 `refresh_token` Cookie（無 request body）
+- `POST /api/auth/logout`：需要 `refresh_token` Cookie（無 request body）
 
 ### User Profile（`GET /api/auth/me`）
 ```json
@@ -223,17 +228,17 @@ Response
 ### Endpoints
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
-| GET | `/api/stocks/markets` | 市場列表（TW/US） | 否 |
-| GET | `/api/stocks/exchanges` | 交易所列表（可依 market 過濾） | 否 |
-| GET | `/api/stocks/tickers` | 取得 tickers 清單（台股專用） | 否 |
-| GET | `/api/stocks/instruments` | 搜尋商品（分頁/模糊查詢） | 否 |
-| GET | `/api/stocks/instruments/{instrumentId}` | 取得單一商品 | 否 |
-| GET | `/api/stocks/quote` | 即時報價 | 否 |
-| GET | `/api/stocks/candles` | K 線資料 | 否 |
-| GET | `/api/instruments` | 商品列表（分頁） | 否 |
+| GET | `/api/stocks/markets` | 市場列表（TW/US） | 是 |
+| GET | `/api/stocks/exchanges` | 交易所列表（可依 market 過濾） | 是 |
+| GET | `/api/stocks/tickers` | 取得 tickers 清單（台股專用） | 是 |
+| GET | `/api/stocks/instruments` | 搜尋商品（分頁/模糊查詢） | 是 |
+| GET | `/api/stocks/instruments/{instrumentId}` | 取得單一商品 | 是 |
+| GET | `/api/stocks/quote` | 即時報價 | 是 |
+| GET | `/api/stocks/candles` | K 線資料 | 是 |
+| GET | `/api/instruments` | 商品列表（分頁） | 是 |
 | POST | `/api/instruments` | 手動建立商品 | 是 |
-| GET | `/api/instruments/search` | 搜尋商品（自動補全） | 否 |
-| GET | `/api/instruments/{symbolKey}` | 取得商品詳情 | 否 |
+| GET | `/api/instruments/search` | 搜尋商品（自動補全） | 是 |
+| GET | `/api/instruments/{symbolKey}` | 取得商品詳情 | 是 |
 
 ---
 
@@ -353,10 +358,14 @@ Response：
   "traceId": "..."
 }
 ```
+> **Note**: `assetType` 為 enum（`STOCK` / `ETF` / `WARRANT`）。
 
 ---
 
 #### 單一商品（`GET /api/stocks/instruments/{instrumentId}`）
+Path 參數：
+- `instrumentId`：可傳 **數字 ID** 或 **symbolKey**（例 `TW:XTAI:2330`）
+
 Response：
 ```json
 {
@@ -376,11 +385,21 @@ Response：
   "traceId": "..."
 }
 ```
+> **Note**: `assetType` 為 enum（`STOCK` / `ETF` / `WARRANT`）。
 
 ---
 
 #### Quote（`GET /api/stocks/quote`）
-Query Parameters：`instrumentId` 或 `symbolKey` 擇一
+Query Parameters：`instrumentId` 或 `symbolKey`（camelCase）擇一  
+參數說明：
+- `instrumentId`：內部 ID（與 `symbolKey` 二擇一）
+- `symbolKey`：`MARKET:EXCHANGE:TICKER`（例：`TW:XTAI:2330`）
+
+範例：
+```
+GET /api/stocks/quote?symbolKey=US:XNAS:AAPL
+```
+> **備註**：`STOCK/ETF` 走即時報價；`WARRANT` 以 TPEx 日線收盤作為報價來源（EOD）。
 
 Response：
 ```json
@@ -407,7 +426,18 @@ Response：
 ---
 
 #### Candles（`GET /api/stocks/candles`）
-Query Parameters：`instrumentId` 或 `symbolKey` 擇一，`interval`、`from`、`to`
+Query Parameters：`instrumentId` 或 `symbolKey`（camelCase）擇一，`interval`（預設 `1d`）、`from`、`to`  
+參數說明：
+- `instrumentId`：內部 ID（與 `symbolKey` 二擇一）
+- `symbolKey`：`MARKET:EXCHANGE:TICKER`（例：`TW:XTAI:2330`）
+- `interval`：時間週期（預設 `1d`）
+- `from`/`to`：日期範圍（`YYYY-MM-DD`，可選）
+
+範例：
+```
+GET /api/stocks/candles?symbolKey=US:XNAS:AAPL&interval=1d&from=2026-01-01&to=2026-01-31
+```
+> **備註**：`STOCK/ETF` 支援 1m/5m/15m/30m/1h/1d/1w/1mo（視資料源）；`WARRANT` 僅支援 1d/1mo。
 
 Response：
 ```json
@@ -415,7 +445,7 @@ Response：
   "success": true,
   "data": [
     {
-      "timestamp": "2026-01-01T00:00:00",
+      "timestamp": "2026-01-01T00:00:00+08:00",
       "open": 100.1,
       "high": 101.5,
       "low": 99.9,
@@ -486,7 +516,7 @@ Request：
 | market | ✅ | 市場代碼（TW/US） |
 | exchange | ✅ | 交易所代碼（TWSE/TPEx/XNAS 等） |
 | currency | ✅ | 幣別（TWD/USD） |
-| assetType | - | 類型，預設 STOCK |
+| assetType | - | 類型（enum：`STOCK` / `ETF` / `WARRANT`），預設 STOCK |
 
 Response：
 ```json
@@ -494,7 +524,7 @@ Response：
   "success": true,
   "data": {
     "instrumentId": "12345",
-    "symbolKey": "TW:TWSE:OLD123",
+    "symbolKey": "TW:XTAI:OLD123",
     "ticker": "OLD123",
     "nameZh": "已下市公司",
     "nameEn": "Delisted Company",
@@ -507,8 +537,9 @@ Response：
   "traceId": "..."
 }
 ```
+> **Note**: `assetType` 為 enum（`STOCK` / `ETF` / `WARRANT`）。
 
-> **Note**: 若商品已存在（相同 symbol_key），會回傳 409 CONFLICT 錯誤。
+> **Note**: 若商品已存在（相同 symbolKey），會回傳 409 CONFLICT 錯誤。
 
 ---
 
@@ -543,6 +574,9 @@ Response：
 
 #### 商品詳情（`GET /api/instruments/{symbolKey}`）
 回傳內容新增 warrantProfile（僅 asset_type=WARRANT 時有）
+Path 參數：
+- `symbolKey`：`MARKET:EXCHANGE:TICKER`（例：`TW:XTAI:2330`）
+
 Response：`Result<InstrumentDetailResponse>`
 ```json
 {
@@ -612,16 +646,30 @@ Response：
 ```
 
 #### 新增交易（`POST /api/portfolios/{portfolioId}/trades`）
+Request 欄位：
+- `instrumentId`（必填）
+- `tradeDate`（必填，`YYYY-MM-DD`）
+- `settlementDate`（可選，`YYYY-MM-DD`）
+- `side`（必填：BUY/SELL）
+- `quantity`（必填，字串）
+- `price`（必填，字串）
+- `currency`（必填）
+- `fee`（可選，字串）
+- `tax`（可選，字串）
+- `accountId`（可選，字串）
+
 ```json
 {
   "instrumentId": "1001",
   "tradeDate": "2026-01-07",
+  "settlementDate": "2026-01-09",
   "side": "BUY",
   "quantity": "10",
   "price": "198.32",
   "currency": "USD",
   "fee": "1.5",
-  "tax": "0"
+  "tax": "0",
+  "accountId": "3001"
 }
 ```
 
@@ -636,6 +684,9 @@ Response（節錄）
   "traceId": "..."
 }
 ```
+
+#### 更新交易（`PATCH /api/trades/{tradeId}`）
+Request 欄位：同「新增交易」
 
 #### 交易列表（`GET /api/portfolios/{portfolioId}/trades`）
 Query Parameters：
@@ -678,7 +729,11 @@ Response（節錄）
 |---|---|---|---|
 | POST | `/api/files` | 上傳檔案（multipart） | 是 |
 | GET | `/api/files/{fileId}` | 取得檔案 metadata | 是 |
-| POST | `/api/files/presign` | 取得預簽 URL（尚未支援） | 是 |
+| POST | `/api/files/presign` | 取得預簽 URL | 是 |
+
+#### 上傳檔案（`POST /api/files`）
+Request（`multipart/form-data`）：
+- `file`：檔案本體
 
 Response（`POST /api/files` 節錄）
 ```json
@@ -687,6 +742,36 @@ Response（`POST /api/files` 節錄）
   "data": {
     "fileId": "501",
     "sha256": "..."
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+---
+
+#### 取得預簽 URL（`POST /api/files/presign`）
+Request：
+```json
+{
+  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "sizeBytes": 123456,
+  "contentType": "application/pdf"
+}
+```
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "uploadUrl": "https://...",
+    "method": "PUT",
+    "headers": {
+      "Content-Type": "application/pdf"
+    },
+    "fileId": "501",
+    "alreadyExists": false
   },
   "error": null,
   "traceId": "..."
@@ -705,11 +790,14 @@ Response（`POST /api/files` 節錄）
 | PATCH | `/api/ocr/drafts/{draftId}` | 更新草稿交易 | 是 |
 | DELETE | `/api/ocr/drafts/{draftId}` | 刪除草稿交易 | 是 |
 | POST | `/api/ocr/jobs/{jobId}/confirm` | 確認匯入（支援部分匯入） | 是 |
-| POST | `/api/ocr/jobs/{jobId}/retry` | 重新排隊 OCR Job | 是 |
-| POST | /api/ocr/jobs/{jobId}/reparse | 重新解析（建立新 statement） | 是 |
-| POST | `/api/ocr/jobs/{jobId}/cancel` | 取消 OCR Job（軟取消） | 是 |
+| POST | `/api/ocr/jobs/{jobId}/reparse` | 重新解析（建立新 statement） | 是 |
 
 #### 建立 OCR Job（`POST /api/ocr/jobs`）
+Request 欄位：
+- `fileId`（必填）
+- `portfolioId`（必填）
+- `force`（可選，預設 `false`）
+
 ```json
 {
   "fileId": "501",
@@ -821,6 +909,7 @@ Response（節錄）
 | SETTLEMENT_BEFORE_TRADE | 交割日早於成交日 |
 
 #### 更新草稿交易（`PATCH /api/ocr/drafts/{draftId}`）
+所有欄位皆為 **可選**（僅更新有提供的欄位）。
 ```json
 {
   "instrumentId": "1001",
@@ -889,50 +978,27 @@ Response：
 
 > **Note**: 已成功匯入的草稿會被刪除。有錯誤的草稿會保留在列表中，供使用者修正或刪除。
 
-#### 重跑 OCR（`POST /api/ocr/jobs/{jobId}/retry`）
-重新排隊 OCR Job；若 job 仍在執行或已完成，需 `force=true` 才會重跑。
+#### 重新解析（`POST /api/ocr/jobs/{jobId}/reparse`）
+建立新的 statement 並重新解析；舊 statement 會標記為 `SUPERSEDED`（保留可追溯）。
 
 Query Params：
 - `force`（boolean, optional，預設 `false`）
+  - `false`：若 job 仍在 `QUEUED/RUNNING` 會回 409
+  - `true`：強制建立新 job（舊 job 可能仍在執行，但結果會寫回舊 statement）
 
 Response（節錄）
 ```json
 {
   "success": true,
   "data": {
-    "jobId": "8001",
-    "statementId": "7001",
+    "jobId": "8002",
+    "statementId": "7002",
     "status": "QUEUED"
   },
   "error": null,
   "traceId": "..."
 }
 ```
-
-#### 重新解析（`POST /api/ocr/jobs/{jobId}/reparse`）
-建立新的 statement 並重新解析；舊 statement 會標記為 `SUPERSEDED`。
-
-Query Params：
-- `force`（boolean, optional，預設 `false`）
-
-Response：同「查詢 Job 狀態」。
-#### 取消 OCR（`POST /api/ocr/jobs/{jobId}/cancel`）
-將 OCR Job 標記為 `CANCELLED`。若 job 正在執行，AI Worker 回來的結果會被丟棄。
-
-Response（節錄）
-```json
-{
-  "success": true,
-  "data": {
-    "jobId": "8001",
-    "statementId": "7001",
-    "status": "CANCELLED"
-  },
-  "error": null,
-  "traceId": "..."
-}
-```
-
 
 ---
 
@@ -943,9 +1009,13 @@ Response（節錄）
 | POST | `/api/ai/conversations` | 建立對話 | 是 |
 | GET | `/api/ai/conversations` | 對話列表 | 是 |
 | GET | `/api/ai/conversations/{id}` | 對話詳情（含訊息） | 是 |
+| PATCH | `/api/ai/conversations/{id}` | 更新對話標題 | 是 |
 | POST | `/api/ai/conversations/{id}/messages` | 傳送訊息（SSE） | 是 |
 
 #### 建立對話（`POST /api/ai/conversations`）
+Request 欄位：
+- `title`（可選）
+
 ```json
 {
   "title": "我的投資筆記"
@@ -1020,7 +1090,36 @@ Response（節錄）
 }
 ```
 
+#### 更新對話標題（`PATCH /api/ai/conversations/{id}`）
+Request 欄位：
+- `title`（必填，非空）
+
+Request：
+```json
+{
+  "title": "新的對話標題"
+}
+```
+Response（節錄）：
+```json
+{
+  "success": true,
+  "data": {
+    "conversationId": "9001",
+    "title": "新的對話標題",
+    "createdAt": "2026-02-04T12:00:00Z",
+    "updatedAt": "2026-02-04T12:20:00Z"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
 #### 傳送訊息（`POST /api/ai/conversations/{id}/messages`）
+Request 欄位：
+- `content`（必填）
+- `clientMessageId`（可選，用於去重）
+
 ```json
 {
   "content": "幫我整理一下今天的市場摘要",
@@ -1058,6 +1157,12 @@ data: {"code":"VALIDATION_ERROR","message":"Message content is required"}
 | GET | `/api/ai/reports/{reportId}` | 報告詳情（v1） | 是 |
 
 #### Request（`POST /api/ai/analysis/stream`）
+Request 欄位：
+- `portfolioId`（可選，與 `instrumentId` 擇一）
+- `instrumentId`（可選，與 `portfolioId` 擇一）
+- `reportType`（可選：`INSTRUMENT` / `PORTFOLIO` / `GENERAL`）
+- `prompt`（可選，自訂提示）
+
 ```json
 {
   "portfolioId": "2001",
@@ -1116,6 +1221,7 @@ Response：
   "traceId": "..."
 }
 ```
+> **Note**: `reportType` 為 enum（`INSTRUMENT` / `PORTFOLIO` / `GENERAL`）。
 
 #### 報告詳情（`GET /api/ai/reports/{reportId}`）
 Response：
@@ -1135,6 +1241,7 @@ Response：
   "traceId": "..."
 }
 ```
+> **Note**: `reportType` 為 enum（`INSTRUMENT` / `PORTFOLIO` / `GENERAL`）。
 
 ---
 
@@ -1148,7 +1255,7 @@ Response：
 ---
 
 ## AI Worker RAG API（Python，v1.3）
-> Base URL: `http://{ai-worker-host}:8000`
+> Base URL: `http://{ai-worker-host}:8001`
 
 ### Endpoints
 | Method | Path | 說明 | Auth |
@@ -1212,7 +1319,14 @@ Response：
       "content": "AI Worker 是一個 Python FastAPI 服務...",
       "document_id": "123",
       "chunk_index": 3,
-      "score": 0.92
+      "distance": 0.92,
+      "title": "Monthly Report",
+      "source_type": "upload",
+      "source_id": "file-123",
+      "meta": {
+        "start_char": 120,
+        "end_char": 420
+      }
     }
   ]
 }
@@ -1223,11 +1337,17 @@ Response：
 ### 環境變數（AI Worker）
 | 變數 | 說明 | 預設值 |
 |------|------|--------|
+| `LLM_PROVIDER` | Chat / OCR Vision 使用的 LLM（`gemini`/`openai`/`ollama`） | 依 `.env` |
+| `EMBEDDING_PROVIDER` | 向量模型來源（`gemini`/`openai`/`ollama`） | 依 `.env` |
+| `OCR_PROVIDER` | OCR 來源（`auto`/`tesseract`/`gemini`/`openai`/`ollama`） | `auto` |
+| `EMBEDDING_EXPECTED_DIMENSION` | 向量維度檢查（與 DB `vector(n)` 一致） | **必填** |
 | `INGEST_CONCURRENCY` | Ingestion 並發數 | 5 |
 | `INGEST_REJECT_ON_LIMIT` | 超量時是否回傳 429（否則排隊等待） | `false` |
 | `EMBEDDING_MAX_RETRIES` | Embedding API 最大重試次數 | 5 |
 | `EMBEDDING_BACKOFF_BASE` | 重試基礎延遲（秒） | 0.5 |
 | `EMBEDDING_BACKOFF_CAP` | 重試最大延遲（秒） | 8.0 |
+
+> 切換 Provider 只需改 `.env` 後重啟 ai-worker；`EMBEDDING_EXPECTED_DIMENSION` 必須與實際模型維度一致，否則啟動會 fail-fast。
 
 ---
 

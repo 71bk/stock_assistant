@@ -70,8 +70,8 @@ export const FloatingAiAssistant: React.FC = () => {
         placement="right"
         onClose={() => setChatVisible(false)}
         open={chatVisible}
-        width={400}
         styles={{
+          wrapper: { width: 400 },
           body: {
             display: 'flex',
             flexDirection: 'column',

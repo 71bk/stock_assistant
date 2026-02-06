@@ -12,7 +12,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ConversationMessageStatus;
+import tw.bk.appcommon.enums.ConversationRole;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.entity.ConversationEntity;
 import tw.bk.apppersistence.entity.ConversationMessageEntity;
@@ -23,9 +25,6 @@ import tw.bk.apppersistence.repository.ConversationRepository;
 @RequiredArgsConstructor
 @Slf4j
 public class AiConversationService {
-    private static final String ROLE_SYSTEM = "system";
-    private static final String ROLE_USER = "user";
-    private static final String ROLE_ASSISTANT = "assistant";
     private static final String DEFAULT_SYSTEM_PROMPT = "You are a financial analysis assistant. Be concise and factual.";
     private static final int MAX_TITLE_LENGTH = 30;
 
@@ -51,7 +50,7 @@ public class AiConversationService {
 
         ConversationMessageEntity systemMessage = new ConversationMessageEntity();
         systemMessage.setConversationId(saved.getId());
-        systemMessage.setRole(ROLE_SYSTEM);
+        systemMessage.setRole(ConversationRole.SYSTEM.value());
         systemMessage.setContent(DEFAULT_SYSTEM_PROMPT);
         messageRepository.save(systemMessage);
 
@@ -104,7 +103,7 @@ public class AiConversationService {
 
         ConversationMessageEntity message = new ConversationMessageEntity();
         message.setConversationId(conversationId);
-        message.setRole(ROLE_USER);
+        message.setRole(ConversationRole.USER.value());
         message.setContent(content.trim());
         message.setClientMessageId(clientMessageId);
         ConversationMessageEntity saved;
@@ -125,16 +124,28 @@ public class AiConversationService {
 
     @Transactional
     public ConversationMessageEntity appendAssistantMessage(Long userId, Long conversationId, String content,
-            String status) {
+            ConversationMessageStatus status) {
         getConversation(userId, conversationId);
         ConversationMessageEntity message = new ConversationMessageEntity();
         message.setConversationId(conversationId);
-        message.setRole(ROLE_ASSISTANT);
+        message.setRole(ConversationRole.ASSISTANT.value());
         message.setContent(content == null ? "" : content);
-        message.setStatus(status);
+        message.setStatus(status == null ? null : status.name());
         ConversationMessageEntity saved = messageRepository.save(message);
         conversationRepository.touchById(conversationId);
         return saved;
+    }
+
+    @Transactional
+    public ConversationEntity updateTitle(Long userId, Long conversationId, String title) {
+        ConversationEntity conversation = getConversation(userId, conversationId);
+        if (title == null || title.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Title is required");
+        }
+        String normalized = title.trim();
+        conversationRepository.updateTitleById(conversationId, normalized);
+        return conversationRepository.findByIdAndUserId(conversationId, userId)
+                .orElse(conversation);
     }
 
     @Transactional(readOnly = true)
@@ -142,11 +153,11 @@ public class AiConversationService {
             Long excludeMessageId) {
         getConversation(userId, conversationId);
         ConversationMessageEntity systemMessage = messageRepository
-                .findFirstByConversationIdAndRoleOrderByIdAsc(conversationId, ROLE_SYSTEM)
+                .findFirstByConversationIdAndRoleOrderByIdAsc(conversationId, ConversationRole.SYSTEM.value())
                 .orElse(null);
 
         List<ConversationMessageEntity> recentDesc = messageRepository
-                .findByConversationIdAndRoleNotOrderByIdDesc(conversationId, ROLE_SYSTEM,
+                .findByConversationIdAndRoleNotOrderByIdDesc(conversationId, ConversationRole.SYSTEM.value(),
                         PageRequest.of(0, historyLimit));
 
         int budget = Math.max(0, tokenBudget - estimateTokens(newUserContent));
@@ -168,12 +179,16 @@ public class AiConversationService {
 
         List<Map<String, String>> messages = new ArrayList<>();
         String systemPrompt = systemMessage != null ? systemMessage.getContent() : DEFAULT_SYSTEM_PROMPT;
-        messages.add(Map.of("role", ROLE_SYSTEM, "content", systemPrompt));
+        messages.add(Map.of("role", ConversationRole.SYSTEM.value(), "content", systemPrompt));
 
         for (ConversationMessageEntity msg : selected) {
-            messages.add(Map.of("role", msg.getRole().toLowerCase(Locale.ROOT), "content", msg.getContent()));
+            String role = msg.getRole();
+            ConversationRole normalized = ConversationRole.from(role);
+            messages.add(Map.of("role",
+                    normalized != null ? normalized.value() : role.toLowerCase(Locale.ROOT),
+                    "content", msg.getContent()));
         }
-        messages.add(Map.of("role", ROLE_USER, "content", newUserContent));
+        messages.add(Map.of("role", ConversationRole.USER.value(), "content", newUserContent));
         return messages;
     }
 

@@ -130,6 +130,9 @@ class RagService:
             meta=meta,
             chunks=chunks,
             embeddings=embeddings,
+            embedding_model=self.settings.embedding_model_name,
+            embedding_version=self.settings.embedding_version,
+            dimensions=self.settings.embedding_dimension,
         )
 
         logger.info(
@@ -137,6 +140,7 @@ class RagService:
             user_id=user_id,
             document_id=document_id,
             chunk_count=chunk_count,
+            embedding_model=self.settings.embedding_model_name,
         )
 
         return document_id, chunk_count

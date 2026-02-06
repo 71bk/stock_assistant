@@ -71,6 +71,20 @@ public interface InstrumentRepository extends JpaRepository<InstrumentEntity, Lo
         List<InstrumentEntity> searchInstrumentsWithRelations(@Param("query") String query, Pageable pageable);
 
         /**
+         * Search with pagination (including total count).
+         */
+        @EntityGraph(attributePaths = { "market", "exchange" })
+        @Query(value = "SELECT i FROM InstrumentEntity i WHERE " +
+                        "LOWER(i.ticker) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+                        "LOWER(i.nameEn) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+                        "LOWER(i.nameZh) LIKE LOWER(CONCAT('%', :query, '%'))",
+                        countQuery = "SELECT COUNT(i) FROM InstrumentEntity i WHERE " +
+                                        "LOWER(i.ticker) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+                                        "LOWER(i.nameEn) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+                                        "LOWER(i.nameZh) LIKE LOWER(CONCAT('%', :query, '%'))")
+        Page<InstrumentEntity> searchInstrumentsPage(@Param("query") String query, Pageable pageable);
+
+        /**
          * Find all with market/exchange relations loaded.
          */
         @EntityGraph(attributePaths = { "market", "exchange" })

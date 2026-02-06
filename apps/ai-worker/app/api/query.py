@@ -3,7 +3,7 @@
 import structlog
 from fastapi import APIRouter, HTTPException
 
-from app.models.schemas import RagQueryRequest, RagQueryResponse
+from app.models.schemas import RagQueryRequest, RagQueryResponse, RagChunkResult
 from app.services.rag_service import RagService
 
 router = APIRouter()
@@ -28,4 +28,18 @@ async def query_rag(request: RagQueryRequest) -> RagQueryResponse:
         logger.error("RAG query failed", error=str(exc))
         raise HTTPException(status_code=500, detail="RAG query failed") from exc
 
-    return RagQueryResponse(chunks=chunks)
+    # Convert distance to score (1 - distance for cosine distance)
+    results = [
+        RagChunkResult(
+            content=chunk.get("content", ""),
+            document_id=chunk.get("document_id", 0),
+            chunk_index=chunk.get("chunk_index", 0),
+            score=max(0.0, 1.0 - float(chunk.get("distance", 0.0))),
+            title=chunk.get("title"),
+            source_type=chunk.get("source_type"),
+            source_id=chunk.get("source_id"),
+        )
+        for chunk in chunks
+    ]
+
+    return RagQueryResponse(chunks=results)

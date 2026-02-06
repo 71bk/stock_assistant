@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import tw.bk.appapi.files.vo.FileResponse;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;

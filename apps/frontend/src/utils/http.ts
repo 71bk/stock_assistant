@@ -47,8 +47,8 @@ instance.interceptors.response.use(
     const data = error.response?.data as any;
 
     if (status === 401) {
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login?expired=true';
+      if (!window.location.pathname.includes('/auth/login')) {
+        window.location.href = '/auth/login?expired=true';
       }
     } else if (status === 429) {
       notification.warning({

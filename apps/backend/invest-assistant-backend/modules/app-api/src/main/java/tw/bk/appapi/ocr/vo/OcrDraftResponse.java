@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.apppersistence.entity.StatementTradeEntity;
 
 @Data
@@ -19,7 +20,7 @@ public class OcrDraftResponse {
     private String name;
     private LocalDate tradeDate;
     private LocalDate settlementDate;
-    private String side;
+    private TradeSide side;
     private String quantity;
     private String price;
     private String currency;
@@ -39,7 +40,7 @@ public class OcrDraftResponse {
                 .name(entity.getName())
                 .tradeDate(entity.getTradeDate())
                 .settlementDate(entity.getSettlementDate())
-                .side(entity.getSide())
+                .side(entity.getSideEnum())
                 .quantity(entity.getQuantity() != null ? entity.getQuantity().toPlainString() : null)
                 .price(entity.getPrice() != null ? entity.getPrice().toPlainString() : null)
                 .currency(entity.getCurrency())

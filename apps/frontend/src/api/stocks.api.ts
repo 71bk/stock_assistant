@@ -1,5 +1,5 @@
 import { http } from '../utils/http';
-import type { PageResponse } from '../types/api';
+import type { PageData } from '../types/api';
 
 export interface Instrument {
   instrumentId: string;
@@ -85,7 +85,7 @@ export const stocksApi = {
     http.get<TickersResponse>('/stocks/tickers', { params }),
 
   getInstruments: (page = 1, size = 20) =>
-    http.get<PageResponse<Instrument>>('/instruments', { params: { page, size } }),
+    http.get<PageData<Instrument>>('/instruments', { params: { page, size } }),
 
   getInstrumentDetail: (symbolKey: string) =>
     http.get<{ instrument: Instrument; etfProfile: EtfProfile | null; warrantProfile: WarrantProfile | null }>(`/instruments/${symbolKey}`),

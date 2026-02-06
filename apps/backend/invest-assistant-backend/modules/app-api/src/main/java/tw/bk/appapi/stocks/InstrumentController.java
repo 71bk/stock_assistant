@@ -17,8 +17,9 @@ import tw.bk.appapi.stocks.vo.InstrumentDetailResponse;
 import tw.bk.appapi.stocks.vo.EtfProfileResponse;
 import tw.bk.appapi.stocks.vo.WarrantProfileResponse;
 
-import tw.bk.appcommon.error.ErrorCode;
-import tw.bk.appcommon.model.MarketCode;
+import tw.bk.appcommon.enums.AssetType;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.MarketCode;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.appstocks.service.InstrumentService;
 import tw.bk.appstocks.service.EtfProfileService;
@@ -91,12 +92,12 @@ public class InstrumentController {
         // 如果是 ETF，查詢 ETF profile
         EtfProfileResponse etfProfile = null;
         WarrantProfileResponse warrantProfile = null;
-        if ("ETF".equalsIgnoreCase(entity.getAssetType())) {
+        if (AssetType.ETF.equals(entity.getAssetTypeEnum())) {
             etfProfile = etfProfileService.findByInstrumentId(entity.getId())
                     .map(EtfProfileResponse::from)
                     .orElse(null);
         }
-        if ("WARRANT".equalsIgnoreCase(entity.getAssetType())) {
+        if (AssetType.WARRANT.equals(entity.getAssetTypeEnum())) {
             warrantProfile = warrantProfileService.findByInstrumentId(entity.getId())
                     .map(WarrantProfileResponse::from)
                     .orElse(null);

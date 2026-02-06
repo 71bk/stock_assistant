@@ -11,7 +11,7 @@ from enum import Enum
 import structlog
 from PIL import Image
 
-from app.config import get_settings
+from app.config import LlmProvider, OcrProvider, get_settings
 from app.models.schemas import Currency, OcrRequest, OcrResponse, ParsedTrade, TradeSide
 from app.services.llm_service import LlmService
 from app.services.tesseract_service import TesseractService
@@ -93,8 +93,22 @@ class OcrService:
     def __init__(self) -> None:
         """Initialize OCR service."""
         self.settings = get_settings()
-        self.llm = LlmService()
+        self.ocr_provider = self.settings.ocr_provider
+        self.vision_provider = self._resolve_vision_provider()
+        self.llm = LlmService(provider=self.vision_provider) if self.vision_provider else None
         self.tesseract = TesseractService()
+
+    def _resolve_vision_provider(self) -> LlmProvider | None:
+        if self.ocr_provider == OcrProvider.TESSERACT:
+            return None
+        if self.ocr_provider == OcrProvider.GEMINI:
+            return LlmProvider.GEMINI
+        if self.ocr_provider == OcrProvider.OLLAMA:
+            return LlmProvider.OLLAMA
+        if self.ocr_provider == OcrProvider.OPENAI:
+            return LlmProvider.OPENAI
+        # AUTO -> fallback to LLM_PROVIDER
+        return self.settings.llm_provider
 
     async def process(self, content: bytes, request: OcrRequest) -> OcrResponse:
         """
@@ -173,8 +187,14 @@ class OcrService:
         ocr_method = OcrMethod.TESSERACT
         extraction_confidence = 0.0
 
-        # Path A: Try Tesseract first
-        if self.tesseract.is_available():
+        use_tesseract = self.ocr_provider in (OcrProvider.AUTO, OcrProvider.TESSERACT)
+        allow_vision = (
+            self.ocr_provider != OcrProvider.TESSERACT
+            and (self.ocr_provider != OcrProvider.AUTO or self.settings.ocr_fallback_to_vision)
+        )
+
+        # Path A: Tesseract first (AUTO/TESSERACT)
+        if use_tesseract and self.tesseract.is_available():
             try:
                 raw_text, extraction_confidence = self.tesseract.extract_text(image_bytes)
                 logger.info(
@@ -201,9 +221,11 @@ class OcrService:
                 logger.warning("Tesseract extraction failed", error=str(e))
                 raw_text = ""
 
-        # Path B: Fallback to Vision LLM
-        if not raw_text and self.settings.ocr_fallback_to_vision:
-            logger.info("Using Vision LLM for OCR")
+        # Path B: Vision LLM (AUTO fallback or explicit provider)
+        if not raw_text and allow_vision:
+            if self.llm is None:
+                raise RuntimeError("Vision provider not configured")
+            logger.info("Using Vision LLM for OCR", provider=self.vision_provider.value)
             ocr_method = OcrMethod.VISION_LLM
 
             # Encode image to base64

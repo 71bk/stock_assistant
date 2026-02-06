@@ -10,9 +10,12 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.AssetType;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.InstrumentStatus;
+import tw.bk.appcommon.enums.TickerType;
 import tw.bk.appcommon.exception.BusinessException;
-import tw.bk.appcommon.model.MarketCode;
+import tw.bk.appcommon.enums.MarketCode;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.repository.InstrumentRepository;
 import tw.bk.appstocks.model.TickerItem;
@@ -25,7 +28,7 @@ import tw.bk.appstocks.port.StockMarketClient;
 @Transactional(readOnly = true)
 public class StockTickerService {
 
-    private static final String STATUS_ACTIVE = "ACTIVE";
+    private static final String STATUS_ACTIVE = InstrumentStatus.ACTIVE.name();
 
     private final List<StockMarketClient> stockMarketClients;
     private final InstrumentRepository instrumentRepository;
@@ -121,11 +124,19 @@ public class StockTickerService {
             return false;
         }
         String normalized = type.trim().toUpperCase();
-        if ("EQUITY".equals(normalized)) {
-            return "STOCK".equalsIgnoreCase(assetType);
+        TickerType tickerType = TickerType.from(normalized);
+        if (tickerType == null) {
+            return assetType.equalsIgnoreCase(normalized);
         }
-        if ("INDEX".equals(normalized)) {
+        if (TickerType.EQUITY.equals(tickerType)) {
+            return AssetType.STOCK.name().equalsIgnoreCase(assetType)
+                    || AssetType.ETF.name().equalsIgnoreCase(assetType);
+        }
+        if (TickerType.INDEX.equals(tickerType)) {
             return "INDEX".equalsIgnoreCase(assetType);
+        }
+        if (TickerType.WARRANT.equals(tickerType)) {
+            return AssetType.WARRANT.name().equalsIgnoreCase(assetType);
         }
         return assetType.equalsIgnoreCase(normalized);
     }

@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tw.bk.appcommon.enums.StatementStatus;
 import tw.bk.apppersistence.entity.StatementEntity;
 import tw.bk.apppersistence.repository.StatementRepository;
 
@@ -18,7 +19,7 @@ import tw.bk.apppersistence.repository.StatementRepository;
 @Service
 @RequiredArgsConstructor
 public class OcrCleanupService {
-    private static final String STATUS_SUPERSEDED = "SUPERSEDED";
+    private static final String STATUS_SUPERSEDED = StatementStatus.SUPERSEDED.name();
     private static final int DEFAULT_BATCH_SIZE = 200;
 
     private final StatementRepository statementRepository;

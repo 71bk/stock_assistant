@@ -1,7 +1,7 @@
 package tw.bk.appcommon.exception;
 
 import java.util.Map;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 
 public class BusinessException extends RuntimeException {
     private final ErrorCode errorCode;

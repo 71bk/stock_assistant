@@ -24,14 +24,29 @@ public class QuoteResponse {
     /** 現價 */
     private String price;
 
+    /** 開盤價 */
+    private String open;
+
+    /** 最高價 */
+    private String high;
+
+    /** 最低價 */
+    private String low;
+
+    /** 昨收價 */
+    private String previousClose;
+
+    /** 成交量 */
+    private Long volume;
+
     /** 漲跌金額 */
     private String change;
 
     /** 漲跌幅 % */
-    private String changePct;
+    private String changePercent;
 
     /** 報價時間 (UTC ISO 8601) */
-    private String tsUtc;
+    private String timestamp;
 
     /**
      * 從 Quote 模型轉換
@@ -48,9 +63,14 @@ public class QuoteResponse {
                 .instrumentId(instrumentId)
                 .symbolKey(symbolKey)
                 .price(quote.getPrice() != null ? quote.getPrice().toPlainString() : null)
+                .open(quote.getOpen() != null ? quote.getOpen().toPlainString() : null)
+                .high(quote.getHigh() != null ? quote.getHigh().toPlainString() : null)
+                .low(quote.getLow() != null ? quote.getLow().toPlainString() : null)
+                .previousClose(quote.getPreviousClose() != null ? quote.getPreviousClose().toPlainString() : null)
+                .volume(quote.getVolume())
                 .change(quote.getChange() != null ? quote.getChange().toPlainString() : null)
-                .changePct(quote.getChangePercent() != null ? quote.getChangePercent().toPlainString() : null)
-                .tsUtc(quote.getTimestamp() != null ? quote.getTimestamp().toString() : null)
+                .changePercent(quote.getChangePercent() != null ? quote.getChangePercent().toPlainString() : null)
+                .timestamp(quote.getTimestamp() != null ? quote.getTimestamp().toString() : null)
                 .build();
     }
 }

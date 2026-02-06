@@ -16,6 +16,7 @@ interface ChatState {
 
   loadConversations: () => Promise<void>;
   createConversation: () => Promise<string | null>;
+  updateConversationTitle: (conversationId: string, title: string) => Promise<void>;
   selectConversation: (conversationId: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   resetChat: () => void;
@@ -73,6 +74,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       console.error('Failed to create conversation', e);
       uiMessage.error('建立對話失敗');
       return null;
+    }
+  },
+
+  updateConversationTitle: async (conversationId: string, title: string) => {
+    try {
+      const updated = await chatApi.updateConversation(conversationId, title);
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.conversationId === conversationId ? updated : c
+        ),
+      }));
+      uiMessage.success('標題已更新');
+    } catch (e) {
+      console.error('Failed to update title', e);
+      uiMessage.error('更新標題失敗');
     }
   },
 

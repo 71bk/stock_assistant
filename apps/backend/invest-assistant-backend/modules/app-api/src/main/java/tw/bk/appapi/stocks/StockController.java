@@ -3,12 +3,16 @@ package tw.bk.appapi.stocks;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 import tw.bk.appapi.stocks.vo.*;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
-import tw.bk.appcommon.model.MarketCode;
+import tw.bk.appcommon.enums.MarketCode;
+import tw.bk.appcommon.enums.TickerType;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.apppersistence.entity.InstrumentEntity;
@@ -21,6 +25,7 @@ import tw.bk.appstocks.service.StockQuoteService;
 import tw.bk.appstocks.service.StockTickerService;
 
 import java.time.LocalDate;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -32,10 +37,10 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/stocks")
 @RequiredArgsConstructor
-@Tag(name = "Stocks", description = "股票行情與商品主檔")
+@Tag(name = "Stocks", description = "Stocks API")
 public class StockController {
 
-    private static final Set<String> ALLOWED_TICKER_TYPES = Set.of("EQUITY", "INDEX", "WARRANT", "ODDLOT");
+    private static final Set<TickerType> ALLOWED_TICKER_TYPES = EnumSet.allOf(TickerType.class);
 
     private final InstrumentService instrumentService;
     private final StockQuoteService stockQuoteService;
@@ -45,7 +50,7 @@ public class StockController {
      * GET /api/stocks/markets - 市場列表
      */
     @GetMapping("/markets")
-    @Operation(summary = "取得市場列表", description = "取得支援的市場列表（TW/US）")
+    @Operation(summary = "List markets", description = "List supported markets (TW/US)")
     public Result<List<MarketResponse>> getMarkets() {
         List<MarketResponse> markets = List.of(
                 MarketResponse.of("US", "美股"),
@@ -87,17 +92,19 @@ public class StockController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        int validLimit = Math.min(Math.max(size, 1), 50);
-        List<InstrumentEntity> entities = instrumentService.searchInstruments(q, validLimit);
-        List<InstrumentResponse> items = entities.stream()
+        int safePage = Math.max(1, page) - 1;
+        int safeSize = Math.min(Math.max(size, 1), 50);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        Page<InstrumentEntity> entities = instrumentService.searchInstrumentsPage(q, pageable);
+        List<InstrumentResponse> items = entities.getContent().stream()
                 .map(InstrumentResponse::from)
                 .collect(Collectors.toList());
 
         PageResponse<InstrumentResponse> pageResponse = PageResponse.ok(
                 items,
-                page,
-                size,
-                items.size());
+                safePage + 1,
+                safeSize,
+                entities.getTotalElements());
 
         return Result.ok(pageResponse);
     }
@@ -235,7 +242,7 @@ public class StockController {
      * GET /api/stocks/tickers - 取得股票或指數列表（台股專用）
      */
     @GetMapping("/tickers")
-    @Operation(summary = "取得股票或指數列表", description = "依條件查詢股票/指數清單（台股）")
+    @Operation(summary = "List tickers", description = "Query tickers (TW market)")
     public Result<TickerListResponse> getTickers(
             @RequestParam String type,
             @RequestParam(required = false) String exchange,
@@ -287,7 +294,7 @@ public class StockController {
 
     private void validateSymbolKey(String symbolKey) {
         if (symbolKey == null || symbolKey.isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "symbol_key 為必填");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "symbol_key is required");
         }
         String[] parts = symbolKey.split(":", -1);
         if (parts.length != 3 || parts[0].isBlank() || parts[1].isBlank() || parts[2].isBlank()) {
@@ -299,12 +306,13 @@ public class StockController {
 
     private String normalizeTickerType(String type) {
         if (type == null || type.isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "type 為必填");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "type is required");
         }
         String normalized = type.trim().toUpperCase(Locale.ROOT);
-        if (!ALLOWED_TICKER_TYPES.contains(normalized)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "type 不支援: " + normalized);
+        TickerType tickerType = TickerType.from(normalized);
+        if (tickerType == null || !ALLOWED_TICKER_TYPES.contains(tickerType)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "type not supported: " + normalized);
         }
-        return normalized;
+        return tickerType.name();
     }
 }

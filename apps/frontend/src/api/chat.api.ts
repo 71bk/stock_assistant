@@ -36,6 +36,9 @@ export const chatApi = {
   getConversation: (conversationId: string, limit?: number) =>
     http.get<ConversationDetail>(`/ai/conversations/${conversationId}`, { params: { limit } }),
 
+  updateConversation: (conversationId: string, title: string) =>
+    http.patch<ConversationSummary>(`/ai/conversations/${conversationId}`, { title }),
+
   sendMessage: (conversationId: string, content: string, clientMessageId?: string) =>
     http.post(`/ai/conversations/${conversationId}/messages`, { content, clientMessageId }),
 };

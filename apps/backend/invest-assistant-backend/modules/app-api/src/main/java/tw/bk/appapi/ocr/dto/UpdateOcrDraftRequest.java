@@ -5,7 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import tw.bk.appportfolio.model.TradeSide;
+import tw.bk.appcommon.enums.TradeSide;
 
 @Data
 @Builder

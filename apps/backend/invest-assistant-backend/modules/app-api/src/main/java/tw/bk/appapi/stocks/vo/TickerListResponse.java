@@ -7,6 +7,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appcommon.enums.TickerType;
 import tw.bk.appcommon.util.TimeFormatUtils;
 import tw.bk.appstocks.model.TickerList;
 
@@ -16,7 +17,7 @@ import tw.bk.appstocks.model.TickerList;
 @AllArgsConstructor
 public class TickerListResponse {
     private String date;
-    private String type;
+    private TickerType type;
     private String exchange;
     private String market;
     private String industry;
@@ -38,7 +39,7 @@ public class TickerListResponse {
 
         return TickerListResponse.builder()
                 .date(TimeFormatUtils.formatDate(list.getDate()))
-                .type(list.getType())
+                .type(TickerType.from(list.getType()))
                 .exchange(list.getExchange())
                 .market(list.getMarket())
                 .industry(list.getIndustry())

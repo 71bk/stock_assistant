@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,10 +25,12 @@ import tw.bk.appai.client.GroqChatClient;
 import tw.bk.appai.service.AiConversationService;
 import tw.bk.appapi.ai.dto.ChatMessageRequest;
 import tw.bk.appapi.ai.dto.CreateConversationRequest;
+import tw.bk.appapi.ai.dto.UpdateConversationRequest;
 import tw.bk.appapi.ai.vo.ConversationDetailResponse;
 import tw.bk.appapi.ai.vo.ConversationMessageResponse;
 import tw.bk.appapi.ai.vo.ConversationSummaryResponse;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ConversationMessageStatus;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
@@ -60,6 +63,17 @@ public class AiConversationController {
     public Result<ConversationSummaryResponse> createConversation(@RequestBody CreateConversationRequest request) {
         Long userId = requireUserId();
         ConversationEntity conversation = conversationService.createConversation(userId,
+                request != null ? request.getTitle() : null);
+        return Result.ok(ConversationSummaryResponse.from(conversation));
+    }
+
+    @PatchMapping("/{conversationId}")
+    @Operation(summary = "Update conversation title")
+    public Result<ConversationSummaryResponse> updateConversation(@PathVariable String conversationId,
+            @RequestBody UpdateConversationRequest request) {
+        Long userId = requireUserId();
+        Long id = parseId(conversationId);
+        ConversationEntity conversation = conversationService.updateTitle(userId, id,
                 request != null ? request.getTitle() : null);
         return Result.ok(ConversationSummaryResponse.from(conversation));
     }
@@ -133,7 +147,7 @@ public class AiConversationController {
                             }
                             try {
                                 ConversationMessageEntity assistant = conversationService.appendAssistantMessage(
-                                        userId, id, buffer.toString(), "COMPLETED");
+                                        userId, id, buffer.toString(), ConversationMessageStatus.COMPLETED);
                                 sendDone(emitter, assistant.getId());
                             } catch (Exception ex) {
                                 log.error("Failed to save assistant message", ex);

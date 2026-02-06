@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.Map;
 
 import lombok.Getter;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.util.TraceIdUtils;
 
 @Getter

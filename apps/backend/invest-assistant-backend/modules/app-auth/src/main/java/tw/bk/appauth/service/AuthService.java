@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import tw.bk.appauth.config.AuthProperties;
 import tw.bk.appauth.jwt.JwtTokenService;
 import tw.bk.appauth.redis.RefreshTokenStore;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.entity.UserEntity;
 

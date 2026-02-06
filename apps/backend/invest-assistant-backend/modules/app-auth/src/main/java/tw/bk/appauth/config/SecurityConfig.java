@@ -17,7 +17,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import tw.bk.appauth.security.JwtAuthenticationFilter;
 import tw.bk.appauth.security.OAuth2LoginSuccessHandler;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.result.Result;
 
 @Configuration
@@ -45,18 +45,27 @@ public class SecurityConfig {
                                 "/oauth2/**",
                                 "/login/oauth2/**",
                                 "/swagger-ui/**",
-                                "/v3/api-docs/**")
+                                "/v3/api-docs/**",
+                                "/error")
                         .permitAll()
                         .anyRequest().authenticated())
-                .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, authException) -> {
-                            // For API requests, return 401 instead of redirecting to login
-                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                            response.setContentType("application/json");
-                            response.setCharacterEncoding("UTF-8");
-                            Result<Void> body = Result.error(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
-                            response.getWriter().write(objectMapper.writeValueAsString(body));
-                        }))
+                .exceptionHandling(ex -> {
+                    ex.authenticationEntryPoint((request, response, authException) -> {
+                        // For API requests, return 401 instead of redirecting to login
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        response.setContentType("application/json");
+                        response.setCharacterEncoding("UTF-8");
+                        Result<Void> body = Result.error(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
+                        response.getWriter().write(objectMapper.writeValueAsString(body));
+                    });
+                    ex.accessDeniedHandler((request, response, accessDeniedException) -> {
+                        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                        response.setContentType("application/json");
+                        response.setCharacterEncoding("UTF-8");
+                        Result<Void> body = Result.error(ErrorCode.AUTH_FORBIDDEN, "Access Denied");
+                        response.getWriter().write(objectMapper.writeValueAsString(body));
+                    });
+                })
                 .oauth2Login(oauth2 -> oauth2.successHandler(loginSuccessHandler))
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)

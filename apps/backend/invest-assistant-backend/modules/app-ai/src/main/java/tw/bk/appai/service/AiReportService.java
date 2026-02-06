@@ -12,7 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tw.bk.appai.model.AiAnalysisInput;
 import tw.bk.appai.model.AiReportContext;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.AiReportType;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.entity.AiReportEntity;
 import tw.bk.apppersistence.entity.InstrumentEntity;
@@ -31,10 +32,6 @@ import tw.bk.apppersistence.repository.UserPositionRepository;
 @RequiredArgsConstructor
 @Slf4j
 public class AiReportService {
-    private static final String TYPE_INSTRUMENT = "INSTRUMENT";
-    private static final String TYPE_PORTFOLIO = "PORTFOLIO";
-    private static final String TYPE_GENERAL = "GENERAL";
-
     private final AiReportRepository aiReportRepository;
     private final PortfolioRepository portfolioRepository;
     private final UserPositionRepository userPositionRepository;
@@ -159,21 +156,21 @@ public class AiReportService {
             return input.getReportType().trim().toUpperCase();
         }
         if (input.getPortfolioId() != null) {
-            return TYPE_PORTFOLIO;
+            return AiReportType.PORTFOLIO.name();
         }
         if (input.getInstrumentId() != null) {
-            return TYPE_INSTRUMENT;
+            return AiReportType.INSTRUMENT.name();
         }
-        return TYPE_GENERAL;
+        return AiReportType.GENERAL.name();
     }
 
     /**
      * 驗證 reportType 是否為有效值。
      */
     private void validateReportType(String reportType) {
-        if (!TYPE_INSTRUMENT.equals(reportType)
-                && !TYPE_PORTFOLIO.equals(reportType)
-                && !TYPE_GENERAL.equals(reportType)) {
+        if (!AiReportType.INSTRUMENT.name().equals(reportType)
+                && !AiReportType.PORTFOLIO.name().equals(reportType)
+                && !AiReportType.GENERAL.name().equals(reportType)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid report_type");
         }
     }
@@ -193,7 +190,7 @@ public class AiReportService {
         summary.put("prompt", input.getPrompt());
 
         // 若為 PORTFOLIO 類型，額外查詢持倉和交易數量
-        if (TYPE_PORTFOLIO.equals(reportType) && portfolio != null) {
+        if (AiReportType.PORTFOLIO.name().equals(reportType) && portfolio != null) {
             long positions = userPositionRepository.countByPortfolioId(portfolio.getId());
             long tradeCount = stockTradeRepository
                     .findByUserIdAndPortfolioId(input.getUserId(), portfolio.getId(), PageRequest.of(0, 1))
@@ -214,7 +211,7 @@ public class AiReportService {
         String reportType = context.getReportType();
         Map<String, Object> summary = context.getSummary() == null ? Map.of() : context.getSummary();
 
-        if (TYPE_PORTFOLIO.equals(reportType)) {
+        if (AiReportType.PORTFOLIO.name().equals(reportType)) {
             Object positions = summary.getOrDefault("positions", 0);
             Object tradeCount = summary.getOrDefault("tradeCount", 0);
             String name = context.getPortfolioName() == null ? "" : context.getPortfolioName();
@@ -224,7 +221,7 @@ public class AiReportService {
                     + currency + ".";
         }
 
-        if (TYPE_INSTRUMENT.equals(reportType)) {
+        if (AiReportType.INSTRUMENT.name().equals(reportType)) {
             String display = context.getInstrumentDisplay() == null ? "" : context.getInstrumentDisplay();
             return "Instrument \"" + display + "\" analysis is not enabled yet.";
         }
@@ -273,12 +270,12 @@ public class AiReportService {
         Long instrumentId = input.getInstrumentId();
 
         // 根據 reportType 清除不相關的 ID
-        if (TYPE_GENERAL.equals(reportType)) {
+        if (AiReportType.GENERAL.name().equals(reportType)) {
             portfolioId = null;
             instrumentId = null;
-        } else if (TYPE_PORTFOLIO.equals(reportType)) {
+        } else if (AiReportType.PORTFOLIO.name().equals(reportType)) {
             instrumentId = null;
-        } else if (TYPE_INSTRUMENT.equals(reportType)) {
+        } else if (AiReportType.INSTRUMENT.name().equals(reportType)) {
             portfolioId = null;
         }
 
@@ -286,7 +283,7 @@ public class AiReportService {
         InstrumentEntity instrument = null;
 
         // PORTFOLIO 類型需查詢並驗證 portfolio
-        if (TYPE_PORTFOLIO.equals(reportType)) {
+        if (AiReportType.PORTFOLIO.name().equals(reportType)) {
             if (portfolioId == null) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, "portfolio_id is required");
             }
@@ -295,7 +292,7 @@ public class AiReportService {
         }
 
         // INSTRUMENT 類型需查詢 instrument
-        if (TYPE_INSTRUMENT.equals(reportType)) {
+        if (AiReportType.INSTRUMENT.name().equals(reportType)) {
             if (instrumentId == null) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, "instrument_id is required");
             }

@@ -19,7 +19,7 @@ import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
 import tw.bk.appauth.service.UserService;
 import tw.bk.appauth.service.UserSettingsService;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;

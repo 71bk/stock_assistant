@@ -27,18 +27,18 @@ export const RequireAuth: React.FC<GuardProps> = ({ children }) => {
 
   if (isLoading) {
     if (timedOut) {
-       return (
-         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-            <Text type="secondary">認證檢查時間過長，請檢查網路連線或重新整理。</Text>
-            <Button onClick={() => window.location.reload()}>重新整理</Button>
-         </div>
-       );
+      return (
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+          <Text type="secondary">認證檢查時間過長，請檢查網路連線或重新整理。</Text>
+          <Button onClick={() => window.location.reload()}>重新整理</Button>
+        </div>
+      );
     }
     return <Spin fullscreen size="large" tip="載入中..." />;
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/auth/login" state={{ from: location }} replace />;
   }
 
   return <>{children}</>;

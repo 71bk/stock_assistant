@@ -149,3 +149,35 @@ class ErrorResponse(BaseModel):
     error: str
     detail: str | None = None
     code: str | None = None
+
+
+# ============================================================
+# RAG Query Models
+# ============================================================
+
+
+class RagQueryRequest(BaseModel):
+    """RAG query request."""
+
+    user_id: int = Field(description="User ID")
+    query: str = Field(description="Query text")
+    top_k: int = Field(default=5, ge=1, le=20, description="Number of results to return")
+    source_type: str | None = Field(default=None, description="Filter by source type")
+
+
+class RagChunkResult(BaseModel):
+    """A single chunk result from RAG query."""
+
+    content: str = Field(description="Chunk content")
+    document_id: int = Field(description="Document ID")
+    chunk_index: int = Field(description="Chunk index within the document")
+    score: float = Field(description="Relevance score (0-1, higher is better)")
+    title: str | None = Field(default=None, description="Document title")
+    source_type: str | None = Field(default=None, description="Source type")
+    source_id: str | None = Field(default=None, description="Source ID")
+
+
+class RagQueryResponse(BaseModel):
+    """RAG query response."""
+
+    chunks: list[RagChunkResult] = Field(description="List of relevant chunks")

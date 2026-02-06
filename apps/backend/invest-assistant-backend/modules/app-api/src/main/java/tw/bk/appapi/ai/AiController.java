@@ -31,7 +31,8 @@ import tw.bk.appai.service.AiReportService;
 import tw.bk.appapi.ai.dto.AiAnalysisRequest;
 import tw.bk.appapi.ai.vo.AiReportResponse;
 import tw.bk.appapi.ai.vo.AiReportSummaryResponse;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.AiReportType;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
@@ -290,11 +291,11 @@ public class AiController {
         if (prompt != null && !prompt.isBlank()) {
             return prompt.trim();
         }
-        String reportType = context.getReportType();
-        if ("PORTFOLIO".equals(reportType)) {
+        AiReportType reportType = AiReportType.from(context.getReportType());
+        if (AiReportType.PORTFOLIO.equals(reportType)) {
             return "Summarize the portfolio and highlight key risks.";
         }
-        if ("INSTRUMENT".equals(reportType)) {
+        if (AiReportType.INSTRUMENT.equals(reportType)) {
             return "Summarize the instrument and highlight key risks.";
         }
         return "Provide a concise market summary.";

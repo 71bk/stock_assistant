@@ -37,10 +37,23 @@ const Settings: React.FC = () => {
     setIsSyncing(true);
     try {
       const res = await adminApi.syncInstruments(adminKey);
-      const { added, skipped } = res.data;
-      message.success(`同步成功！新增：${added} 筆，略過：${skipped} 筆`);
+      const { added, skipped } = res;
+      message.success(`標的同步成功！新增：${added} 筆，略過：${skipped} 筆`);
     } catch (e) {
       message.error('同步失敗，請檢查 Admin Key 是否正確');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSyncWarrants = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await adminApi.syncWarrants(adminKey);
+      const { added, skipped } = res;
+      message.success(`權證同步成功！新增：${added} 筆，略過：${skipped} 筆`);
+    } catch (e) {
+      message.error('權證同步失敗，請檢查 Admin Key 是否正確');
     } finally {
       setIsSyncing(false);
     }
@@ -101,6 +114,13 @@ const Settings: React.FC = () => {
               danger
             >
               同步標的資料
+            </Button>
+            <Button
+              onClick={handleSyncWarrants}
+              loading={isSyncing}
+              danger
+            >
+              同步權證資料
             </Button>
           </div>
         </div>

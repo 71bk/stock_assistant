@@ -25,7 +25,8 @@ import tw.bk.appapi.portfolio.dto.UpdateTradeRequest;
 import tw.bk.appapi.portfolio.vo.PortfolioResponse;
 import tw.bk.appapi.portfolio.vo.PositionResponse;
 import tw.bk.appapi.portfolio.vo.TradeResponse;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
@@ -46,7 +47,7 @@ public class PortfolioController {
     private static final Logger log = LoggerFactory.getLogger(PortfolioController.class);
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
-    private static final String SOURCE_MANUAL = "MANUAL";
+    private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
 
     private final PortfolioService portfolioService;
     private final CurrentUserProvider currentUserProvider;

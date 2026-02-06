@@ -7,7 +7,8 @@ import lombok.NoArgsConstructor;
 import tw.bk.appstocks.model.Candle;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -19,7 +20,7 @@ import java.util.stream.Collectors;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CandleResponse {
-    private LocalDateTime timestamp;
+    private OffsetDateTime timestamp;
     private BigDecimal open;
     private BigDecimal high;
     private BigDecimal low;
@@ -28,7 +29,7 @@ public class CandleResponse {
 
     public static CandleResponse from(Candle candle) {
         return CandleResponse.builder()
-                .timestamp(candle.getTimestamp())
+                .timestamp(candle.getTimestamp() == null ? null : candle.getTimestamp().atOffset(ZoneOffset.ofHours(8)))
                 .open(candle.getOpen())
                 .high(candle.getHigh())
                 .low(candle.getLow())

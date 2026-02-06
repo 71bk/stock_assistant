@@ -18,14 +18,16 @@ export type ApiResponse<T> = {
   traceId: string;
 };
 
+export interface PageData<T> {
+  items: T[];
+  page: number;
+  size: number;
+  total: number;
+}
+
 export interface PageResponse<T> {
   success: boolean;
-  data: {
-    items: T[];
-    page: number;
-    size: number;
-    total: number;
-  };
+  data: PageData<T>;
   error: null;
   traceId: string;
 }

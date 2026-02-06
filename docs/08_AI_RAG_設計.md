@@ -1,4 +1,4 @@
-# AI / RAG 設計
+﻿# AI / RAG 設計
 
 > 狀態：草稿
 
@@ -7,6 +7,8 @@
 - 
 
 ## SSE 串流規格
+
+- reportType 為 enum：INSTRUMENT / PORTFOLIO / GENERAL（AI 報告回應欄位）
 
 - 
 
@@ -73,7 +75,33 @@
 
 ## Chunking/Embedding
 
-- 
+### Provider 切換（Embedding / OCR）
+
+**目標：** 允許在不改程式碼的前提下切換模型來源，並確保向量維度一致。
+
+**環境變數（ai-worker）**
+- `LLM_PROVIDER`：聊天 / OCR Vision 使用的 LLM（`gemini` / `openai` / `ollama`）
+- `EMBEDDING_PROVIDER`：向量模型來源（`gemini` / `openai` / `ollama`）
+- `OCR_PROVIDER`：OCR 來源（`auto` / `tesseract` / `gemini` / `openai` / `ollama`）
+- `EMBEDDING_EXPECTED_DIMENSION`：向量維度的硬性檢查（**必填**）
+
+**維度對應（常用）**
+- `gemini-embedding-001` → 1536（需搭配 `output_dimensionality=1536`）
+- `text-embedding-3-small` → 1536
+- `text-embedding-3-large` → 3072
+- `nomic-embed-text` → 768
+
+**切換示例**
+- 只換 Embedding（LLM/OCR 繼續 Gemini）：
+  - `LLM_PROVIDER=gemini`
+  - `EMBEDDING_PROVIDER=ollama`
+  - `EMBEDDING_EXPECTED_DIMENSION=768`
+- 只換 OCR（LLM 仍用 Gemini）：
+  - `OCR_PROVIDER=tesseract`
+
+**注意事項**
+- `EMBEDDING_EXPECTED_DIMENSION` 與 DB `vector(n)` 維度必須一致，否則 ai-worker 會在啟動時 fail-fast。
+- OCR 若使用 `auto`：先走 tesseract，低信心才 fallback vision。
 
 ## pgvector schema
 
@@ -86,3 +114,4 @@
 ## 成本/速率/快取
 
 - 
+

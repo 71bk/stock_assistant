@@ -1,6 +1,6 @@
 package tw.bk.appstocks.port;
 
-import tw.bk.appcommon.model.MarketCode;
+import tw.bk.appcommon.enums.MarketCode;
 import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
 import tw.bk.appstocks.model.TickerList;

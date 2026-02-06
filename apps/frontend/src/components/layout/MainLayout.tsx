@@ -11,6 +11,7 @@ import {
   MenuFoldOutlined,
   UserOutlined,
   LogoutOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -61,6 +62,7 @@ export const MainLayout: React.FC = () => {
         trades: '交易紀錄',
         stocks: '股票行情',
         import: '匯入交易',
+        chat: 'AI 助理',
         reports: '分析報告',
         settings: '設定',
       };
@@ -111,6 +113,11 @@ export const MainLayout: React.FC = () => {
               key: '/import',
               icon: <UploadOutlined />,
               label: '匯入交易',
+            },
+            {
+              key: '/chat',
+              icon: <RobotOutlined />,
+              label: 'AI 助理',
             },
             {
               key: '/reports',

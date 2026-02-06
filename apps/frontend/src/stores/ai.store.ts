@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { aiApi } from '../api/ai.api';
 import type { AiReport } from '../api/ai.api';
-import type { PageResponse } from '../types/api';
 import { message } from 'antd';
 
 interface AiState {
@@ -27,8 +26,7 @@ export const useAiStore = create<AiState>((set, get) => ({
     set({ isLoading: true });
     try {
       const res = await aiApi.getReports(page, size);
-      const data = (res as unknown as PageResponse<AiReport>).data;
-      set({ reports: data.items, totalReports: data.total });
+      set({ reports: res.items, totalReports: res.total });
     } catch (e) {
       console.error('Failed to fetch reports', e);
     } finally {

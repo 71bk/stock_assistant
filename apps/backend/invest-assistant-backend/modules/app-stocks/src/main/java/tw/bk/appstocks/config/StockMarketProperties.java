@@ -33,7 +33,7 @@ public class StockMarketProperties {
 
     @Data
     public static class Tpex {
-        private String baseUrl = "https://www.tpex.org.tw/openapi";
+        private String baseUrl = "https://www.tpex.org.tw/openapi/v1";
     }
 
     @Data

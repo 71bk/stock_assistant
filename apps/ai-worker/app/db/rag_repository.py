@@ -76,6 +76,9 @@ class RagRepository:
         meta: dict[str, Any],
         chunks: list[dict[str, Any]],
         embeddings: list[list[float]],
+        embedding_model: str | None = None,
+        embedding_version: str | None = None,
+        dimensions: int | None = None,
     ) -> tuple[int, int]:
         if len(chunks) != len(embeddings):
             raise ValueError("Chunks and embeddings length mismatch")
@@ -112,14 +115,18 @@ class RagRepository:
                                     chunk.get("content", ""),
                                     embedding,
                                     Json(chunk_meta),
+                                    embedding_model,
+                                    embedding_version,
+                                    dimensions,
                                 )
                             )
 
                         await cur.executemany(
                             """
                             INSERT INTO vector.rag_chunks
-                                (document_id, user_id, chunk_index, content, embedding, meta)
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                                (document_id, user_id, chunk_index, content, embedding, meta,
+                                 embedding_model, embedding_version, dimensions)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             params,
                         )
@@ -133,12 +140,17 @@ class RagRepository:
         top_k: int = 5,
         source_type: str | None = None,
     ) -> list[dict[str, Any]]:
+        from pgvector.psycopg import Vector
+
         where_clauses = ["c.user_id = %s"]
         where_params: list[Any] = [user_id]
 
         if source_type:
             where_clauses.append("d.source_type = %s")
             where_params.append(source_type)
+
+        # Convert list to Vector for proper type casting
+        query_vec = Vector(query_vector)
 
         sql = f"""
             SELECT
@@ -157,7 +169,7 @@ class RagRepository:
             LIMIT %s
         """
 
-        params = [query_vector] + where_params + [query_vector, top_k]
+        params = [query_vec] + where_params + [query_vec, top_k]
 
         pool = get_pool()
         async with pool.connection() as conn:
@@ -166,3 +178,4 @@ class RagRepository:
                 rows = await cur.fetchall()
 
         return [dict(row) for row in rows]
+

@@ -101,10 +101,10 @@ export const AddInstrumentModal: React.FC<AddInstrumentModalProps> = ({ open, on
           rules={[{ required: true, message: '請選擇交易所' }]}
         >
           <Select placeholder="選擇交易所">
-            <Option value="TWSE">證交所 (TWSE)</Option>
-            <Option value="TPEx">櫃買中心 (TPEx)</Option>
-            <Option value="NASDAQ">那斯達克 (NASDAQ)</Option>
-            <Option value="NYSE">紐約證交所 (NYSE)</Option>
+            <Option value="XTAI">證交所 (XTAI)</Option>
+            <Option value="XTPX">櫃買中心 (XTPX)</Option>
+            <Option value="XNAS">那斯達克 (XNAS)</Option>
+            <Option value="XNYS">紐約證交所 (XNYS)</Option>
           </Select>
         </Form.Item>
 
@@ -126,6 +126,7 @@ export const AddInstrumentModal: React.FC<AddInstrumentModalProps> = ({ open, on
           <Select>
             <Option value="STOCK">股票 (STOCK)</Option>
             <Option value="ETF">指數股票型基金 (ETF)</Option>
+            <Option value="WARRANT">權證 (WARRANT)</Option>
           </Select>
         </Form.Item>
       </Form>

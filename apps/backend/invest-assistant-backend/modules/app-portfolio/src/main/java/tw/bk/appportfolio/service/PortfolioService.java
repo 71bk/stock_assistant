@@ -15,11 +15,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.time.ClockProvider;
 import tw.bk.appportfolio.model.TradeCommand;
-import tw.bk.appportfolio.model.TradeSide;
+import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appportfolio.model.PortfolioSummary;
 import tw.bk.appportfolio.model.PositionWithQuote;
 import tw.bk.apppersistence.entity.InstrumentEntity;
@@ -38,7 +39,7 @@ public class PortfolioService {
     private static final int AVG_COST_SCALE = 8;
     private static final String DEFAULT_PORTFOLIO_NAME = "Main";
     private static final String DEFAULT_BASE_CURRENCY = "TWD";
-    private static final String SOURCE_MANUAL = "MANUAL";
+    private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
 
     private final PortfolioRepository portfolioRepository;
     private final StockTradeRepository tradeRepository;

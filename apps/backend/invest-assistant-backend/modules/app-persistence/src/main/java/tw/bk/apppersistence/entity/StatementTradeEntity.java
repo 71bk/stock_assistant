@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import tw.bk.appcommon.enums.TradeSide;
 
 @Entity
 @Table(name = "statement_trades", schema = "app")
@@ -75,4 +76,8 @@ public class StatementTradeEntity {
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    public TradeSide getSideEnum() {
+        return TradeSide.from(side);
+    }
 }

@@ -21,7 +21,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.OcrJobStatus;
+import tw.bk.appcommon.enums.StatementStatus;
+import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.client.AiWorkerOcrClient;
 import tw.bk.appocr.client.AiWorkerOcrResponse;
@@ -29,7 +32,7 @@ import tw.bk.appocr.client.AiWorkerParsedTrade;
 import tw.bk.appocr.model.ConfirmResult;
 import tw.bk.appocr.model.OcrDraftUpdate;
 import tw.bk.appportfolio.model.TradeCommand;
-import tw.bk.appportfolio.model.TradeSide;
+import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appportfolio.service.PortfolioService;
 import tw.bk.apppersistence.entity.FileEntity;
 import tw.bk.apppersistence.entity.InstrumentEntity;
@@ -51,14 +54,15 @@ import tw.bk.appfiles.config.FileStorageProperties;
 @Service
 @RequiredArgsConstructor
 public class OcrService {
-    private static final String SOURCE_OCR = "OCR";
-    private static final String STATUS_DRAFT = "DRAFT";
-    private static final String STATUS_CONFIRMED = "CONFIRMED";
-    private static final String STATUS_FAILED = "FAILED";
-    private static final String JOB_QUEUED = "QUEUED";
-    private static final String JOB_RUNNING = "RUNNING";
-    private static final String JOB_DONE = "DONE";
-    private static final String JOB_FAILED = "FAILED";
+    private static final String SOURCE_OCR = TradeSource.OCR.name();
+    private static final String STATUS_DRAFT = StatementStatus.DRAFT.name();
+    private static final String STATUS_CONFIRMED = StatementStatus.CONFIRMED.name();
+    private static final String STATUS_FAILED = StatementStatus.FAILED.name();
+    private static final String STATUS_SUPERSEDED = StatementStatus.SUPERSEDED.name();
+    private static final String JOB_QUEUED = OcrJobStatus.QUEUED.name();
+    private static final String JOB_RUNNING = OcrJobStatus.RUNNING.name();
+    private static final String JOB_DONE = OcrJobStatus.DONE.name();
+    private static final String JOB_FAILED = OcrJobStatus.FAILED.name();
     private static final int AMOUNT_SCALE = 6;
     private static final int PRICE_SCALE = 8;
 
@@ -161,6 +165,24 @@ public class OcrService {
             log.warn("OCR Job 不存在: jobId={}, userId={}", jobId, userId);
             return;
         }
+        StatementEntity precheckStatement = null;
+        if (job.getStatementId() != null) {
+            precheckStatement = statementRepository.findByIdAndUserId(job.getStatementId(), userId).orElse(null);
+        }
+        if (precheckStatement != null && STATUS_SUPERSEDED.equals(precheckStatement.getStatus())) {
+            log.info("OCR Job skipped due to superseded statement: jobId={}, statementId={}",
+                    jobId, precheckStatement.getId());
+            try {
+                job.setStatus(JOB_FAILED);
+                job.setProgress(100);
+                job.setErrorMessage("Statement superseded");
+                ocrJobRepository.save(job);
+            } catch (Exception ex) {
+                log.error("Failed to mark superseded OCR job: jobId={}, error={}", jobId, ex.getMessage());
+            }
+            return;
+        }
+
         if (JOB_DONE.equals(job.getStatus())) {
             log.info("OCR Job 已完成，跳過: jobId={}", jobId);
             return;
@@ -433,7 +455,53 @@ public class OcrService {
                 ocrJobRepository.save(job);
                 log.info("所有草稿已處理完畢，Job 狀態更新為 DONE: jobId={}", job.getId());
             }
+
         }
+    }
+
+    /**
+     * Reparse OCR job by creating a new statement and job, superseding the old statement.
+     */
+    @Transactional
+    public OcrJobEntity reparse(Long userId, Long jobId, boolean force) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
+        }
+        OcrJobEntity job = getJob(userId, jobId);
+        if (!force && (JOB_RUNNING.equals(job.getStatus()) || JOB_QUEUED.equals(job.getStatus()))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
+        }
+
+        StatementEntity oldStatement = requireStatement(job.getStatementId(), userId);
+        oldStatement.setStatus(STATUS_SUPERSEDED);
+        oldStatement.setSupersededAt(OffsetDateTime.now());
+        statementRepository.save(oldStatement);
+
+        StatementEntity newStatement = new StatementEntity();
+        newStatement.setUserId(userId);
+        newStatement.setPortfolioId(oldStatement.getPortfolioId());
+        newStatement.setSource(SOURCE_OCR);
+        newStatement.setFileId(job.getFileId());
+        newStatement.setStatus(STATUS_DRAFT);
+        newStatement.setParsedJson("{}");
+        statementRepository.save(newStatement);
+
+        OcrJobEntity newJob = new OcrJobEntity();
+        newJob.setUserId(userId);
+        newJob.setFileId(job.getFileId());
+        newJob.setStatementId(newStatement.getId());
+        newJob.setStatus(JOB_QUEUED);
+        newJob.setProgress(0);
+        newJob.setErrorMessage(null);
+        ocrJobRepository.save(newJob);
+
+        FileEntity file = fileRepository.findByIdAndUserId(job.getFileId(), userId).orElse(null);
+        if (file != null && file.getSha256() != null && !file.getSha256().isBlank()) {
+            dedupeService.store(userId, file.getSha256(), newJob.getId());
+        }
+
+        queueService.enqueue(newJob);
+        return newJob;
     }
 
     private StatementEntity requireStatement(Long statementId, Long userId) {

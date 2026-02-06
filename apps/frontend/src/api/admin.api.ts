@@ -1,5 +1,4 @@
 import { http } from '../utils/http';
-import type { ApiResponse } from '../types/api';
 
 export interface SyncResult {
   added: number;
@@ -12,9 +11,20 @@ export const adminApi = {
     if (adminKey) {
       headers['X-Admin-Key'] = adminKey;
     }
-    return http.post<ApiResponse<SyncResult>>('/admin/instruments/sync', {}, {
+    return http.post<SyncResult>('/admin/instruments/sync', {}, {
       headers,
       timeout: 120000, // Sync can take over 60s, setting 2m timeout
+    });
+  },
+
+  syncWarrants: (adminKey?: string) => {
+    const headers: Record<string, string> = {};
+    if (adminKey) {
+      headers['X-Admin-Key'] = adminKey;
+    }
+    return http.post<SyncResult>('/admin/instruments/sync-warrants', {}, {
+      headers,
+      timeout: 120000,
     });
   },
 };

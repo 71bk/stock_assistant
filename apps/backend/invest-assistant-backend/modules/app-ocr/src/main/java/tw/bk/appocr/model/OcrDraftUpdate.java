@@ -2,7 +2,7 @@ package tw.bk.appocr.model;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import tw.bk.appportfolio.model.TradeSide;
+import tw.bk.appcommon.enums.TradeSide;
 
 public record OcrDraftUpdate(
                 Long instrumentId,

@@ -266,14 +266,15 @@ class GeminiClient(BaseLlmClient):
             return candidate["content"]["parts"][0]["text"]
 
 
-def get_llm_client() -> BaseLlmClient:
+def get_llm_client(provider: LlmProvider | None = None) -> BaseLlmClient:
     """Get the appropriate LLM client based on settings."""
     settings = get_settings()
+    resolved = provider or settings.llm_provider
 
-    if settings.llm_provider == LlmProvider.OPENAI:
+    if resolved == LlmProvider.OPENAI:
         logger.info("Using OpenAI provider")
         return OpenAIClient()
-    elif settings.llm_provider == LlmProvider.OLLAMA:
+    elif resolved == LlmProvider.OLLAMA:
         logger.info("Using Ollama provider (FREE & LOCAL)")
         return OllamaClient()
     else:  # Gemini
@@ -284,9 +285,10 @@ def get_llm_client() -> BaseLlmClient:
 class LlmService:
     """Unified LLM service that works with any provider."""
 
-    def __init__(self) -> None:
-        self.client = get_llm_client()
+    def __init__(self, provider: LlmProvider | None = None) -> None:
         self.settings = get_settings()
+        self.provider = provider or self.settings.llm_provider
+        self.client = get_llm_client(self.provider)
 
     async def chat(
         self,
@@ -296,7 +298,7 @@ class LlmService:
         json_mode: bool = False,
     ) -> str:
         """Send a chat completion request."""
-        logger.debug("LLM chat request", provider=self.settings.llm_provider.value)
+        logger.debug("LLM chat request", provider=self.provider.value)
         return await self.client.chat(messages, temperature, max_tokens, json_mode)
 
     async def vision(
@@ -309,7 +311,7 @@ class LlmService:
         try:
             logger.debug(
                 "LLM vision request",
-                provider=self.settings.llm_provider.value,
+                provider=self.provider.value,
                 model=self.settings.vision_model,
             )
             return await self.client.vision(image_base64, prompt, media_type)

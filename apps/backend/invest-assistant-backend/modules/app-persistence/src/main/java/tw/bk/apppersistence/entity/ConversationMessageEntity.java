@@ -9,6 +9,8 @@ import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import lombok.Getter;
 import lombok.Setter;
+import tw.bk.appcommon.enums.ConversationMessageStatus;
+import tw.bk.appcommon.enums.ConversationRole;
 
 @Entity
 @Table(name = "conversation_messages", schema = "app")
@@ -36,4 +38,12 @@ public class ConversationMessageEntity {
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    public ConversationRole getRoleEnum() {
+        return ConversationRole.from(role);
+    }
+
+    public ConversationMessageStatus getStatusEnum() {
+        return ConversationMessageStatus.from(status);
+    }
 }

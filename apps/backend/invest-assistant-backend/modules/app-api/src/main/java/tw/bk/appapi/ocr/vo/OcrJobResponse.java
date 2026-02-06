@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.apppersistence.entity.OcrJobEntity;
 
 @Data
@@ -13,7 +14,7 @@ import tw.bk.apppersistence.entity.OcrJobEntity;
 public class OcrJobResponse {
     private String jobId;
     private String statementId;
-    private String status;
+    private OcrJobStatus status;
     private Integer progress;
     private String errorMessage;
 
@@ -21,7 +22,7 @@ public class OcrJobResponse {
         return OcrJobResponse.builder()
                 .jobId(entity.getId() != null ? entity.getId().toString() : null)
                 .statementId(entity.getStatementId() != null ? entity.getStatementId().toString() : null)
-                .status(entity.getStatus())
+                .status(entity.getStatusEnum())
                 .progress(entity.getProgress())
                 .errorMessage(entity.getErrorMessage())
                 .build();

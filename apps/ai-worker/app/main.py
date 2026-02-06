@@ -14,8 +14,11 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, ingest, ocr
+from app.api import health, ingest, ocr, query
 from app.config import get_settings
+from app.db.rag_repository import close_pool, init_pool
+from app.services.document_parser import init_ocr_limits
+from app.services.rag_service import init_ingest_limits
 
 # Configure structured logging
 structlog.configure(
@@ -48,7 +51,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         service=settings.service_name,
         environment=settings.environment,
     )
+    expected_dim = settings.resolve_expected_embedding_dimension()
+    if expected_dim is None:
+        raise RuntimeError(
+            "Unknown embedding dimension for provider/model. "
+            "Set EMBEDDING_EXPECTED_DIMENSION to avoid mismatched vector size."
+        )
+    if expected_dim != settings.embedding_dimension:
+        raise RuntimeError(
+            f"Embedding dimension mismatch: expected {expected_dim} but got "
+            f"{settings.embedding_dimension}."
+        )
+    init_ocr_limits(settings.ocr_concurrency)
+    await init_pool()
+    init_ingest_limits(settings.ingest_concurrency)
     yield
+    await close_pool()
     logger.info("Shutting down AI Worker")
 
 
@@ -78,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, tags=["Health"])
     app.include_router(ocr.router, prefix="/ocr", tags=["OCR"])
     app.include_router(ingest.router, prefix="/ingest", tags=["RAG Ingestion"])
+    app.include_router(query.router, prefix="/query", tags=["RAG Query"])
 
     return app
 

@@ -12,7 +12,8 @@ import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 import Stocks from "@/pages/Stocks";
 import ImportPage from "@/pages/Import";
-import { Login } from "@/pages/Auth"; 
+import ChatPage from "@/pages/Chat";
+import { Login } from "@/pages/Auth";
 import OAuthCallback from "@/pages/Auth/Callback";
 
 /**
@@ -62,6 +63,10 @@ export const routeConfig: RouteObject[] = [
           {
             path: "import",
             element: <ImportPage />,
+          },
+          {
+            path: "chat",
+            element: <ChatPage />,
           },
         ],
       },

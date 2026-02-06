@@ -46,6 +46,20 @@ export interface ConfirmImportResponse {
   errors: Array<{ draftId: string; reason: string }>;
 }
 
+export interface PresignRequest {
+  sha256: string;
+  sizeBytes: number;
+  contentType: string;
+}
+
+export interface PresignResponse {
+  uploadUrl: string;
+  method: string;
+  headers: Record<string, string>;
+  fileId: string;
+  alreadyExists: boolean;
+}
+
 export const ocrApi = {
   uploadFileOnly: async (file: File) => {
     const formData = new FormData();
@@ -58,6 +72,9 @@ export const ocrApi = {
     });
     return res.fileId;
   },
+
+  getPresignedUrl: (data: PresignRequest) =>
+    http.post<PresignResponse>('/files/presign', data),
 
   // Deprecated: Use uploadFileOnly + createOcrJob
   upload: async (file: File, portfolioId: string = 'default') => {

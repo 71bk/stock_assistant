@@ -1,10 +1,14 @@
-package tw.bk.appcommon.model;
+package tw.bk.appcommon.enums;
 
 import java.util.Locale;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 
+/**
+ * 市場代碼列舉
+ */
 public enum MarketCode {
+    /** 台灣 */
     TW,
     US;
 
@@ -27,7 +31,8 @@ public enum MarketCode {
             return false;
         }
     }
-    //字串轉MarketCode(正規化)
+
+    /** 字串轉 MarketCode（正規化） */
     public static MarketCode requireSupported(String code, ErrorCode errorCode, String message) {
         try {
             return fromCode(code);

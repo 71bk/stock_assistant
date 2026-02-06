@@ -1,5 +1,4 @@
 import { http } from '../utils/http';
-import type { ApiResponse } from '../types/api';
 
 export interface UserSettings {
   baseCurrency: string;
@@ -10,5 +9,5 @@ export interface UserSettings {
 
 export const usersApi = {
   updateSettings: (settings: Partial<UserSettings>) =>
-    http.patch<ApiResponse<UserSettings>>('/users/me/settings', settings),
+    http.patch<UserSettings>('/users/me/settings', settings),
 };

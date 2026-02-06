@@ -6,7 +6,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.AssetType;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.InstrumentStatus;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.entity.ExchangeEntity;
 import tw.bk.apppersistence.entity.InstrumentEntity;
@@ -64,8 +66,12 @@ public class InstrumentService {
         entity.setNameZh(nameZh);
         entity.setNameEn(nameEn);
         entity.setCurrency(currency.toUpperCase());
-        entity.setAssetType(assetType != null ? assetType.toUpperCase() : "STOCK");
-        entity.setStatus("ACTIVE");
+        AssetType normalizedAssetType = AssetType.from(assetType);
+        if (normalizedAssetType == null) {
+            normalizedAssetType = AssetType.STOCK;
+        }
+        entity.setAssetType(normalizedAssetType.name());
+        entity.setStatus(InstrumentStatus.ACTIVE.name());
         entity.setSymbolKey(symbolKey);
 
         return instrumentRepository.save(entity);
@@ -101,6 +107,13 @@ public class InstrumentService {
         Pageable pageable = PageRequest.of(0, validLimit);
 
         return instrumentRepository.searchInstrumentsWithRelations(query, pageable);
+    }
+
+    /**
+     * Search instruments by ticker or name with pagination.
+     */
+    public Page<InstrumentEntity> searchInstrumentsPage(String query, Pageable pageable) {
+        return instrumentRepository.searchInstrumentsPage(query, pageable);
     }
 
     /**

@@ -5,7 +5,8 @@ from typing import Annotated
 import structlog
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.models.schemas import IngestRequest, IngestResponse
+from app.models.schemas import IngestResponse
+from app.services.rag_service import RagService, IngestRateLimitError
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -18,6 +19,7 @@ async def ingest_document(
     title: Annotated[str | None, Form(description="Document title")] = None,
     source_type: Annotated[str, Form(description="Source type")] = "upload",
     tags: Annotated[str | None, Form(description="Comma-separated tags")] = None,
+    source_id: Annotated[str | None, Form(description="Source reference ID")] = None,
 ) -> IngestResponse:
     """
     Ingest a document into the RAG knowledge base.
@@ -32,7 +34,6 @@ async def ingest_document(
     **Supported formats:**
     - PDF
     - Text files (.txt, .md)
-    - (Future) Word documents, HTML
 
     **Response includes:**
     - `document_id`: ID of the created document
@@ -46,15 +47,50 @@ async def ingest_document(
         source_type=source_type,
     )
 
-    # TODO: Implement actual ingestion logic
-    # For now, return a placeholder response
+    # Parse user_id to int
+    try:
+        uid = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+    # Parse tags
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+    # Read file content
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    service = RagService()
+
+    try:
+        document_id, chunks_count = await service.ingest_file(
+            user_id=uid,
+            filename=file.filename,
+            content_type=file.content_type,
+            content=content,
+            title=title,
+            source_type=source_type,
+            tags=tag_list,
+            source_id=source_id,
+        )
+    except IngestRateLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent ingestion requests. Please retry later.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Ingest failed", error=str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail="Ingestion failed")
 
     return IngestResponse(
-        document_id="doc_placeholder",
+        document_id=str(document_id),
         title=title or file.filename or "Untitled",
-        chunks_count=0,
-        status="pending",
-        message="Ingestion service not yet implemented",
+        chunks_count=chunks_count,
+        status="completed",
+        message="Document ingested successfully",
     )
 
 
@@ -65,6 +101,7 @@ async def ingest_text(
     title: Annotated[str, Form(description="Document title")],
     source_type: Annotated[str, Form(description="Source type")] = "note",
     tags: Annotated[str | None, Form(description="Comma-separated tags")] = None,
+    source_id: Annotated[str | None, Form(description="Source reference ID")] = None,
 ) -> IngestResponse:
     """
     Ingest raw text into the RAG knowledge base.
@@ -78,12 +115,44 @@ async def ingest_text(
         text_length=len(text),
     )
 
-    # TODO: Implement actual ingestion logic
+    # Parse user_id to int
+    try:
+        uid = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+    if not text or not text.strip():
+        raise HTTPException(status_code=400, detail="Text content is empty")
+
+    # Parse tags
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+    service = RagService()
+
+    try:
+        document_id, chunks_count = await service.ingest_text(
+            user_id=uid,
+            title=title,
+            text=text,
+            source_type=source_type,
+            tags=tag_list,
+            source_id=source_id,
+        )
+    except IngestRateLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent ingestion requests. Please retry later.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Ingest text failed", error=str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail="Text ingestion failed")
 
     return IngestResponse(
-        document_id="doc_placeholder",
+        document_id=str(document_id),
         title=title,
-        chunks_count=0,
-        status="pending",
-        message="Ingestion service not yet implemented",
+        chunks_count=chunks_count,
+        status="completed",
+        message="Text ingested successfully",
     )

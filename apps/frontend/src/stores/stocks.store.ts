@@ -11,7 +11,7 @@ interface StocksState {
   // Actions
   setInstruments: (instruments: Instrument[]) => void;
   setSelectedInstrument: (instrument: Instrument | null) => void;
-  setQuote: (instrumentId: string, quote: Quote) => void;
+  setQuote: (symbolKey: string, quote: Quote) => void;
   fetchQuote: (symbolKey: string) => Promise<void>;
   setLoading: (loading: boolean) => void;
 }
@@ -36,11 +36,11 @@ export const useStocksStore = create<StocksState>((set) => ({
       selectedInstrument: instrument,
     }),
 
-  setQuote: (instrumentId, quote) =>
+  setQuote: (symbolKey, quote) =>
     set((state) => ({
       quotes: {
         ...state.quotes,
-        [instrumentId]: quote,
+        [symbolKey]: quote,
       },
     })),
 

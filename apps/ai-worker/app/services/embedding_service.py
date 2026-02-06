@@ -2,8 +2,9 @@
 
 import structlog
 from openai import AsyncOpenAI
+import google.generativeai as genai
 
-from app.config import get_settings
+from app.config import EmbeddingProvider, get_settings
 
 logger = structlog.get_logger()
 
@@ -14,7 +15,22 @@ class EmbeddingService:
     def __init__(self) -> None:
         """Initialize embedding service."""
         self.settings = get_settings()
-        self.client = AsyncOpenAI(api_key=self.settings.openai_api_key)
+        self.provider = self.settings.resolved_embedding_provider
+
+        if self.provider == EmbeddingProvider.OPENAI:
+            self.client = AsyncOpenAI(
+                api_key=self.settings.openai_api_key,
+                base_url=self.settings.openai_base_url,
+            )
+        elif self.provider == EmbeddingProvider.OLLAMA:
+            # Ollama uses OpenAI-compatible API
+            self.client = AsyncOpenAI(
+                api_key="ollama",  # Ollama doesn't need real API key
+                base_url=f"{self.settings.ollama_base_url}/v1",
+            )
+        else:  # Gemini
+            genai.configure(api_key=self.settings.gemini_api_key)
+            self.client = None  # Gemini uses different API
 
     async def embed(self, text: str) -> list[float]:
         """
@@ -26,10 +42,12 @@ class EmbeddingService:
         Returns:
             Embedding vector as list of floats
         """
+        if self.provider == EmbeddingProvider.GEMINI:
+            return await self._embed_gemini(text)
+
         response = await self.client.embeddings.create(
-            model=self.settings.embedding_model,
+            model=self.settings.embedding_model_name,
             input=text,
-            dimensions=self.settings.embedding_dimension,
         )
 
         return response.data[0].embedding
@@ -47,12 +65,14 @@ class EmbeddingService:
         if not texts:
             return []
 
-        logger.debug("Generating embeddings", count=len(texts))
+        logger.debug("Generating embeddings", count=len(texts), provider=self.provider.value)
+
+        if self.provider == EmbeddingProvider.GEMINI:
+            return await self._embed_batch_gemini(texts)
 
         response = await self.client.embeddings.create(
-            model=self.settings.embedding_model,
+            model=self.settings.embedding_model_name,
             input=texts,
-            dimensions=self.settings.embedding_dimension,
         )
 
         # Sort by index to maintain order
@@ -67,62 +87,50 @@ class EmbeddingService:
 
         return embeddings
 
+    async def _embed_gemini(self, text: str) -> list[float]:
+        """Generate embedding using Gemini API."""
+        import asyncio
 
-def chunk_text(
-    text: str,
-    chunk_size: int = 500,
-    chunk_overlap: int = 50,
-) -> list[dict]:
-    """
-    Split text into overlapping chunks.
-
-    Args:
-        text: Text to split
-        chunk_size: Maximum characters per chunk
-        chunk_overlap: Number of characters to overlap
-
-    Returns:
-        List of chunk dicts with content and metadata
-    """
-    if not text:
-        return []
-
-    chunks = []
-    start = 0
-    chunk_index = 0
-
-    while start < len(text):
-        end = start + chunk_size
-
-        # Try to break at sentence boundary
-        if end < len(text):
-            # Look for sentence end (.!?) within last 100 chars
-            search_start = max(end - 100, start)
-            best_break = end
-
-            for i in range(end, search_start, -1):
-                if text[i - 1] in ".!?。！？\n":
-                    best_break = i
-                    break
-
-            end = best_break
-
-        chunk_content = text[start:end].strip()
-
-        if chunk_content:
-            chunks.append(
-                {
-                    "chunk_index": chunk_index,
-                    "content": chunk_content,
-                    "start_char": start,
-                    "end_char": end,
-                }
+        def _sync_embed():
+            result = genai.embed_content(
+                model=f"models/{self.settings.gemini_embedding_model}",
+                content=text,
+                task_type="retrieval_document",
+                output_dimensionality=self.settings.embedding_dimension,
             )
-            chunk_index += 1
+            return result["embedding"]
 
-        # Move start forward, accounting for overlap
-        start = end - chunk_overlap
-        if start >= len(text) - chunk_overlap:
-            break
+        return await asyncio.to_thread(_sync_embed)
 
-    return chunks
+    async def _embed_batch_gemini(self, texts: list[str]) -> list[list[float]]:
+        """Generate batch embeddings using Gemini API."""
+        import asyncio
+
+        def _sync_embed_batch():
+            result = genai.embed_content(
+                model=f"models/{self.settings.gemini_embedding_model}",
+                content=texts,
+                task_type="retrieval_document",
+                output_dimensionality=self.settings.embedding_dimension,
+            )
+
+            embeddings = None
+            if isinstance(result, dict):
+                embeddings = result.get("embedding") or result.get("embeddings")
+            else:
+                embeddings = getattr(result, "embedding", None) or getattr(result, "embeddings", None)
+
+            if embeddings is None:
+                raise ValueError("Gemini embedding response missing embeddings")
+
+            # Handle single embedding returned as list[float]
+            if embeddings and isinstance(embeddings[0], (int, float)):
+                return [embeddings]
+
+            # Handle list of dicts with values
+            if embeddings and isinstance(embeddings[0], dict) and "values" in embeddings[0]:
+                return [item["values"] for item in embeddings]
+
+            return embeddings
+
+        return await asyncio.to_thread(_sync_embed_batch)

@@ -42,4 +42,7 @@ public class StatementEntity extends BaseEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "parsed_json", columnDefinition = "jsonb")
     private String parsedJson;
+
+    @Column(name = "superseded_at")
+    private java.time.OffsetDateTime supersededAt;
 }

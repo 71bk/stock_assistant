@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.users.dto.UpdateUserSettingsRequest;
 import tw.bk.appapi.users.vo.UserSettingsResponse;
 import tw.bk.appauth.service.UserSettingsService;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
