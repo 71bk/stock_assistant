@@ -9,8 +9,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +50,13 @@ import tw.bk.apppersistence.entity.ConversationMessageEntity;
 @Tag(name = "AI Conversations", description = "Chat conversation APIs")
 @Slf4j
 public class AiConversationController {
+    private static final String LAST_MENTIONED_CACHE_NAME = "conversationLastMentioned";
+    private static final Pattern SYMBOL_KEY_PATTERN = Pattern
+            .compile("\\b([A-Za-z]{2}:[A-Za-z0-9]{4}:[A-Za-z0-9.\\-]{1,16})\\b");
+    private static final Pattern URL_SYMBOL_KEY_PATTERN = Pattern
+            .compile("(?i)(?:symbolKey|symbol_key)=([A-Za-z]{2}:[A-Za-z0-9]{4}:[A-Za-z0-9.\\-]{1,16})");
+    private static final List<String> PRONOUN_MARKERS = List.of(
+            "這隻", "這檔", "這支", "那隻", "那檔", "那支", "它", "該股");
 
     private final AiConversationService conversationService;
     private final GroqChatClient groqChatClient;
@@ -53,6 +64,7 @@ public class AiConversationController {
     private final Executor aiExecutor;
     private final AiInstrumentToolService instrumentToolService;
     private final AiQuoteToolService quoteToolService;
+    private final CacheManager cacheManager;
 
     @org.springframework.beans.factory.annotation.Value("${app.ai.chat.instrument-search.enabled:true}")
     private boolean instrumentSearchEnabled;
@@ -66,18 +78,23 @@ public class AiConversationController {
     @org.springframework.beans.factory.annotation.Value("${app.ai.chat.quote-search.keywords:價格,股價,多少,現價,收盤,漲跌,報價,quote,price}")
     private String quoteSearchKeywords;
 
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.pronoun-lookback.limit:5}")
+    private int pronounLookbackLimit;
+
     public AiConversationController(AiConversationService conversationService,
             GroqChatClient groqChatClient,
             CurrentUserProvider currentUserProvider,
             @Qualifier("aiExecutor") Executor aiExecutor,
             AiInstrumentToolService instrumentToolService,
-            AiQuoteToolService quoteToolService) {
+            AiQuoteToolService quoteToolService,
+            CacheManager cacheManager) {
         this.conversationService = conversationService;
         this.groqChatClient = groqChatClient;
         this.currentUserProvider = currentUserProvider;
         this.aiExecutor = aiExecutor;
         this.instrumentToolService = instrumentToolService;
         this.quoteToolService = quoteToolService;
+        this.cacheManager = cacheManager;
     }
 
     @PostMapping
@@ -139,7 +156,7 @@ public class AiConversationController {
                         userId, id, content, clientMessageId);
                 sendMeta(emitter, requestId, id, userMessage.getId());
 
-                String toolContext = buildInstrumentContext(content);
+                String toolContext = buildInstrumentContext(userId, id, userMessage.getId(), content);
                 List<Map<String, String>> messages = toolContext == null
                         ? conversationService.buildContextMessages(userId, id, content, userMessage.getId())
                         : conversationService.buildContextMessagesWithTool(userId, id, content, userMessage.getId(),
@@ -230,7 +247,7 @@ public class AiConversationController {
         }
     }
 
-    private String buildInstrumentContext(String content) {
+    private String buildInstrumentContext(Long userId, Long conversationId, Long currentUserMessageId, String content) {
         if (!instrumentSearchEnabled) {
             return null;
         }
@@ -238,11 +255,14 @@ public class AiConversationController {
             return null;
         }
         int limit = Math.min(Math.max(instrumentSearchLimit, 1), 20);
-        List<InstrumentCandidate> candidates = instrumentToolService
-                .searchCandidates(content, limit);
+        List<InstrumentCandidate> candidates = resolveCandidates(content, limit);
+        if ((candidates == null || candidates.isEmpty()) && containsPronoun(content)) {
+            candidates = resolveCandidatesFromConversation(userId, conversationId, currentUserMessageId, limit);
+        }
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
+        rememberLastMentionedSymbolKey(userId, conversationId, candidates.get(0));
 
         StringBuilder sb = new StringBuilder();
         sb.append("instrument_candidates:\n");
@@ -272,7 +292,7 @@ public class AiConversationController {
             try {
                 quote = quoteToolService.getQuote(first.symbolKey());
             } catch (Exception ex) {
-                log.debug("Quote tool failed: {}", ex.getMessage());
+                log.warn("Quote tool failed: symbolKey={}, reason={}", first.symbolKey(), ex.getMessage());
             }
             if (quote != null) {
                 sb.append("quote:\n");
@@ -280,6 +300,111 @@ public class AiConversationController {
             }
         }
         return sb.toString().trim();
+    }
+
+    private List<InstrumentCandidate> resolveCandidates(String content, int limit) {
+        List<InstrumentCandidate> candidates = instrumentToolService.searchCandidates(content, limit);
+        if (candidates != null && !candidates.isEmpty()) {
+            return candidates;
+        }
+
+        String symbolKey = extractSymbolKey(content);
+        if (symbolKey == null) {
+            return List.of();
+        }
+        return instrumentToolService.searchCandidates(symbolKey, 1);
+    }
+
+    private List<InstrumentCandidate> resolveCandidatesFromConversation(Long userId, Long conversationId,
+            Long currentUserMessageId, int limit) {
+        List<InstrumentCandidate> cached = loadLastMentionedSymbolKey(userId, conversationId);
+        if (!cached.isEmpty()) {
+            return cached;
+        }
+
+        int lookback = Math.min(Math.max(pronounLookbackLimit, 1), 10);
+        List<ConversationMessageEntity> recentMessages = conversationService.getRecentMessages(userId, conversationId, lookback + 2);
+        for (int i = recentMessages.size() - 1; i >= 0; i--) {
+            ConversationMessageEntity message = recentMessages.get(i);
+            if (message == null) {
+                continue;
+            }
+            if (currentUserMessageId != null && currentUserMessageId.equals(message.getId())) {
+                continue;
+            }
+            if (!"user".equalsIgnoreCase(message.getRole())) {
+                continue;
+            }
+            List<InstrumentCandidate> candidates = resolveCandidates(message.getContent(), limit);
+            if (candidates != null && !candidates.isEmpty()) {
+                rememberLastMentionedSymbolKey(userId, conversationId, candidates.get(0));
+                return candidates;
+            }
+        }
+        return List.of();
+    }
+
+    private boolean containsPronoun(String content) {
+        if (content == null || content.isBlank()) {
+            return false;
+        }
+        String compact = content.replace(" ", "");
+        for (String marker : PRONOUN_MARKERS) {
+            if (compact.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String extractSymbolKey(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        Matcher urlMatcher = URL_SYMBOL_KEY_PATTERN.matcher(content);
+        if (urlMatcher.find()) {
+            String key = urlMatcher.group(1);
+            return key == null ? null : key.trim().toUpperCase();
+        }
+
+        Matcher matcher = SYMBOL_KEY_PATTERN.matcher(content);
+        if (!matcher.find()) {
+            return null;
+        }
+        String key = matcher.group(1);
+        return key == null ? null : key.trim().toUpperCase();
+    }
+
+    private void rememberLastMentionedSymbolKey(Long userId, Long conversationId, InstrumentCandidate candidate) {
+        if (candidate == null || candidate.symbolKey() == null || candidate.symbolKey().isBlank()) {
+            return;
+        }
+        Cache cache = cacheManager.getCache(LAST_MENTIONED_CACHE_NAME);
+        if (cache == null) {
+            return;
+        }
+        cache.put(lastMentionedCacheKey(userId, conversationId), candidate.symbolKey().trim().toUpperCase());
+    }
+
+    private List<InstrumentCandidate> loadLastMentionedSymbolKey(Long userId, Long conversationId) {
+        Cache cache = cacheManager.getCache(LAST_MENTIONED_CACHE_NAME);
+        if (cache == null) {
+            return List.of();
+        }
+        String symbolKey = cache.get(lastMentionedCacheKey(userId, conversationId), String.class);
+        if (symbolKey == null || symbolKey.isBlank()) {
+            return List.of();
+        }
+        List<InstrumentCandidate> candidates = instrumentToolService.searchCandidates(symbolKey, 1);
+        if (candidates == null || candidates.isEmpty()) {
+            cache.evict(lastMentionedCacheKey(userId, conversationId));
+            return List.of();
+        }
+        return candidates;
+    }
+
+    private String lastMentionedCacheKey(Long userId, Long conversationId) {
+        return userId + ":" + conversationId;
     }
 
     private void appendQuote(StringBuilder sb, QuoteCandidate quote) {
