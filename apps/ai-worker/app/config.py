@@ -155,6 +155,20 @@ class Settings(BaseSettings):
     chunk_overlap: int = 50
 
     # ============================================================
+    # RAG Ingestion Limits
+    # ============================================================
+    rag_download_max_bytes: int = 50 * 1024 * 1024
+    rag_download_timeout_total: float = 60.0
+    rag_download_timeout_connect: float = 3.0
+    rag_download_timeout_read: float = 30.0
+
+    # ============================================================
+    # PDF Parsing Limits
+    # ============================================================
+    pdf_max_pages: int = 50
+    pdf_max_total_pixels: int = 200_000_000
+
+    # ============================================================
     # Embedding
     # ============================================================
     embedding_dimension: int = 1536

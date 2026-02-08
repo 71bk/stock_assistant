@@ -4,6 +4,7 @@ import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { usePortfolioStore } from '../../stores/portfolio.store';
 import { formatCurrency } from '../../utils/format';
 import { AddTradeModal } from '../Portfolio/components/AddTradeModal';
+import { PageContainer } from '../../components/layout/PageContainer';
 import { stocksApi } from '../../api/stocks.api';
 import type { Trade } from '../../api/portfolios.api';
 import type { Instrument } from '../../api/stocks.api';
@@ -65,7 +66,7 @@ const Trades: React.FC = () => {
   };
 
   return (
-    <div>
+    <PageContainer>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>交易紀錄</Title>
         <Button type="primary" onClick={() => setIsModalOpen(true)}>新增交易</Button>
@@ -126,7 +127,7 @@ const Trades: React.FC = () => {
         }}
         trade={editingTrade}
       />
-    </div>
+    </PageContainer>
   );
 };
 

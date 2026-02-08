@@ -4,11 +4,18 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import tw.bk.appcommon.enums.ErrorCode;
@@ -17,16 +24,21 @@ import tw.bk.appstocks.adapter.TpexWarrantMarketClient;
 import tw.bk.appstocks.adapter.TpexWarrantMarketClient.TpexWarrantQuote;
 import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
+import tw.bk.appstocks.config.StockMarketProperties;
 
 @Service
 @RequiredArgsConstructor
 public class WarrantQuoteService {
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+    private static final ZoneId TAIPEI_TZ = ZoneId.of("Asia/Taipei");
 
     private final TpexWarrantMarketClient marketClient;
+    private final StockCacheService cacheService;
+    private final StockMarketProperties properties;
+    private final ConcurrentHashMap<String, CompletableFuture<List<TpexWarrantQuote>>> inflight = new ConcurrentHashMap<>();
 
     public Quote getQuote(String ticker) {
-        List<TpexWarrantQuote> quotes = marketClient.fetchDailyQuotes();
+        List<TpexWarrantQuote> quotes = fetchDailyQuotesCached();
         TpexWarrantQuote latest = quotes.stream()
                 .filter(q -> matchTicker(q.code(), ticker))
                 .max(Comparator.comparing(TpexWarrantQuote::date))
@@ -63,9 +75,9 @@ public class WarrantQuoteService {
         String normalized = interval == null ? "1d" : interval.trim().toLowerCase(Locale.ROOT);
         List<TpexWarrantQuote> quotes;
         if ("1d".equals(normalized)) {
-            quotes = marketClient.fetchDailyQuotes();
+            quotes = fetchDailyQuotesCached();
         } else if ("1mo".equals(normalized)) {
-            quotes = marketClient.fetchMonthlyQuotes();
+            quotes = fetchMonthlyQuotesCached();
         } else {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Warrant candles only support 1d/1mo interval");
@@ -106,5 +118,71 @@ public class WarrantQuoteService {
 
     private LocalDateTime toTimestamp(LocalDate date) {
         return date.atStartOfDay();
+    }
+
+    private List<TpexWarrantQuote> fetchDailyQuotesCached() {
+        LocalDate today = LocalDate.now(TAIPEI_TZ);
+        String cacheKey = "warrant:daily:" + today;
+        Optional<List<TpexWarrantQuote>> cached = cacheService.getList(cacheKey, TpexWarrantQuote.class);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+        return singleFlight(cacheKey, () -> {
+            Optional<List<TpexWarrantQuote>> cachedAgain = cacheService.getList(cacheKey, TpexWarrantQuote.class);
+            if (cachedAgain.isPresent()) {
+                return cachedAgain.get();
+            }
+            List<TpexWarrantQuote> quotes = marketClient.fetchDailyQuotes();
+            cacheService.setList(cacheKey, quotes, properties.getCache().getQuoteTtl());
+            return quotes;
+        });
+    }
+
+    private List<TpexWarrantQuote> fetchMonthlyQuotesCached() {
+        YearMonth month = YearMonth.now(TAIPEI_TZ);
+        String cacheKey = "warrant:monthly:" + month;
+        Optional<List<TpexWarrantQuote>> cached = cacheService.getList(cacheKey, TpexWarrantQuote.class);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+        return singleFlight(cacheKey, () -> {
+            Optional<List<TpexWarrantQuote>> cachedAgain = cacheService.getList(cacheKey, TpexWarrantQuote.class);
+            if (cachedAgain.isPresent()) {
+                return cachedAgain.get();
+            }
+            List<TpexWarrantQuote> quotes = marketClient.fetchMonthlyQuotes();
+            cacheService.setList(cacheKey, quotes, properties.getCache().getCandlesTtl());
+            return quotes;
+        });
+    }
+
+    private List<TpexWarrantQuote> singleFlight(String key, Supplier<List<TpexWarrantQuote>> supplier) {
+        CompletableFuture<List<TpexWarrantQuote>> future = new CompletableFuture<>();
+        CompletableFuture<List<TpexWarrantQuote>> existing = inflight.putIfAbsent(key, future);
+        if (existing == null) {
+            try {
+                List<TpexWarrantQuote> value = supplier.get();
+                future.complete(value);
+                return value;
+            } catch (Throwable ex) {
+                future.completeExceptionally(ex);
+                throw ex;
+            } finally {
+                inflight.remove(key, future);
+            }
+        }
+
+        try {
+            return existing.join();
+        } catch (CompletionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new RuntimeException(cause);
+        }
     }
 }

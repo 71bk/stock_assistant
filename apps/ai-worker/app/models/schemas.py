@@ -128,6 +128,19 @@ class IngestResponse(BaseModel):
     message: str | None = None
 
 
+class IngestUrlRequest(BaseModel):
+    """Document ingestion request by URL."""
+
+    user_id: int
+    file_url: str
+    title: str | None = None
+    source_type: str = "upload"
+    tags: list[str] = Field(default_factory=list)
+    source_id: str | None = None
+    filename: str | None = None
+    content_type: str | None = None
+
+
 class ChunkInfo(BaseModel):
     """Information about a document chunk."""
 

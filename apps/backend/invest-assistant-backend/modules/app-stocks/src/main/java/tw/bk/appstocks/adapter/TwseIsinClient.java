@@ -22,6 +22,7 @@ import tw.bk.appstocks.config.StockMarketProperties;
 public class TwseIsinClient {
     private static final Pattern CODE_NAME_PATTERN = Pattern.compile("^([0-9A-Za-z\\.\\-]+)\\s+(.+)$");
     private static final Pattern CODE_PATTERN = Pattern.compile("^\\d{6}$");
+    private static final Pattern CODE_EXTRACT_PATTERN = Pattern.compile("\\d{6}");
 
     private final StockMarketProperties properties;
 
@@ -49,28 +50,34 @@ public class TwseIsinClient {
                     if (tds.size() < 2) {
                         continue;
                     }
-                    String combined = normalizeSpace(tds.get(0).text());
-                    if (combined == null || combined.isBlank()) {
-                        continue;
-                    }
-                    if (combined.startsWith("有價證券代號")) {
-                        continue;
-                    }
+
                     String code = null;
                     String name = null;
-                    Matcher matcher = CODE_NAME_PATTERN.matcher(combined);
-                    if (matcher.find()) {
-                        code = matcher.group(1);
-                        name = matcher.group(2);
-                    } else {
-                        // Fallback: some tables separate code/name into different columns
-                        String codeCell = normalizeSpace(tds.get(0).text());
-                        String nameCell = normalizeSpace(tds.get(1).text());
-                        if (codeCell != null && !codeCell.isBlank()) {
-                            code = codeCell;
-                            name = nameCell;
+
+                    for (int i = 0; i < tds.size(); i++) {
+                        String cell = normalizeSpace(tds.get(i).text());
+                        if (cell == null || cell.isBlank()) {
+                            continue;
+                        }
+                        Matcher matcher = CODE_NAME_PATTERN.matcher(cell);
+                        if (matcher.find() && CODE_PATTERN.matcher(matcher.group(1)).matches()) {
+                            code = matcher.group(1);
+                            name = matcher.group(2);
+                            break;
+                        }
+                        Matcher codeMatcher = CODE_EXTRACT_PATTERN.matcher(cell);
+                        if (codeMatcher.find()) {
+                            code = codeMatcher.group(0);
+                            String maybeName = cell.replace(code, "").trim();
+                            if (!maybeName.isBlank()) {
+                                name = maybeName;
+                            } else if (i + 1 < tds.size()) {
+                                name = normalizeSpace(tds.get(i + 1).text());
+                            }
+                            break;
                         }
                     }
+
                     if (code == null || code.isBlank()) {
                         continue;
                     }

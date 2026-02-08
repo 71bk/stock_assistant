@@ -22,7 +22,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tw.bk.appai.client.GroqChatClient;
+import tw.bk.appai.model.InstrumentCandidate;
+import tw.bk.appai.model.QuoteCandidate;
 import tw.bk.appai.service.AiConversationService;
+import tw.bk.appai.service.AiInstrumentToolService;
+import tw.bk.appai.service.AiQuoteToolService;
 import tw.bk.appapi.ai.dto.ChatMessageRequest;
 import tw.bk.appapi.ai.dto.CreateConversationRequest;
 import tw.bk.appapi.ai.dto.UpdateConversationRequest;
@@ -47,15 +51,33 @@ public class AiConversationController {
     private final GroqChatClient groqChatClient;
     private final CurrentUserProvider currentUserProvider;
     private final Executor aiExecutor;
+    private final AiInstrumentToolService instrumentToolService;
+    private final AiQuoteToolService quoteToolService;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.instrument-search.enabled:true}")
+    private boolean instrumentSearchEnabled;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.instrument-search.limit:10}")
+    private int instrumentSearchLimit;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.quote-search.enabled:true}")
+    private boolean quoteSearchEnabled;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.quote-search.keywords:價格,股價,多少,現價,收盤,漲跌,報價,quote,price}")
+    private String quoteSearchKeywords;
 
     public AiConversationController(AiConversationService conversationService,
             GroqChatClient groqChatClient,
             CurrentUserProvider currentUserProvider,
-            @Qualifier("aiExecutor") Executor aiExecutor) {
+            @Qualifier("aiExecutor") Executor aiExecutor,
+            AiInstrumentToolService instrumentToolService,
+            AiQuoteToolService quoteToolService) {
         this.conversationService = conversationService;
         this.groqChatClient = groqChatClient;
         this.currentUserProvider = currentUserProvider;
         this.aiExecutor = aiExecutor;
+        this.instrumentToolService = instrumentToolService;
+        this.quoteToolService = quoteToolService;
     }
 
     @PostMapping
@@ -117,8 +139,11 @@ public class AiConversationController {
                         userId, id, content, clientMessageId);
                 sendMeta(emitter, requestId, id, userMessage.getId());
 
-                List<Map<String, String>> messages = conversationService.buildContextMessages(
-                        userId, id, content, userMessage.getId());
+                String toolContext = buildInstrumentContext(content);
+                List<Map<String, String>> messages = toolContext == null
+                        ? conversationService.buildContextMessages(userId, id, content, userMessage.getId())
+                        : conversationService.buildContextMessagesWithTool(userId, id, content, userMessage.getId(),
+                                toolContext);
                 StringBuilder buffer = new StringBuilder();
                 AtomicBoolean failed = new AtomicBoolean(false);
 
@@ -203,6 +228,110 @@ public class AiConversationController {
         } finally {
             emitter.complete();
         }
+    }
+
+    private String buildInstrumentContext(String content) {
+        if (!instrumentSearchEnabled) {
+            return null;
+        }
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        int limit = Math.min(Math.max(instrumentSearchLimit, 1), 20);
+        List<InstrumentCandidate> candidates = instrumentToolService
+                .searchCandidates(content, limit);
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("instrument_candidates:\n");
+        for (InstrumentCandidate candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            sb.append("- ");
+            if (candidate.ticker() != null) {
+                sb.append(candidate.ticker());
+            }
+            if (candidate.name() != null && !candidate.name().isBlank()) {
+                sb.append(" ").append(candidate.name());
+            }
+            if (candidate.symbolKey() != null && !candidate.symbolKey().isBlank()) {
+                sb.append(" (").append(candidate.symbolKey()).append(")");
+            }
+            if (candidate.assetType() != null && !candidate.assetType().isBlank()) {
+                sb.append(" type=").append(candidate.assetType());
+            }
+            sb.append('\n');
+        }
+
+        if (quoteSearchEnabled && shouldFetchQuote(content)) {
+            InstrumentCandidate first = candidates.get(0);
+            QuoteCandidate quote = null;
+            try {
+                quote = quoteToolService.getQuote(first.symbolKey());
+            } catch (Exception ex) {
+                log.debug("Quote tool failed: {}", ex.getMessage());
+            }
+            if (quote != null) {
+                sb.append("quote:\n");
+                appendQuote(sb, quote);
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private void appendQuote(StringBuilder sb, QuoteCandidate quote) {
+        sb.append("- symbol_key: ").append(quote.symbolKey()).append('\n');
+        if (quote.ticker() != null) {
+            sb.append("  ticker: ").append(quote.ticker()).append('\n');
+        }
+        if (quote.price() != null) {
+            sb.append("  price: ").append(quote.price()).append('\n');
+        }
+        if (quote.change() != null) {
+            sb.append("  change: ").append(quote.change()).append('\n');
+        }
+        if (quote.changePercent() != null) {
+            sb.append("  change_pct: ").append(quote.changePercent()).append('\n');
+        }
+        if (quote.open() != null) {
+            sb.append("  open: ").append(quote.open()).append('\n');
+        }
+        if (quote.high() != null) {
+            sb.append("  high: ").append(quote.high()).append('\n');
+        }
+        if (quote.low() != null) {
+            sb.append("  low: ").append(quote.low()).append('\n');
+        }
+        if (quote.previousClose() != null) {
+            sb.append("  previous_close: ").append(quote.previousClose()).append('\n');
+        }
+        if (quote.volume() != null) {
+            sb.append("  volume: ").append(quote.volume()).append('\n');
+        }
+        if (quote.timestamp() != null) {
+            sb.append("  ts_utc: ").append(quote.timestamp()).append('\n');
+        }
+    }
+
+    private boolean shouldFetchQuote(String content) {
+        if (content == null || content.isBlank()) {
+            return false;
+        }
+        String lowered = content.toLowerCase();
+        String[] keywords = quoteSearchKeywords.split(",");
+        for (String keyword : keywords) {
+            String trimmed = keyword.trim().toLowerCase();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (lowered.contains(trimmed)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Long requireUserId() {

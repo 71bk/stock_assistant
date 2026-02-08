@@ -181,6 +181,69 @@ class RagService:
             source_id=source_id,
         )
 
+    async def ingest_url(
+        self,
+        user_id: int,
+        file_url: str,
+        title: str | None,
+        source_type: str,
+        tags: list[str] | None = None,
+        source_id: str | None = None,
+        filename: str | None = None,
+        content_type: str | None = None,
+    ) -> tuple[int, int]:
+        semaphore = _get_ingest_semaphore()
+        if semaphore:
+            async with semaphore:
+                return await self._ingest_url_internal(
+                    user_id,
+                    file_url,
+                    title,
+                    source_type,
+                    tags,
+                    source_id,
+                    filename,
+                    content_type,
+                )
+        return await self._ingest_url_internal(
+            user_id,
+            file_url,
+            title,
+            source_type,
+            tags,
+            source_id,
+            filename,
+            content_type,
+        )
+
+    async def _ingest_url_internal(
+        self,
+        user_id: int,
+        file_url: str,
+        title: str | None,
+        source_type: str,
+        tags: list[str] | None,
+        source_id: str | None,
+        filename: str | None,
+        content_type: str | None,
+    ) -> tuple[int, int]:
+        content, resolved_filename, resolved_content_type = await self._download_file(file_url)
+        if filename:
+            resolved_filename = filename
+        if content_type:
+            resolved_content_type = content_type
+
+        text = await self.parser.extract_text(resolved_filename, resolved_content_type, content)
+        resolved_title = title or resolved_filename or "Untitled"
+        return await self._ingest_text_internal(
+            user_id=user_id,
+            title=resolved_title,
+            text=text,
+            source_type=source_type,
+            tags=tags,
+            source_id=source_id,
+        )
+
     async def query(
         self,
         user_id: int,
@@ -304,3 +367,38 @@ class RagService:
             if hasattr(exc, 'status_code') and exc.status_code and exc.status_code >= 500:
                 return True
         return False
+
+    async def _download_file(self, file_url: str) -> tuple[bytes, str | None, str | None]:
+        if not file_url or not file_url.strip():
+            raise ValueError("File URL is required")
+        if not file_url.startswith(("http://", "https://")):
+            raise ValueError("Unsupported URL scheme")
+
+        max_bytes = self.settings.rag_download_max_bytes
+        timeout = httpx.Timeout(
+            self.settings.rag_download_timeout_total,
+            connect=self.settings.rag_download_timeout_connect,
+            read=self.settings.rag_download_timeout_read,
+        )
+
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with client.stream("GET", file_url) as response:
+                response.raise_for_status()
+                content_type = response.headers.get("content-type")
+                content_length = response.headers.get("content-length")
+                if content_length:
+                    try:
+                        length = int(content_length)
+                        if max_bytes and length > max_bytes:
+                            raise ValueError("File size exceeds limit")
+                    except ValueError:
+                        pass
+
+                buffer = bytearray()
+                async for chunk in response.aiter_bytes():
+                    buffer.extend(chunk)
+                    if max_bytes and len(buffer) > max_bytes:
+                        raise ValueError("File size exceeds limit")
+
+        filename = file_url.split("?")[0].rsplit("/", 1)[-1] if "/" in file_url else None
+        return bytes(buffer), filename, content_type

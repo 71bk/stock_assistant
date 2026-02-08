@@ -299,19 +299,35 @@ class OcrService:
 
         # Parse LLM response
         try:
+            # Clean LLM response: remove markdown code blocks
+            cleaned = response_text.strip()
+            if cleaned.startswith("```"):
+                # Remove ```json or ``` prefix and trailing ```
+                cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+                cleaned = re.sub(r'\s*```$', '', cleaned)
+            
             # Try to extract JSON from response (in case there's extra text)
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            json_match = re.search(r'\{[\s\S]*\}', cleaned)
             if json_match:
-                result = json.loads(json_match.group())
+                json_str = json_match.group()
             else:
-                result = json.loads(response_text)
+                json_str = cleaned
+            
+            # Remove trailing commas (common LLM mistake)
+            json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+            
+            result = json.loads(json_str)
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse LLM response as JSON", error=str(e))
+            logger.error(
+                "Failed to parse LLM response as JSON",
+                error=str(e),
+                response_preview=response_text[:500] if response_text else None,
+            )
             return OcrResponse(
                 raw_text=text,
                 trades=[],
                 confidence=0.0,
-                warnings=[f"Failed to parse LLM response: {str(e)}"],
+                warnings=[f"LLM 回傳的格式無法解析: {str(e)}"],
             )
 
         # Convert to Pydantic models

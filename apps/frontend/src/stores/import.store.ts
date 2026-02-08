@@ -222,20 +222,6 @@ export const useImportStore = create<ImportState>((set, get) => ({
 
     set({ isLoading: true });
     try {
-      // Step 1: Ensure all selected trades have instrumentId
-      for (const trade of tradesToImport) {
-        if (!trade.instrumentId) {
-          const res = await stocksApi.search(trade.rawTicker);
-          const instruments = res;
-          if (Array.isArray(instruments) && instruments.length > 0) {
-            const first = instruments[0];
-            const instId = first.instrumentId;
-            await ocrApi.updateDraft(trade.draftId, { instrumentId: instId });
-            trade.instrumentId = instId;
-          }
-        }
-      }
-
       // Step 2: Call confirm with draftIds (removed statementId parameter)
       const res = await ocrApi.confirmImport(activeJobId, selectedIds);
       const { importedCount, errors } = res;

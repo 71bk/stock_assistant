@@ -40,16 +40,21 @@ const ChatPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
 
-  useEffect(() => {
+  const scrollToBottom = () => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages]);
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isStreaming, isLoadingConversation]);
 
   const handleSend = async () => {
     if (!inputValue.trim() || isStreaming) return;
@@ -66,7 +71,7 @@ const ChatPage: React.FC = () => {
   };
 
   return (
-    <Layout style={{ height: 'calc(100vh - 112px)', background: '#fff', borderRadius: 8, overflow: 'hidden' }}>
+    <Layout style={{ height: 'calc(100vh - 160px)', background: '#fff', borderRadius: 8, overflow: 'hidden' }}>
       <Sider
         width={260}
         theme="light"
@@ -237,6 +242,7 @@ const ChatPage: React.FC = () => {
                 <Spin size="small" /> AI 正在生成中...
               </div>
             )}
+            <div ref={messagesEndRef} />
           </div>
         </div>
 

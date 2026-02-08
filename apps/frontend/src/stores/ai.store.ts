@@ -53,42 +53,28 @@ export const useAiStore = create<AiState>((set, get) => ({
 
       if (!response.ok) throw new Error('Analysis failed');
       
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) throw new Error('No reader available');
-
-      let done = false;
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
-        done = readerDone;
-        const chunk = decoder.decode(value, { stream: !done });
-        
-        // SSE parsing logic (simplified for "event: delta / data: ...")
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const dataStr = line.replace('data: ', '').trim();
-              if (dataStr === '[DONE]') break;
-              
-              const json = JSON.parse(dataStr);
-              if (json.text) {
-                set((state) => ({ analysisStream: state.analysisStream + json.text }));
-              }
-            } catch (err) {
-              // Ignore partial JSON or meta events for now
-              console.debug('Partial JSON or non-JSON chunk', err);
-            }
-          }
+      // Use the shared SSE utility for robust parsing
+      const { fetchSseWithRetry } = await import('../utils/sse');
+      
+      await fetchSseWithRetry({
+        url: '/api/ai/analysis/stream',
+        body: params,
+        onDelta: (text) => {
+          set((state) => ({ analysisStream: state.analysisStream + text }));
+        },
+        onError: (err) => {
+          console.error('SSE Error', err);
+          message.error('分析出錯，請稍後再試');
+        },
+        onDone: () => {
+          set({ isAnalyzing: false });
+          get().fetchReports();
         }
-      }
+      });
     } catch (e) {
-      console.error('SSE Error', e);
-      message.error('分析出錯，請稍後再試');
-    } finally {
+      console.error('Analysis start failed', e);
+      message.error('無法開始分析');
       set({ isAnalyzing: false });
-      get().fetchReports(); // Refresh history
     }
   },
 }));

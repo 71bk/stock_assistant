@@ -192,6 +192,27 @@ public class AiConversationService {
         return messages;
     }
 
+    @Transactional(readOnly = true)
+    public List<Map<String, String>> buildContextMessagesWithTool(Long userId, Long conversationId,
+            String newUserContent, Long excludeMessageId, String toolContext) {
+        List<Map<String, String>> messages = buildContextMessages(userId, conversationId, newUserContent,
+                excludeMessageId);
+        if (toolContext == null || toolContext.isBlank() || messages.isEmpty()) {
+            return messages;
+        }
+        List<Map<String, String>> merged = new ArrayList<>();
+        Map<String, String> system = messages.get(0);
+        String systemContent = system.get("content");
+        String enhanced = (systemContent == null ? "" : systemContent)
+                + "\n\n--- Tool Results ---\n"
+                + toolContext.trim();
+        merged.add(Map.of("role", ConversationRole.SYSTEM.value(), "content", enhanced));
+        for (int i = 1; i < messages.size(); i++) {
+            merged.add(messages.get(i));
+        }
+        return merged;
+    }
+
     private int estimateTokens(String content) {
         if (content == null || content.isBlank()) {
             return 0;

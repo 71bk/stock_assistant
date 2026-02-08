@@ -5,6 +5,7 @@ import { Pie, Area } from '@ant-design/plots';
 import { useAuthStore } from '../../stores/auth.store';
 import { usePortfolioStore } from '../../stores/portfolio.store';
 import { formatCurrency } from '../../utils/format';
+import { PageContainer } from '../../components/layout/PageContainer';
 import type { Trade } from '../../api/portfolios.api';
 
 const { Title } = Typography;
@@ -76,7 +77,7 @@ const Dashboard: React.FC = () => {
   const roi = summary?.totalPnlPercent || 0;
 
   return (
-    <div>
+    <PageContainer>
       <div style={{ marginBottom: 24 }}>
         <Title level={2}>總覽</Title>
       </div>
@@ -165,7 +166,7 @@ const Dashboard: React.FC = () => {
           </Card>
         </Col>
       </Row>
-    </div>
+    </PageContainer>
   );
 };
 

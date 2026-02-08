@@ -106,6 +106,7 @@
 |---|---|---|---|
 | POST | `/api/admin/instruments/sync` | 從 Fugle 同步 Instrument | 見下方 |
 | POST | `/api/admin/instruments/sync-warrants` | 同步權證（TPEx + TWSE fallback） | 見下方 |
+| POST | `/api/admin/rag/portfolio-snapshots` | 手動觸發投資組合快照向量化 | 見下方 |
 
 #### 認證方式
 - 若 **未設定** `APP_ADMIN_API_KEY` → 只要登入即可
@@ -149,6 +150,39 @@ Response：
   }
 }
 ```
+
+---
+
+#### 手動觸發投資組合快照（`POST /api/admin/rag/portfolio-snapshots`）
+Headers：
+```
+X-Admin-Key: your-secret-key
+```
+
+Request（可選）：
+```json
+{
+  "userId": 123,
+  "portfolioId": 456
+}
+```
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "total": 10,
+    "ingested": 8,
+    "skipped": 1,
+    "failed": 1
+  }
+}
+```
+
+備註：
+- 不帶 request body → 觸發所有投資組合快照
+- 快照寫入 RAG（`source_type=portfolio`）
 
 ---
 
@@ -778,6 +812,9 @@ Response：
 }
 ```
 
+備註：
+- presigned **下載** URL 僅供後端內部使用（RAG ingestion），前端不需要也不會取得。
+
 ---
 
 ## OCR
@@ -790,7 +827,9 @@ Response：
 | PATCH | `/api/ocr/drafts/{draftId}` | 更新草稿交易 | 是 |
 | DELETE | `/api/ocr/drafts/{draftId}` | 刪除草稿交易 | 是 |
 | POST | `/api/ocr/jobs/{jobId}/confirm` | 確認匯入（支援部分匯入） | 是 |
+| POST | `/api/ocr/jobs/{jobId}/retry` | 重試 OCR Job（沿用原 statement） | 是 |
 | POST | `/api/ocr/jobs/{jobId}/reparse` | 重新解析（建立新 statement） | 是 |
+| POST | `/api/ocr/jobs/{jobId}/cancel` | 取消 OCR Job | 是 |
 
 #### 建立 OCR Job（`POST /api/ocr/jobs`）
 Request 欄位：
@@ -848,6 +887,18 @@ Response（節錄）
 | DONE | 已完成 |
 | FAILED | 處理失敗 |
 | CANCELLED | 已取消（結果會被丟棄） |
+
+#### 重試 OCR Job（`POST /api/ocr/jobs/{jobId}/retry`）
+沿用原 statement，清空舊草稿並重新執行 OCR。
+
+Query Parameters：
+- `force`（可選，預設 `false`）：為 `true` 時可強制重試 `DONE` 或 `RUNNING` 中的 Job。
+
+> **Note**: 與 `reparse` 的差異：`retry` 沿用原 statement（清空草稿後重跑），`reparse` 會建立新 statement（保留歷史）。
+
+#### 取消 OCR Job（`POST /api/ocr/jobs/{jobId}/cancel`）
+Query Parameters：
+- `force`（可選，預設 `false`）：為 `true` 時可強制取消 `RUNNING` 中的 Job。
 
 #### 草稿交易（`GET /api/ocr/jobs/{jobId}/drafts` 節錄）
 ```json
@@ -1065,6 +1116,8 @@ Response（節錄）
   "data": {
     "conversationId": "9001",
     "title": "我的投資筆記",
+    "promptVersion": "v1.2",
+    "promptSnapshot": "You are a helpful investment assistant...",
     "summary": null,
     "createdAt": "2026-02-04T12:00:00Z",
     "updatedAt": "2026-02-04T12:10:00Z",

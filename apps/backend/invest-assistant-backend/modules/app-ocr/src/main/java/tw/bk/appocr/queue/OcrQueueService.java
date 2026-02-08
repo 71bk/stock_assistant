@@ -42,33 +42,31 @@ public class OcrQueueService {
     }
 
     public List<MapRecord<String, String, String>> readBatch() {
-        ensureGroup();
-        StreamOperations<String, String, String> ops = redisTemplate.opsForStream();
-        StreamReadOptions options = StreamReadOptions.empty()
-                .count(properties.getBatchSize())
-                .block(properties.getBlock() == null ? Duration.ofSeconds(2) : properties.getBlock());
-
-        return ops.read(
-                org.springframework.data.redis.connection.stream.Consumer.from(
-                        properties.getGroup(),
-                        properties.getConsumer()),
-                options,
-                StreamOffset.create(properties.getStreamKey(), ReadOffset.lastConsumed()));
+        try {
+            ensureGroup();
+            return doReadBatch();
+        } catch (Exception ex) {
+            if (isNoGroup(ex)) {
+                log.warn("Consumer group missing, recreating...");
+                groupReady = false;
+                ensureGroup();
+                return doReadBatch();
+            }
+            throw ex;
+        }
     }
 
     public List<MapRecord<String, String, String>> readPending() {
-        ensureGroup();
-        StreamOperations<String, String, String> ops = redisTemplate.opsForStream();
-        StreamReadOptions options = StreamReadOptions.empty()
-                .count(properties.getBatchSize());
         try {
-            return ops.read(
-                    org.springframework.data.redis.connection.stream.Consumer.from(
-                            properties.getGroup(),
-                            properties.getConsumer()),
-                    options,
-                    StreamOffset.create(properties.getStreamKey(), ReadOffset.from("0")));
+            ensureGroup();
+            return doReadPending();
         } catch (Exception ex) {
+            if (isNoGroup(ex)) {
+                log.warn("Consumer group missing when reading pending, recreating...");
+                groupReady = false;
+                ensureGroup();
+                return doReadPending();
+            }
             return List.of();
         }
     }
@@ -93,17 +91,71 @@ public class OcrQueueService {
                 ops.createGroup(properties.getStreamKey(), ReadOffset.from("0"), properties.getGroup());
                 groupReady = true;
                 return;
-            } catch (Exception ignored) {
-                // stream may not exist or group already exists
+            } catch (Exception ex) {
+                if (isBusyGroup(ex)) {
+                    groupReady = true;
+                    return;
+                }
             }
 
             try {
                 ops.add(StreamRecords.newRecord().in(properties.getStreamKey()).ofMap(Map.of("init", "1")));
                 ops.createGroup(properties.getStreamKey(), ReadOffset.from("0"), properties.getGroup());
-            } catch (Exception ignored) {
-                // group already exists
+                groupReady = true;
+            } catch (Exception ex) {
+                if (isBusyGroup(ex)) {
+                    groupReady = true;
+                } else {
+                    log.error("Failed to create consumer group", ex);
+                }
             }
-            groupReady = true;
         }
+    }
+
+    private List<MapRecord<String, String, String>> doReadBatch() {
+        StreamOperations<String, String, String> ops = redisTemplate.opsForStream();
+        StreamReadOptions options = StreamReadOptions.empty()
+                .count(properties.getBatchSize())
+                .block(properties.getBlock() == null ? Duration.ofSeconds(2) : properties.getBlock());
+
+        return ops.read(
+                org.springframework.data.redis.connection.stream.Consumer.from(
+                        properties.getGroup(),
+                        properties.getConsumer()),
+                options,
+                StreamOffset.create(properties.getStreamKey(), ReadOffset.lastConsumed()));
+    }
+
+    private List<MapRecord<String, String, String>> doReadPending() {
+        StreamOperations<String, String, String> ops = redisTemplate.opsForStream();
+        StreamReadOptions options = StreamReadOptions.empty()
+                .count(properties.getBatchSize());
+
+        return ops.read(
+                org.springframework.data.redis.connection.stream.Consumer.from(
+                        properties.getGroup(),
+                        properties.getConsumer()),
+                options,
+                StreamOffset.create(properties.getStreamKey(), ReadOffset.from("0")));
+    }
+
+    private boolean isBusyGroup(Exception ex) {
+        return containsMessage(ex, "BUSYGROUP");
+    }
+
+    private boolean isNoGroup(Exception ex) {
+        return containsMessage(ex, "NOGROUP");
+    }
+
+    private boolean containsMessage(Throwable ex, String keyword) {
+        Throwable cursor = ex;
+        while (cursor != null) {
+            String message = cursor.getMessage();
+            if (message != null && message.contains(keyword)) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
     }
 }

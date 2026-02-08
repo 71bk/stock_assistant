@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 public class OcrQueueProperties {
     private String streamKey = "ocr:queue";
     private String group = "ocr-workers";
-    private String consumer = "ocr-worker";
+    private String consumer = "ocr-worker-" + java.util.UUID.randomUUID().toString().substring(0, 8);
     private int batchSize = 10;
     private Duration block = Duration.ofSeconds(2);
     private long pollIntervalMs = 1000;

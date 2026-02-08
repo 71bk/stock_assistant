@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import tw.bk.appcommon.enums.AssetType;
 import tw.bk.appcommon.enums.ErrorCode;
@@ -50,6 +51,7 @@ public class InstrumentSyncService {
     private final ExchangeRepository exchangeRepository;
     private final InstrumentRepository instrumentRepository;
 
+    @CacheEvict(value = "instrumentSearch", allEntries = true)
     public SyncResult syncTwEquityInstruments() {
         MarketEntity market = marketRepository.findByCode(MARKET_TW)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "TW market not found"));
@@ -131,6 +133,7 @@ public class InstrumentSyncService {
     /**
      * 同步台灣權證商品
      */
+    @CacheEvict(value = "instrumentSearch", allEntries = true)
     public SyncResult syncTwWarrantInstruments() {
         MarketEntity market = marketRepository.findByCode(MARKET_TW)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "TW market not found"));

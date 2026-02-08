@@ -85,15 +85,21 @@ class DocumentParser:
                     poppler_path = str(candidate)
                     break
 
+        max_pages = self.settings.pdf_max_pages
+        kwargs = {"dpi": self.settings.pdf_render_dpi}
+        if max_pages and max_pages > 0:
+            kwargs["first_page"] = 1
+            kwargs["last_page"] = max_pages
+
         try:
             images = (
                 convert_from_bytes(
                     content,
                     poppler_path=poppler_path,
-                    dpi=self.settings.pdf_render_dpi,
+                    **kwargs,
                 )
                 if poppler_path
-                else convert_from_bytes(content, dpi=self.settings.pdf_render_dpi)
+                else convert_from_bytes(content, **kwargs)
             )
         except Exception as exc:
             logger.error("PDF conversion failed", error=str(exc))
@@ -101,6 +107,12 @@ class DocumentParser:
 
         if not images:
             raise ValueError("No pages extracted from PDF")
+
+        max_pixels = self.settings.pdf_max_total_pixels
+        if max_pixels and max_pixels > 0:
+            total_pixels = sum(img.width * img.height for img in images if isinstance(img, Image.Image))
+            if total_pixels > max_pixels:
+                raise ValueError("PDF exceeds max pixel limit")
 
         texts: list[str] = []
         for img in images:

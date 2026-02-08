@@ -16,12 +16,18 @@ public class OcrDedupeService {
     @Value("${app.ocr.dedupe-ttl-seconds:604800}")
     private long ttlSeconds;
 
-    public Optional<Long> findJobId(Long userId, String sha256) {
-        if (userId == null || sha256 == null) {
+    @Value("${app.ocr.dedupe-reserve-ttl-seconds:60}")
+    private long reserveTtlSeconds;
+
+    public Optional<Long> findJobId(Long userId, String sha256, Long portfolioId) {
+        if (userId == null || sha256 == null || portfolioId == null) {
             return Optional.empty();
         }
-        String value = redisTemplate.opsForValue().get(buildKey(userId, sha256));
+        String value = redisTemplate.opsForValue().get(buildKey(userId, sha256, portfolioId));
         if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        if ("PENDING".equalsIgnoreCase(value)) {
             return Optional.empty();
         }
         try {
@@ -31,15 +37,25 @@ public class OcrDedupeService {
         }
     }
 
-    public void store(Long userId, String sha256, Long jobId) {
-        if (userId == null || sha256 == null || jobId == null) {
+    public boolean reserve(Long userId, String sha256, Long portfolioId) {
+        if (userId == null || sha256 == null || portfolioId == null) {
+            return false;
+        }
+        String key = buildKey(userId, sha256, portfolioId);
+        Boolean reserved = redisTemplate.opsForValue()
+                .setIfAbsent(key, "PENDING", Duration.ofSeconds(reserveTtlSeconds));
+        return Boolean.TRUE.equals(reserved);
+    }
+
+    public void store(Long userId, String sha256, Long portfolioId, Long jobId) {
+        if (userId == null || sha256 == null || portfolioId == null || jobId == null) {
             return;
         }
-        String key = buildKey(userId, sha256);
+        String key = buildKey(userId, sha256, portfolioId);
         redisTemplate.opsForValue().set(key, String.valueOf(jobId), Duration.ofSeconds(ttlSeconds));
     }
 
-    private String buildKey(Long userId, String sha256) {
-        return "ocr:dedupe:" + userId + ":" + sha256;
+    private String buildKey(Long userId, String sha256, Long portfolioId) {
+        return "ocr:job:" + userId + ":" + sha256 + ":" + portfolioId;
     }
 }

@@ -12,6 +12,7 @@ import {
   UserOutlined,
   LogoutOutlined,
   RobotOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -63,6 +64,7 @@ export const MainLayout: React.FC = () => {
         stocks: '股票行情',
         import: '匯入交易',
         chat: 'AI 助理',
+        'knowledge-base': '知識庫',
         reports: '分析報告',
         settings: '設定',
       };
@@ -120,6 +122,11 @@ export const MainLayout: React.FC = () => {
               label: 'AI 助理',
             },
             {
+              key: '/knowledge-base',
+              icon: <BookOutlined />,
+              label: '知識庫',
+            },
+            {
               key: '/reports',
               icon: <FileTextOutlined />,
               label: '分析報告',
@@ -161,7 +168,10 @@ export const MainLayout: React.FC = () => {
             minHeight: 280,
             background: colorBgContainer,
             borderRadius: borderRadiusLG,
-            overflow: 'auto' 
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden', // Disable scroll on container, let pages handle it
+            position: 'relative' // Ensure absolute children are relative to content
           }}
         >
           <Outlet />

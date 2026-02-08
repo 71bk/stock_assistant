@@ -110,6 +110,6 @@ export const ocrApi = {
   reparseJob: (jobId: string, force = false) =>
     http.post<CreateOcrJobResponse>(`/ocr/jobs/${jobId}/reparse`, {}, { params: { force } }),
 
-  cancelJob: (jobId: string) =>
-    http.post<OcrJob>(`/ocr/jobs/${jobId}/cancel`),
+  cancelJob: (jobId: string, force = false) =>
+    http.post<OcrJob>(`/ocr/jobs/${jobId}/cancel`, {}, { params: { force } }),
 };

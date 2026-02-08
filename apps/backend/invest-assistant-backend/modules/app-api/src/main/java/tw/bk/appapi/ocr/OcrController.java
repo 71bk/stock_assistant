@@ -156,6 +156,17 @@ public class OcrController {
         return Result.ok(OcrJobResponse.from(job));
     }
 
+    @PostMapping("/jobs/{jobId}/cancel")
+    @Operation(summary = "Cancel OCR job")
+    public Result<OcrJobResponse> cancel(
+            @PathVariable String jobId,
+            @RequestParam(required = false) Boolean force) {
+        Long userId = requireUserId();
+        boolean isForce = Boolean.TRUE.equals(force);
+        OcrJobEntity job = ocrService.cancel(userId, parseId(jobId), isForce);
+        return Result.ok(OcrJobResponse.from(job));
+    }
+
 @DeleteMapping("/drafts/{draftId}")
     @Operation(summary = "Delete draft trade")
     public Result<Void> deleteDraft(@PathVariable String draftId) {

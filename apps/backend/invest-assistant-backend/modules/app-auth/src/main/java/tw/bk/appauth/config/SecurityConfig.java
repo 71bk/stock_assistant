@@ -36,6 +36,9 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC,
+                                jakarta.servlet.DispatcherType.ERROR)
+                        .permitAll()
                         .requestMatchers(
                                 "/health",
                                 "/actuator/health",

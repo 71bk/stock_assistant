@@ -5,7 +5,7 @@ from typing import Annotated
 import structlog
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.models.schemas import IngestResponse
+from app.models.schemas import IngestResponse, IngestUrlRequest
 from app.services.rag_service import RagService, IngestRateLimitError
 
 router = APIRouter()
@@ -155,4 +155,48 @@ async def ingest_text(
         chunks_count=chunks_count,
         status="completed",
         message="Text ingested successfully",
+    )
+
+
+@router.post("/url", response_model=IngestResponse)
+async def ingest_url(request: IngestUrlRequest) -> IngestResponse:
+    """
+    Ingest a document from a presigned URL.
+    """
+    logger.info(
+        "Ingest URL request",
+        user_id=request.user_id,
+        source_type=request.source_type,
+    )
+
+    service = RagService()
+
+    try:
+        document_id, chunks_count = await service.ingest_url(
+            user_id=request.user_id,
+            file_url=request.file_url,
+            title=request.title,
+            source_type=request.source_type,
+            tags=request.tags,
+            source_id=request.source_id,
+            filename=request.filename,
+            content_type=request.content_type,
+        )
+    except IngestRateLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent ingestion requests. Please retry later.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Ingest URL failed", error=str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail="URL ingestion failed")
+
+    return IngestResponse(
+        document_id=str(document_id),
+        title=request.title or request.filename or "Untitled",
+        chunks_count=chunks_count,
+        status="completed",
+        message="URL ingested successfully",
     )

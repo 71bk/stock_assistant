@@ -75,6 +75,46 @@
 
 ## Chunking/Embedding
 
+## RAG 檔案 ingestion（物件儲存 + 防護）
+
+**短期防護（Backend）**
+- 後端先檢查檔案大小（`app.rag.max-file-size-mb`，預設 50MB）。
+- 超過直接回 `VALIDATION_ERROR`，避免 backend OOM。
+
+**長期路徑（建議）**
+- Frontend → Backend → MinIO/S3（presign upload）
+- Backend 取得 presigned **下載** URL → 呼叫 ai-worker `/ingest/url`
+- ai-worker 下載後解析（Backend 不再讀 bytes）
+  - presigned **下載** URL 僅供後端內部使用（RAG ingestion），前端不需要取得
+
+**ai-worker 下載護欄（必設）**
+- `RAG_DOWNLOAD_TIMEOUT_CONNECT=3`
+- `RAG_DOWNLOAD_TIMEOUT_READ=30`
+- `RAG_DOWNLOAD_TIMEOUT_TOTAL=60`
+- `RAG_DOWNLOAD_MAX_BYTES=52428800`
+
+**PDF 解析護欄（必設）**
+- `PDF_MAX_PAGES=50`（避免小檔卻超多頁）
+- `PDF_MAX_TOTAL_PIXELS=200000000`（避免超高 DPI/超大頁）
+
+**現況行為**
+- provider=local：仍走 `loadBytes()`（只適合小檔）
+- provider=s3/minio：改走 presigned URL → ai-worker 拉取
+
+## Portfolio 快照向量化（排程 + 手動）
+
+**排程**
+- `app.rag.snapshot.enabled=true` 開啟
+- `app.rag.snapshot.cron` 控制頻率（預設每天 02:30）
+
+**手動**
+- `POST /api/admin/rag/portfolio-snapshots`
+
+**輸出內容**
+- 基本資訊：日期 / 組合名稱 / 幣別
+- 持倉清單：ticker、名稱、symbol_key、qty、avg_cost、currency
+- `source_type=portfolio`，tags 會帶 `portfolioId:{id}`
+
 ### Provider 切換（Embedding / OCR）
 
 **目標：** 允許在不改程式碼的前提下切換模型來源，並確保向量維度一致。

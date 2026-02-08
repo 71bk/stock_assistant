@@ -14,6 +14,7 @@ import type { DraftTrade } from '../../api/ocr.api';
 import type { GetProp, UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
+import { PageContainer } from '../../components/layout/PageContainer';
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
 
@@ -50,48 +51,66 @@ const UploadStep: React.FC = () => {
 
 // --- Step 1: Processing ---
 const ProcessingStep: React.FC = () => {
-  const { progress, jobStatus, reset, reprocessJob, cancelJob } = useImportFlow();
+const { progress, jobStatus, reset, reprocessJob, cancelJob, errorMessage } = useImportFlow();
 
-  return (
-    <Card style={{ textAlign: 'center', padding: 60 }}>
-      <Title level={4}>{jobStatus === 'FAILED' ? '解析失敗' : '文件解析中...'}</Title>
-      <Progress type="circle" percent={progress} status={jobStatus === 'FAILED' ? 'exception' : undefined} />
-      <div style={{ marginTop: 20 }}>
-        {jobStatus === 'FAILED' ? (
-          <Space orientation="vertical" size="middle">
-            <Text type="danger">OCR 解析失敗，請嘗試其他影像或重試。</Text>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
-                重新嘗試
-              </Button>
-              <Button type="primary" icon={<UploadOutlined />} onClick={reset}>
-                重新上傳
-              </Button>
-            </Space>
+// 若 jobStatus 為 CANCELLED，也視為一種失敗狀態，讓使用者可以重試或重傳
+const isFailedOrCancelled = jobStatus === 'FAILED' || jobStatus === 'CANCELLED';
+
+let title = '文件解析中...';
+if (jobStatus === 'FAILED') title = '解析失敗';
+if (jobStatus === 'CANCELLED') title = '任務已取消';
+
+return (
+  <Card style={{ textAlign: 'center', padding: 60 }}>
+    <Title level={4}>{title}</Title>
+    <Progress
+      type="circle"
+      percent={progress}
+      status={isFailedOrCancelled ? 'exception' : undefined}
+    />
+    <div style={{ marginTop: 20 }}>
+      {isFailedOrCancelled ? (
+        <Space orientation="vertical" size="middle">
+          <Text type={jobStatus === 'FAILED' ? "danger" : "secondary"}>
+            {jobStatus === 'FAILED' ? (errorMessage || 'OCR 解析失敗，請嘗試其他影像或重試。') : '您已取消此任務。'}
+          </Text>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
+              重新嘗試
+            </Button>
+            <Button type="primary" icon={<UploadOutlined />} onClick={reset}>
+              重新上傳
+            </Button>
           </Space>
-        ) : (
-          <Space orientation="vertical" size="middle">
-            <Text type="secondary">正在辨識日期、代號與金額...</Text>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={reprocessJob} size="small">
-                重新解析
-              </Button>
-              <Button danger onClick={cancelJob} size="small">
-                取消任務
-              </Button>
-            </Space>
+        </Space>
+      ) : (
+        <Space orientation="vertical" size="middle">
+          <Text type="secondary">正在辨識日期、代號與金額...</Text>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={reprocessJob} size="small">
+              重新解析
+            </Button>
+            <Button danger onClick={() => cancelJob()} size="small">
+              取消任務
+            </Button>
           </Space>
-        )}
-      </div>
-    </Card>
-  );
+        </Space>
+      )}
+    </div>
+  </Card>
+);
 };
 
 // --- Step 2: Review ---
 const ReviewStep: React.FC = () => {
   const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob, isLoading, currentStep } = useImportFlow();
+  
+  // 預設選取邏輯：狀態為 VALID 且 非重複 的草稿
+  // 若使用者想匯入重複或警告的交易，需手動勾選
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>(
-    draftTrades.filter(t => t.status !== 'ERROR').map(t => t.draftId) // Select valid ones by default
+    draftTrades
+      .filter(t => t.status === 'VALID' && !t.duplicate)
+      .map(t => t.draftId)
   );
   const [editingKey, setEditingKey] = useState<string>('');
 
@@ -123,37 +142,52 @@ const ReviewStep: React.FC = () => {
       key: 'status',
       width: 110,
       render: (_: unknown, record: DraftTrade) => {
-        if (record.status === 'VALID') return <Tag icon={<CheckCircleOutlined />} color="success">正常</Tag>;
-
         const formatMessage = (msg: string) => {
           if (msg === 'SETTLEMENT_BEFORE_TRADE') return '交割日不可早於成交日';
           return msg;
         };
 
-        const warnings = (record.warnings || []).map(formatMessage);
-        const errors = (record.errors || []).map(formatMessage);
+        const warnings = [...(record.warnings || [])];
+        if (record.duplicate) warnings.push('該交易可能已存在於資料庫中 (重複交易)');
+        
+        const formattedWarnings = warnings.map(formatMessage);
+        const formattedErrors = (record.errors || []).map(formatMessage);
 
+        // 1. 優先顯示明確的錯誤
+        if (record.status === 'ERROR') {
+          return (
+            <Tooltip title={formattedErrors.join(', ')}>
+              <Tag icon={<ExclamationCircleOutlined />} color="error">錯誤</Tag>
+            </Tooltip>
+          );
+        }
+
+        // 2. 顯示重複交易 (視為警告的一種)
+        if (record.duplicate) {
+          return (
+            <Tooltip title="偵測到資料庫中已有相同內容的交易紀錄">
+              <Tag icon={<ExclamationCircleOutlined />} color="warning">重複交易</Tag>
+            </Tooltip>
+          );
+        }
+
+        // 3. 顯示一般警告
         if (record.status === 'WARNING') {
-          const isDuplicate = record.warnings.some(w => w.includes('重複'));
           const isSettlementError = record.warnings.includes('SETTLEMENT_BEFORE_TRADE');
-
           let label = '警告';
-          if (isDuplicate) label = '可能重複';
           if (isSettlementError) label = '日期錯誤';
 
           return (
-            <Tooltip title={warnings.join(', ')}>
+            <Tooltip title={formattedWarnings.join(', ')}>
               <Tag icon={<ExclamationCircleOutlined />} color="warning">
                 {label}
               </Tag>
             </Tooltip>
           );
         }
-        return (
-          <Tooltip title={[...errors, ...warnings].join(', ')}>
-            <Tag icon={<ExclamationCircleOutlined />} color="error">錯誤</Tag>
-          </Tooltip>
-        );
+
+        // 4. 預設顯示正常 (若非 Error/Warning/Duplicate，則視為 Valid)
+        return <Tag icon={<CheckCircleOutlined />} color="success">正常</Tag>;
       },
     },
     {
@@ -356,6 +390,7 @@ const ReviewStep: React.FC = () => {
         scroll={{ x: 1400 }}
         rowClassName={(record) => {
           if (record.status === 'ERROR') return 'row-error';
+          if (record.duplicate) return 'row-warning row-duplicate';
           if (record.status === 'WARNING') return 'row-warning';
           return '';
         }}
@@ -416,7 +451,7 @@ const ImportPage: React.FC = () => {
   }
 
   return (
-    <div>
+    <PageContainer>
       <Title level={2}>匯入交易</Title>
       <Card>
         <Steps
@@ -430,7 +465,7 @@ const ImportPage: React.FC = () => {
         />
         {content}
       </Card>
-    </div>
+    </PageContainer>
   );
 };
 

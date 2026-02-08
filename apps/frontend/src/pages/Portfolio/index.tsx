@@ -7,6 +7,7 @@ import { useAiStore } from '../../stores/ai.store';
 import { formatCurrency } from '../../utils/format';
 import { AddTradeModal } from './components/AddTradeModal';
 import { AiAnalysisModal } from '../../components/ai/AiAnalysisModal';
+import { PageContainer } from '../../components/layout/PageContainer';
 import type { Position } from '../../api/portfolios.api';
 
 const { Title } = Typography;
@@ -155,7 +156,7 @@ const Portfolio: React.FC = () => {
   ];
 
   return (
-    <div>
+    <PageContainer>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>我的投資組合</Title>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -194,7 +195,7 @@ const Portfolio: React.FC = () => {
         onClose={handleCloseAiModal}
         title="投資組合 AI 深度分析"
       />
-    </div>
+    </PageContainer>
   );
 };
 

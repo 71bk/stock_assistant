@@ -24,10 +24,18 @@
             <groupId>tw.bk</groupId>
             <artifactId>app-persistence</artifactId>
         </dependency>
+        <dependency>
+            <groupId>tw.bk</groupId>
+            <artifactId>app-stocks</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
         </dependency>
 
         <dependency>

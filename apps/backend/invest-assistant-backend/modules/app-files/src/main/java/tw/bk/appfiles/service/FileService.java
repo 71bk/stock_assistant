@@ -34,6 +34,9 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import tw.bk.appfiles.model.PresignResult;
@@ -134,6 +137,40 @@ public class FileService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "檔案不存在"));
     }
 
+    @Transactional(readOnly = true)
+    public byte[] loadBytes(Long userId, Long fileId) {
+        FileEntity file = getFile(userId, fileId);
+        return loadBytes(file);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] loadBytes(FileEntity file) {
+        if (file == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
+        }
+
+        String provider = isBlank(file.getProvider()) ? properties.getProvider() : file.getProvider();
+        if (isBlank(provider)) {
+            provider = PROVIDER_LOCAL;
+        }
+        provider = provider.trim().toLowerCase(Locale.ROOT);
+
+        if (!PROVIDER_LOCAL.equals(provider)) {
+            throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "File provider not supported");
+        }
+        if (isBlank(file.getObjectKey())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File object key not found");
+        }
+
+        Path baseDir = ensureBaseDir();
+        Path filePath = baseDir.resolve(file.getObjectKey()).toAbsolutePath().normalize();
+        try {
+            return Files.readAllBytes(filePath);
+        } catch (IOException ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read file content");
+        }
+    }
+
     @Transactional
     public PresignResult presignUpload(Long userId, String sha256, Long sizeBytes, String contentType) {
         if (userId == null) {
@@ -180,6 +217,30 @@ public class FileService {
 
         PresignResult presign = presignByProvider(entity);
         return new PresignResult(entity, presign.uploadUrl(), presign.method(), presign.headers());
+    }
+
+    @Transactional(readOnly = true)
+    public String presignDownloadUrl(FileEntity file) {
+        if (file == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
+        }
+        FileProvider provider = resolveProvider(file);
+        if (provider == FileProvider.S3) {
+            return presignS3Download(file);
+        }
+        if (provider == FileProvider.MINIO) {
+            return presignMinioDownload(file);
+        }
+        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Presign download not supported for local storage");
+    }
+
+    public FileProvider resolveProvider(FileEntity file) {
+        String provider = isBlank(file.getProvider()) ? properties.getProvider() : file.getProvider();
+        if (isBlank(provider)) {
+            provider = PROVIDER_LOCAL;
+        }
+        FileProvider resolved = FileProvider.from(provider);
+        return resolved != null ? resolved : FileProvider.LOCAL;
     }
 
     private Path ensureBaseDir() {
@@ -315,6 +376,74 @@ public class FileService {
             return new PresignResult(entity, url, "PUT", headers);
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign MinIO upload");
+        }
+    }
+
+    private String presignS3Download(FileEntity entity) {
+        String bucket = requireBucket();
+        String region = isBlank(properties.getRegion()) ? "us-east-1" : properties.getRegion().trim();
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (isBlank(accessKey) || isBlank(secretKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "S3 credentials are required");
+        }
+
+        AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
+        S3Presigner.Builder builder = S3Presigner.builder()
+                .region(Region.of(region))
+                .credentialsProvider(StaticCredentialsProvider.create(credentials));
+
+        if (!isBlank(properties.getEndpoint())) {
+            builder.endpointOverride(URI.create(properties.getEndpoint().trim()));
+        }
+
+        GetObjectRequest getRequest = GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(entity.getObjectKey())
+                .build();
+
+        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
+        GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofSeconds(expirySeconds))
+                .getObjectRequest(getRequest)
+                .build();
+
+        try (S3Presigner presigner = builder.build()) {
+            PresignedGetObjectRequest presigned = presigner.presignGetObject(presignRequest);
+            return presigned.url().toString();
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign S3 download");
+        }
+    }
+
+    private String presignMinioDownload(FileEntity entity) {
+        String bucket = requireBucket();
+        String endpoint = properties.getEndpoint();
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (isBlank(endpoint)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO endpoint is required");
+        }
+        if (isBlank(accessKey) || isBlank(secretKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO credentials are required");
+        }
+
+        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
+        try {
+            MinioClient client = MinioClient.builder()
+                    .endpoint(endpoint.trim())
+                    .credentials(accessKey, secretKey)
+                    .build();
+
+            return client.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.GET)
+                            .bucket(bucket)
+                            .object(entity.getObjectKey())
+                            .expiry(expirySeconds)
+                            .build());
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign MinIO download");
         }
     }
 

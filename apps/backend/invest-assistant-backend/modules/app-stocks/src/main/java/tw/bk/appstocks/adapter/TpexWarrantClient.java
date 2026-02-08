@@ -35,6 +35,10 @@ public class TpexWarrantClient {
         try {
             String url = buildUrl("/tpex_warrant_issue");
             String body = restClient.get().uri(url)
+                    .header("accept", "application/json")
+                    .header("If-Modified-Since", "Mon, 26 Jul 1997 05:00:00 GMT")
+                    .header("Cache-Control", "no-cache")
+                    .header("Pragma", "no-cache")
                     .retrieve()
                     .body(String.class);
             if (body == null || body.isBlank()) {
@@ -101,6 +105,12 @@ public class TpexWarrantClient {
         if (!fromData.isEmpty()) {
             return fromData;
         }
+        if (root.has("data") && root.get("data").isObject()) {
+            List<JsonNode> fromNested = extractFromData(root.get("data"), "data");
+            if (!fromNested.isEmpty()) {
+                return fromNested;
+            }
+        }
         List<JsonNode> fromUpperData = extractFromData(root, "Data");
         if (!fromUpperData.isEmpty()) {
             return fromUpperData;
@@ -128,7 +138,7 @@ public class TpexWarrantClient {
         if (root.has("fields") && root.get("fields").isArray() && !data.isEmpty()
                 && data.get(0).isArray()) {
             List<String> fields = new ArrayList<>();
-            root.get("fields").forEach(node -> fields.add(node.asText()));
+            root.get("fields").forEach(node -> fields.add(extractFieldName(node)));
             List<JsonNode> list = new ArrayList<>();
             data.forEach(row -> list.add(toObjectNode(fields, row)));
             return list;
@@ -148,6 +158,27 @@ public class TpexWarrantClient {
             obj.set(key, value);
         }
         return obj;
+    }
+
+    private String extractFieldName(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        if (node.isObject()) {
+            if (node.has("name")) {
+                return node.get("name").asText();
+            }
+            if (node.has("field")) {
+                return node.get("field").asText();
+            }
+            if (node.has("key")) {
+                return node.get("key").asText();
+            }
+        }
+        return node.asText();
     }
 
     private String buildUrl(String path) {

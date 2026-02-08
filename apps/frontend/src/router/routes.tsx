@@ -13,6 +13,7 @@ import Settings from "@/pages/Settings";
 import Stocks from "@/pages/Stocks";
 import ImportPage from "@/pages/Import";
 import ChatPage from "@/pages/Chat";
+import KnowledgeBasePage from "@/pages/KnowledgeBase";
 import { Login } from "@/pages/Auth";
 import OAuthCallback from "@/pages/Auth/Callback";
 
@@ -67,6 +68,10 @@ export const routeConfig: RouteObject[] = [
           {
             path: "chat",
             element: <ChatPage />,
+          },
+          {
+            path: "knowledge-base",
+            element: <KnowledgeBasePage />,
           },
         ],
       },
