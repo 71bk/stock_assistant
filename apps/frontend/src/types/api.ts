@@ -2,32 +2,32 @@
  * 共用 API 型別
  */
 
-export interface ApiResponse<T> {
-  success: boolean;
+export type ApiResponse<T> = {
+  success: true;
   data: T;
   error: null;
   traceId: string;
-}
-
-export interface ApiError {
+} | {
   success: false;
-  data: null;
+  data: T | null;
   error: {
     code: string;
     message: string;
-    details?: Record<string, any>;
+    details?: Record<string, unknown>;
   };
   traceId: string;
+};
+
+export interface PageData<T> {
+  items: T[];
+  page: number;
+  size: number;
+  total: number;
 }
 
 export interface PageResponse<T> {
   success: boolean;
-  data: {
-    items: T[];
-    page: number;
-    size: number;
-    total: number;
-  };
+  data: PageData<T>;
   error: null;
   traceId: string;
 }

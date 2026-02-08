@@ -7,6 +7,8 @@ import lombok.Getter;
 import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import tw.bk.appcommon.enums.TradeSide;
+import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.model.BaseEntity;
 
 @Entity
@@ -64,4 +66,12 @@ public class StockTradeEntity extends BaseEntity {
 
     @Column(name = "row_hash", nullable = false, unique = true)
     private String rowHash;
+
+    public TradeSide getSideEnum() {
+        return TradeSide.from(side);
+    }
+
+    public TradeSource getSourceEnum() {
+        return TradeSource.from(source);
+    }
 }

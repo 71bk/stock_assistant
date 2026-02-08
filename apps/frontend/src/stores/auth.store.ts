@@ -11,15 +11,17 @@ interface AuthState {
   checkAuth: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true, // Start loading to check session
 
   login: () => {
-     // After Google OAuth redirect, we might re-fetch user
-     set({ isAuthenticated: true });
-     useAuthStore.getState().checkAuth();
+    // After Google OAuth redirect, we might re-fetch user
+    if (!get().isAuthenticated) {
+      set({ isAuthenticated: true });
+      get().checkAuth();
+    }
   },
 
   logout: async () => {
@@ -30,7 +32,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } finally {
       // Always clean up state even if API fails
       set({ user: null, isAuthenticated: false });
-      window.location.href = '/login';
+      window.location.href = '/auth/login';
     }
   },
 
@@ -38,27 +40,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true });
     try {
       // Call /auth/me to validate session and get user info
-      const response = await authApi.getMe();
-      // The response should have data property with the User object
-      set({ user: response.data.data || response.data, isAuthenticated: true });
-
+      const userData = await authApi.getMe();
+      set({ user: userData, isAuthenticated: true });
     } catch (error) {
-      console.error('Auth check failed, using mock data for development:', error);
-      // For development: use mock data if API fails
-      await new Promise(resolve => setTimeout(resolve, 300));
-      set({ 
-        user: { 
-          id: 'mock-user-1', 
-          email: 'user@example.com', 
-          displayName: 'Demo User',
-          pictureUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
-          preferences: { 
-            baseCurrency: 'TWD',
-            timezone: 'Asia/Taipei'
-          }
-        }, 
-        isAuthenticated: true 
-      });
+      console.error(error);
+      // If 401/403, we are not authenticated
+      set({ user: null, isAuthenticated: false });
     } finally {
       set({ isLoading: false });
     }

@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import tw.bk.appauth.config.AuthProperties;
 import tw.bk.appauth.jwt.JwtTokenService;
 import tw.bk.appauth.redis.RefreshTokenStore;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.entity.UserEntity;
 
@@ -41,8 +41,8 @@ public class AuthService {
         if (!"refresh".equals(claims.type())) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Invalid refresh token");
         }
-        Long storedUserId = refreshTokenStore.findUserId(claims.jti()).orElseThrow(() ->
-                new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token revoked"));
+        Long storedUserId = refreshTokenStore.findUserId(claims.jti())
+                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token revoked"));
         if (!storedUserId.equals(claims.userId())) {
             refreshTokenStore.revoke(claims.jti());
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token mismatch");

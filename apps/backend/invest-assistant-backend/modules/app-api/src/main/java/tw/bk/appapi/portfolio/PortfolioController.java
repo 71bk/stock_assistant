@@ -25,7 +25,8 @@ import tw.bk.appapi.portfolio.dto.UpdateTradeRequest;
 import tw.bk.appapi.portfolio.vo.PortfolioResponse;
 import tw.bk.appapi.portfolio.vo.PositionResponse;
 import tw.bk.appapi.portfolio.vo.TradeResponse;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
@@ -34,22 +35,30 @@ import tw.bk.appportfolio.model.TradeCommand;
 import tw.bk.appportfolio.service.PortfolioService;
 import tw.bk.apppersistence.entity.PortfolioEntity;
 import tw.bk.apppersistence.entity.StockTradeEntity;
-import tw.bk.apppersistence.entity.UserPositionEntity;
+import tw.bk.appportfolio.model.PositionWithQuote;
+import tw.bk.appportfolio.service.QuoteProvider;
+import tw.bk.appstocks.service.StockQuoteService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestController
 @Tag(name = "Portfolio", description = "投資組合 / 交易 / 持倉管理")
 public class PortfolioController {
+    private static final Logger log = LoggerFactory.getLogger(PortfolioController.class);
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
-    private static final String SOURCE_MANUAL = "MANUAL";
+    private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
 
     private final PortfolioService portfolioService;
     private final CurrentUserProvider currentUserProvider;
+    private final StockQuoteService stockQuoteService;
 
     public PortfolioController(PortfolioService portfolioService,
-            CurrentUserProvider currentUserProvider) {
+            CurrentUserProvider currentUserProvider,
+            StockQuoteService stockQuoteService) {
         this.portfolioService = portfolioService;
         this.currentUserProvider = currentUserProvider;
+        this.stockQuoteService = stockQuoteService;
     }
 
     // ======================= Portfolio =======================
@@ -80,8 +89,17 @@ public class PortfolioController {
     @Operation(summary = "取得投資組合")
     public Result<PortfolioResponse> getPortfolio(@PathVariable String portfolioId) {
         Long userId = requireUserId();
-        PortfolioEntity portfolio = portfolioService.getPortfolio(userId, parseId(portfolioId));
-        return Result.ok(PortfolioResponse.from(portfolio));
+        Long id = parseId(portfolioId);
+        PortfolioEntity portfolio = portfolioService.getPortfolio(userId, id);
+        QuoteProvider quoteProvider = createQuoteProvider();
+        tw.bk.appportfolio.model.PortfolioSummary summary = portfolioService.getPortfolioSummary(userId, id,
+                quoteProvider);
+        return Result.ok(PortfolioResponse.fromWithSummary(
+                portfolio,
+                summary.totalMarketValue(),
+                summary.totalCost(),
+                summary.totalPnl(),
+                summary.totalPnlPercent()));
     }
 
     // ======================= Positions =======================
@@ -90,11 +108,25 @@ public class PortfolioController {
     @Operation(summary = "取得持倉列表")
     public Result<List<PositionResponse>> listPositions(@PathVariable String portfolioId) {
         Long userId = requireUserId();
-        List<UserPositionEntity> positions = portfolioService.listPositions(userId, parseId(portfolioId));
+        QuoteProvider quoteProvider = createQuoteProvider();
+        List<PositionWithQuote> positions = portfolioService.listPositionsWithQuotes(userId, parseId(portfolioId),
+                quoteProvider);
         List<PositionResponse> response = positions.stream()
                 .map(PositionResponse::from)
                 .toList();
         return Result.ok(response);
+    }
+
+    private QuoteProvider createQuoteProvider() {
+        return symbolKey -> {
+            try {
+                var quote = stockQuoteService.getQuote(symbolKey);
+                return java.util.Optional.ofNullable(quote.getPrice());
+            } catch (Exception e) {
+                log.warn("無法取得報價: {}, 錯誤: {}", symbolKey, e.getMessage());
+                return java.util.Optional.empty();
+            }
+        };
     }
 
     // ======================= Trades =======================

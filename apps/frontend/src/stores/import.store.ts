@@ -1,107 +1,285 @@
 import { create } from 'zustand';
 import { ocrApi } from '../api/ocr.api';
+import { stocksApi } from '../api/stocks.api';
 import type { DraftTrade, OcrJob } from '../api/ocr.api';
-import { message } from 'antd';
+import { msg, mdl } from '../utils/antd-globals';
 
 interface ImportState {
   currentStep: number;
   activeJobId: string | null;
+  fileId: string | null;
   jobStatus: OcrJob['status'] | null;
   progress: number;
   draftTrades: DraftTrade[];
   statementId: string | null;
   isPolling: boolean;
+  isLoading: boolean;
+  pollingIntervalId: number | null;
+  activePollingJobId: string | null;
 
-  uploadFile: (file: File) => Promise<void>;
+  uploadFile: (file: File, portfolioId: string) => Promise<void>;
+  reprocessJob: (portfolioId: string) => Promise<void>;
+  cancelJob: () => Promise<void>;
+  pollJob: (jobId: string) => void;
   reset: () => void;
-  updateDraftTrade: (id: string, updates: Partial<DraftTrade>) => void;
-  deleteDraftTrade: (id: string) => void;
+  updateDraftTrade: (id: string, updates: Partial<DraftTrade>) => Promise<void>;
+  deleteDraftTrade: (id: string) => Promise<void>;
   confirmTrades: (selectedIds: string[]) => Promise<void>;
   setStep: (step: number) => void;
 }
 
-// Mock Draft Data Generator
-const mockDraftTrades = (): DraftTrade[] => [
-  { id: '1', symbol: 'AAPL', tradeDate: '2026-01-05', side: 'BUY', quantity: 10, price: 180.50, currency: 'USD', fee: 1.5, tax: 0, confidence: 0.95, warnings: [], status: 'VALID' },
-  { id: '2', symbol: 'TSLA', tradeDate: '2026-01-05', side: 'SELL', quantity: 5, price: 235.00, currency: 'USD', fee: 1.5, tax: 0, confidence: 0.8, warnings: ['Check date format'], status: 'WARNING' },
-  { id: '3', symbol: 'UNKNOWN', tradeDate: '2026-01-05', side: 'BUY', quantity: 1000, price: 0, currency: 'TWD', fee: 0, tax: 0, confidence: 0.4, warnings: ['Symbol not found', 'Price is zero'], status: 'ERROR' },
-];
-
 export const useImportStore = create<ImportState>((set, get) => ({
   currentStep: 0,
   activeJobId: null,
+  fileId: null,
   jobStatus: null,
   progress: 0,
   draftTrades: [],
   statementId: null,
   isPolling: false,
+  isLoading: false,
+  pollingIntervalId: null,
+  activePollingJobId: null,
 
   setStep: (step) => set({ currentStep: step }),
 
-  reset: () => set({ currentStep: 0, activeJobId: null, jobStatus: null, progress: 0, draftTrades: [], statementId: null }),
+  reset: () =>
+    set({
+      currentStep: 0,
+      activeJobId: null,
+      fileId: null,
+      jobStatus: null,
+      progress: 0,
+      draftTrades: [],
+      statementId: null,
+      pollingIntervalId: null,
+      activePollingJobId: null,
+    }),
 
-  uploadFile: async (file) => {
+  uploadFile: async (file, portfolioId) => {
+    if (get().isLoading) return;
     try {
-      set({ currentStep: 1, progress: 0, jobStatus: 'QUEUED' }); // Move to processing step
+      set({ isLoading: true, currentStep: 1, progress: 0, jobStatus: 'QUEUED' });
 
-      // Real API:
-      // const res = await ocrApi.upload(file);
-      // const jobId = res.data.jobId;
-      // set({ activeJobId: jobId, isPolling: true });
-      // get().pollJob(jobId);
+      const fileId = await ocrApi.uploadFileOnly(file);
+      set({ fileId });
 
-      // Mock Flow:
-      set({ activeJobId: 'mock-job-123', jobStatus: 'RUNNING', isPolling: true });
+      const res = await ocrApi.createOcrJob(fileId, portfolioId);
+      const jobId = res.jobId;
+      if (!jobId) throw new Error('Failed to create OCR job');
 
-      // Simulate Progress
-      let p = 0;
-      const interval = setInterval(() => {
-        p += 20;
-        set({ progress: p });
-        if (p >= 100) {
-          clearInterval(interval);
-          set({
-            jobStatus: 'COMPLETED',
-            draftTrades: mockDraftTrades(),
-            statementId: 'stmt-123',
-            isPolling: false
-          });
-          message.success('OCR Processing Complete');
-        }
-      }, 500);
-
-    } catch (e) {
+      set({ activeJobId: jobId, isPolling: true });
+      get().pollJob(jobId);
+    } catch (error) {
+      console.error('Upload file failed', error);
       set({ jobStatus: 'FAILED', isPolling: false });
-      message.error('Upload failed');
+      msg.error('Upload failed');
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  updateDraftTrade: (id, updates) => {
-    set((state) => ({
-      draftTrades: state.draftTrades.map((t) =>
-        t.id === id ? { ...t, ...updates, status: 'VALID' } : t // Assume valid after manual edit
-      ),
-    }));
+  reprocessJob: async (portfolioId) => {
+    if (get().isLoading) return;
+    const { activeJobId, fileId, pollingIntervalId } = get();
+
+    try {
+      set({ isLoading: true });
+      if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+      }
+
+      set({ jobStatus: 'QUEUED', progress: 0, draftTrades: [], statementId: null, isPolling: true, pollingIntervalId: null, activePollingJobId: null });
+
+      let jobId = activeJobId;
+      if (jobId) {
+        const res = await ocrApi.reparseJob(jobId, true);
+        jobId = res.jobId;
+      } else if (fileId) {
+        const res = await ocrApi.createOcrJob(fileId, portfolioId, true);
+        jobId = res.jobId;
+      }
+
+      if (!jobId) throw new Error('Failed to start OCR job');
+
+      set({ activeJobId: jobId });
+      get().pollJob(jobId);
+    } catch (error) {
+      console.error('Reprocess job failed', error);
+      set({ jobStatus: 'FAILED', isPolling: false });
+      msg.error('重新辨識失敗');
+    } finally {
+      set({ isLoading: false });
+    }
   },
 
-  deleteDraftTrade: (id) => {
-    set((state) => ({
-      draftTrades: state.draftTrades.filter((t) => t.id !== id),
-    }));
+  cancelJob: async () => {
+    const { activeJobId, pollingIntervalId } = get();
+    if (!activeJobId) return;
+
+    try {
+      await ocrApi.cancelJob(activeJobId);
+      if (pollingIntervalId) {
+          clearInterval(pollingIntervalId);
+      }
+      set({ jobStatus: 'CANCELLED', isPolling: false, pollingIntervalId: null, activePollingJobId: null });
+      msg.info('任務已取消');
+    } catch (error) {
+      console.error('Cancel job failed', error);
+      msg.error('取消失敗');
+    }
+  },
+
+  pollJob: (jobId: string) => {
+    if (!jobId) return;
+
+    const { pollingIntervalId, activePollingJobId } = get();
+    if (activePollingJobId === jobId && pollingIntervalId) {
+      return;
+    }
+
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+    }
+
+    set({ activePollingJobId: jobId });
+
+    const interval = setInterval(async () => {
+      try {
+        const job = await ocrApi.getJob(jobId);
+
+        set({ jobStatus: job.status, progress: job.progress });
+
+        if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') {
+          clearInterval(interval);
+          set({ isPolling: false, pollingIntervalId: null, activePollingJobId: null });
+          if (job.status === 'DONE') {
+            try {
+              const res = await ocrApi.getDrafts(jobId);
+              const trades = res.items;
+              set({
+                draftTrades: trades,
+                statementId: job.statementId || null,
+              });
+              msg.success('OCR Processing Complete');
+            } catch (err) {
+              console.error('Failed to fetch drafts', err);
+              msg.error('Failed to load drafts');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Polling job failed', error);
+        clearInterval(interval);
+        set({ isPolling: false, jobStatus: 'FAILED', pollingIntervalId: null });
+      }
+    }, 2000);
+
+    set({ pollingIntervalId: interval as unknown as number });
+  },
+
+  updateDraftTrade: async (id, updates) => {
+    if (get().isLoading) return;
+    try {
+      set({ isLoading: true });
+      const updatedDraft = await ocrApi.updateDraft(id, updates);
+      set((state) => ({
+        draftTrades: state.draftTrades.map((t) =>
+          t.draftId === id ? updatedDraft : t
+        ),
+      }));
+    } catch (error) {
+      console.error('Update draft failed', error);
+      msg.error('Failed to update draft');
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  deleteDraftTrade: async (id) => {
+    if (get().isLoading) return;
+    try {
+      set({ isLoading: true });
+      await ocrApi.deleteDraft(id);
+      set((state) => ({
+        draftTrades: state.draftTrades.filter((t) => t.draftId !== id),
+      }));
+      msg.success('草稿已刪除');
+    } catch (error) {
+      console.error('Delete draft failed', error);
+      msg.error('刪除草稿失敗');
+    } finally {
+      set({ isLoading: false });
+    }
   },
 
   confirmTrades: async (selectedIds) => {
-    const { statementId, draftTrades } = get();
-    const tradesToImport = draftTrades.filter(t => selectedIds.includes(t.id));
+    if (get().isLoading) return;
+    const { activeJobId, statementId, draftTrades } = get();
+    const tradesToImport = draftTrades.filter((t) => selectedIds.includes(t.draftId));
 
-    if (!statementId) return;
+    if (!statementId || !activeJobId) return;
 
+    set({ isLoading: true });
     try {
-      // await ocrApi.confirmImport(statementId, tradesToImport);
-      await new Promise(r => setTimeout(r, 1000)); // Mock API
-      set({ currentStep: 2 }); // Success Step
+      // Step 2: Call confirm with draftIds (removed statementId parameter)
+      const res = await ocrApi.confirmImport(activeJobId, selectedIds);
+      const { importedCount, errors } = res;
+
+      // Step 3: Handle errors if any
+      if (errors && errors.length > 0) {
+        // Mark drafts with errors
+        const errorMap = new Map(errors.map((e: { draftId: string; reason: string }) => [e.draftId, e.reason]));
+        set((state) => ({
+          draftTrades: state.draftTrades
+            .map((t) => {
+              const errorReason = errorMap.get(t.draftId);
+              if (errorReason) {
+                return {
+                  ...t,
+                  status: 'ERROR' as const,
+                  errors: [...(t.errors || []), errorReason],
+                };
+              }
+
+              // 若在 selectedIds 中但沒在 errorMap 中，代表成功導入，返回 null 稍後過濾掉
+              if (selectedIds.includes(t.draftId)) {
+                return null;
+              }
+
+              // 其他未選中的交易，原樣保留
+              return t;
+            })
+            .filter((t): t is DraftTrade => t !== null),
+        }));
+
+        if (importedCount > 0) {
+          msg.success(`已成功匯入 ${importedCount} 筆交易`);
+        }
+        if (errors.length > 0) {
+          mdl.error({
+            title: '部分交易匯入失敗',
+            content: errors.map((err: { reason: string }) => err.reason).join('\n'),
+            destroyOnHidden: true,
+          });
+        }
+      } else {
+        // All successful - remove imported drafts from local state
+        const remainingDrafts = draftTrades.filter((t) => !selectedIds.includes(t.draftId));
+        set({ draftTrades: remainingDrafts });
+
+        // If no drafts left, go to success step
+        if (remainingDrafts.length === 0) {
+          set({ currentStep: 2 });
+        } else {
+          msg.success(`已成功匯入 ${importedCount} 筆交易`);
+        }
+      }
     } catch (e) {
-      message.error('Import confirmation failed');
+      console.error('Import confirmation failed', e);
+      msg.error('匯入確認失敗，請確保已選取項目的標的代號正確');
+    } finally {
+      set({ isLoading: false });
     }
   },
 }));

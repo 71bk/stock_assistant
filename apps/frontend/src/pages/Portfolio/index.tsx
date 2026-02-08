@@ -1,38 +1,47 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Card, Row, Col, Statistic, Button, Tag, Typography, Modal, Steps, Form, DatePicker, InputNumber, Radio, message } from 'antd';
-import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { Table, Card, Row, Col, Statistic, Button, Tag, Typography } from 'antd';
+import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import { usePortfolioStore } from '../../stores/portfolio.store';
+import { useAiStore } from '../../stores/ai.store';
 import { formatCurrency } from '../../utils/format';
-import { InstrumentSearch } from '../../components/common/InstrumentSearch';
-import type { Instrument } from '../../api/stocks.api';
-import dayjs from 'dayjs';
+import { AddTradeModal } from './components/AddTradeModal';
+import { AiAnalysisModal } from '../../components/ai/AiAnalysisModal';
+import { PageContainer } from '../../components/layout/PageContainer';
+import type { Position } from '../../api/portfolios.api';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 const Portfolio: React.FC = () => {
+  const navigate = useNavigate();
   const { summary, positions, isLoading, fetchPortfolioData } = usePortfolioStore();
+  const { startAnalysis, resetAnalysis } = useAiStore();
+
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [selectedInstrument, setSelectedInstrument] = useState<Instrument | null>(null);
-  const [form] = Form.useForm();
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
   useEffect(() => {
     fetchPortfolioData();
   }, [fetchPortfolioData]);
 
-  const handleInstrumentSelect = (instrument: Instrument) => {
-    setSelectedInstrument(instrument);
-    setCurrentStep(1); // Move to details step
+  const handleTradeSuccess = () => {
+    fetchPortfolioData();
+    setIsModalOpen(false);
   };
 
-  const handleFinish = (values: any) => {
-    console.log('Form values:', { ...values, instrument: selectedInstrument });
-    message.success('Trade added successfully (Mock)');
-    setIsModalOpen(false);
-    setCurrentStep(0);
-    setSelectedInstrument(null);
-    form.resetFields();
-    // Refresh data...
+  const handleStartAiAnalysis = async () => {
+    if (!summary?.id) return;
+    setIsAiModalOpen(true);
+    await startAnalysis({
+      portfolioId: summary.id,
+      reportType: 'PORTFOLIO',
+      prompt: '請根據我目前的投資組合，分析整體的資產分佈、損益表現，並提供未來的配置建議。'
+    });
+  };
+
+  const handleCloseAiModal = () => {
+    setIsAiModalOpen(false);
+    resetAnalysis();
   };
 
   const renderKPI = () => (
@@ -40,8 +49,8 @@ const Portfolio: React.FC = () => {
       <Col xs={24} sm={8}>
         <Card>
           <Statistic
-            title="Total Market Value"
-            value={summary?.totalMarketValue}
+            title="總市值"
+            value={summary?.totalMarketValue || 0}
             precision={0}
             prefix={summary?.baseCurrency === 'USD' ? '$' : 'NT$'}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
@@ -51,8 +60,8 @@ const Portfolio: React.FC = () => {
       <Col xs={24} sm={8}>
         <Card>
           <Statistic
-            title="Total Cost"
-            value={summary?.totalCost}
+            title="總成本"
+            value={summary?.totalCost || 0}
             precision={0}
             prefix={summary?.baseCurrency === 'USD' ? '$' : 'NT$'}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
@@ -62,12 +71,12 @@ const Portfolio: React.FC = () => {
       <Col xs={24} sm={8}>
         <Card>
           <Statistic
-            title="Total P/L"
-            value={summary?.totalPnl}
+            title="總損益"
+            value={summary?.totalPnl || 0}
             precision={0}
-            valueStyle={{ color: (summary?.totalPnl || 0) >= 0 ? '#3f8600' : '#cf1322' }}
+            styles={{ content: { color: (summary?.totalPnl || 0) >= 0 ? '#3f8600' : '#cf1322' } }}
             prefix={(summary?.totalPnl || 0) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-            suffix={`(${summary?.totalPnlPercent}%)`}
+            suffix={`(${summary?.totalPnlPercent || 0}%)`}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
           />
         </Card>
@@ -77,10 +86,10 @@ const Portfolio: React.FC = () => {
 
   const columns = [
     {
-      title: 'Instrument',
-      dataIndex: 'symbol',
-      key: 'symbol',
-      render: (text: string, record: any) => (
+      title: '商品',
+      dataIndex: 'ticker',
+      key: 'ticker',
+      render: (text: string, record: Position) => (
         <div>
           <div style={{ fontWeight: 'bold' }}>{text}</div>
           <div style={{ fontSize: 12, color: '#888' }}>{record.name}</div>
@@ -89,67 +98,83 @@ const Portfolio: React.FC = () => {
       ),
     },
     {
-      title: 'Qty',
-      dataIndex: 'quantity',
-      key: 'quantity',
+      title: '持股數',
+      dataIndex: 'totalQuantity',
+      key: 'totalQuantity',
       align: 'right' as const,
-      render: (val: number) => val.toLocaleString(),
+      render: (val: number) => val?.toLocaleString() ?? '-',
     },
     {
-      title: 'Avg Cost',
-      dataIndex: 'avgCost',
-      key: 'avgCost',
+      title: '平均成本',
+      dataIndex: 'avgCostNative',
+      key: 'avgCostNative',
       align: 'right' as const,
-      render: (val: number, record: any) => formatCurrency(val, record.currency),
+      render: (val: number, record: Position) => val != null ? formatCurrency(val, record.currency) : '-',
     },
     {
-      title: 'Price',
+      title: '現價',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
       align: 'right' as const,
-      render: (val: number, record: any) => (
-        <span style={{ fontWeight: 'bold' }}>{formatCurrency(val, record.currency)}</span>
+      render: (val: number, record: Position) => (
+        <span style={{ fontWeight: 'bold' }}>{val != null ? formatCurrency(val, record.currency) : '-'}</span>
       ),
     },
     {
-      title: 'Value',
+      title: '市值',
       dataIndex: 'currentValue',
       key: 'currentValue',
       align: 'right' as const,
-      render: (val: number, record: any) => formatCurrency(val, record.currency), // In list, show native currency
+      render: (val: number, record: Position) => val != null ? formatCurrency(val, record.currency) : '-',
     },
     {
-      title: 'Unrealized P/L',
+      title: '未實現損益',
       dataIndex: 'unrealizedPnl',
       key: 'unrealizedPnl',
       align: 'right' as const,
-      render: (val: number, record: any) => (
-        <div style={{ color: val >= 0 ? '#3f8600' : '#cf1322' }}>
-          <div>{formatCurrency(val, record.currency)}</div>
-          <div style={{ fontSize: 12 }}>{record.unrealizedPnlPercent}%</div>
+      render: (val: number, record: Position) => (
+        <div style={{ color: (val || 0) >= 0 ? '#3f8600' : '#cf1322' }}>
+          <div>{val != null ? formatCurrency(val, record.currency) : '-'}</div>
+          <div style={{ fontSize: 12 }}>
+            {record.unrealizedPnlPercent != null ? `${Number(record.unrealizedPnlPercent).toFixed(2)}%` : '-'}
+          </div>
         </div>
       ),
     },
     {
-      title: 'Actions',
+      title: '操作',
       key: 'actions',
-      render: () => <Button size="small">Details</Button>,
+      render: () => (
+        <Button
+          size="small"
+          onClick={() => navigate('/trades')}
+        >
+          詳情
+        </Button>
+      ),
     },
   ];
 
   return (
-    <div>
+    <PageContainer>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={2} style={{ margin: 0 }}>My Portfolio</Title>
-        <div>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchPortfolioData()} style={{ marginRight: 8 }}>Refresh</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>Add Trade</Button>
+        <Title level={2} style={{ margin: 0 }}>我的投資組合</Title>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button
+            icon={<RobotOutlined />}
+            onClick={handleStartAiAnalysis}
+            disabled={!summary}
+          >
+            AI 組合分析
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchPortfolioData()}>重新整理</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>新增交易</Button>
         </div>
       </div>
 
       {renderKPI()}
 
-      <Card bodyStyle={{ padding: 0 }}>
+      <Card styles={{ body: { padding: 0 } }}>
         <Table
           dataSource={positions}
           columns={columns}
@@ -159,92 +184,18 @@ const Portfolio: React.FC = () => {
         />
       </Card>
 
-      {/* Add Trade Modal */}
-      <Modal
-        title="Add New Trade"
+      <AddTradeModal
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
-        <Steps
-          current={currentStep}
-          items={[
-            { title: 'Select Stock' },
-            { title: 'Trade Details' },
-          ]}
-          style={{ marginBottom: 24 }}
-        />
+        onSuccess={handleTradeSuccess}
+      />
 
-        {currentStep === 0 && (
-          <div style={{ padding: '20px 0', minHeight: 200 }}>
-            <Text style={{ display: 'block', marginBottom: 8 }}>Search by symbol or name:</Text>
-            <InstrumentSearch onSelect={handleInstrumentSelect} />
-          </div>
-        )}
-
-        {currentStep === 1 && selectedInstrument && (
-          <Form
-            form={form}
-            layout="vertical"
-            initialValues={{ date: dayjs(), side: 'BUY', currency: selectedInstrument.currency }}
-            onFinish={handleFinish}
-          >
-            <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
-              <Text strong>{selectedInstrument.symbol} - {selectedInstrument.name}</Text>
-              <div><Tag>{selectedInstrument.exchange}</Tag></div>
-            </div>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="side" label="Side" rules={[{ required: true }]}>
-                  <Radio.Group buttonStyle="solid">
-                    <Radio.Button value="BUY">Buy</Radio.Button>
-                    <Radio.Button value="SELL">Sell</Radio.Button>
-                  </Radio.Group>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="date" label="Date" rules={[{ required: true }]}>
-                  <DatePicker style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="quantity" label="Quantity" rules={[{ required: true }]}>
-                  <InputNumber style={{ width: '100%' }} min={0.0001} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="price" label={`Price (${selectedInstrument.currency})`} rules={[{ required: true }]}>
-                  <InputNumber style={{ width: '100%' }} min={0} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="fee" label="Commission (Fee)">
-                  <InputNumber style={{ width: '100%' }} min={0} defaultValue={0} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="tax" label="Tax">
-                  <InputNumber style={{ width: '100%' }} min={0} defaultValue={0} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-              <Button onClick={() => setCurrentStep(0)}>Back</Button>
-              <Button type="primary" htmlType="submit">Confirm Trade</Button>
-            </div>
-          </Form>
-        )}
-      </Modal>
-    </div>
+      <AiAnalysisModal
+        open={isAiModalOpen}
+        onClose={handleCloseAiModal}
+        title="投資組合 AI 深度分析"
+      />
+    </PageContainer>
   );
 };
 

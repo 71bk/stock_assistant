@@ -3,10 +3,12 @@ package tw.bk.appapi.auth;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
+import java.time.Duration;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,10 +18,13 @@ import tw.bk.appauth.config.AuthProperties;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
 import tw.bk.appauth.service.UserService;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appauth.service.UserSettingsService;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appapi.security.SimpleRateLimiter;
+import tw.bk.apppersistence.entity.UserSettingsEntity;
 import tw.bk.apppersistence.entity.UserEntity;
 
 @RestController
@@ -28,19 +33,31 @@ public class AuthController {
     private final AuthService authService;
     private final AuthCookieService cookieService;
     private final UserService userService;
+    private final UserSettingsService userSettingsService;
     private final CurrentUserProvider currentUserProvider;
     private final AuthProperties authProperties;
+    private final SimpleRateLimiter rateLimiter;
+
+    @Value("${app.auth.refresh.rate-limit:30}")
+    private int refreshRateLimit;
+
+    @Value("${app.auth.refresh.rate-window:60s}")
+    private Duration refreshRateWindow;
 
     public AuthController(AuthService authService,
             AuthCookieService cookieService,
             UserService userService,
+            UserSettingsService userSettingsService,
             CurrentUserProvider currentUserProvider,
-            AuthProperties authProperties) {
+            AuthProperties authProperties,
+            SimpleRateLimiter rateLimiter) {
         this.authService = authService;
         this.cookieService = cookieService;
         this.userService = userService;
+        this.userSettingsService = userSettingsService;
         this.currentUserProvider = currentUserProvider;
         this.authProperties = authProperties;
+        this.rateLimiter = rateLimiter;
     }
 
     @GetMapping("/google/login")
@@ -52,6 +69,7 @@ public class AuthController {
 
     @PostMapping("/refresh")
     public ResponseEntity<Result<Void>> refresh(HttpServletRequest request, HttpServletResponse response) {
+        enforceRefreshRateLimit(request);
         String refreshToken = readCookie(request, authProperties.getRefreshCookieName());
         if (refreshToken == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token missing");
@@ -80,7 +98,8 @@ public class AuthController {
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
         Optional<UserEntity> userOpt = userService.findById(userId);
         UserEntity user = userOpt.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
-        MeResponse response = MeResponse.from(user);
+        UserSettingsEntity settings = userSettingsService.getOrCreate(userId);
+        MeResponse response = MeResponse.from(user, settings.getBaseCurrency(), settings.getDisplayTimezone());
         return Result.ok(response);
     }
 
@@ -96,4 +115,22 @@ public class AuthController {
         return null;
     }
 
+    private void enforceRefreshRateLimit(HttpServletRequest request) {
+        String key = "auth:refresh:" + getClientKey(request);
+        if (!rateLimiter.tryAcquire(key, refreshRateLimit, refreshRateWindow)) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "Too many refresh attempts");
+        }
+    }
+
+    private String getClientKey(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
+    }
 }

@@ -15,12 +15,18 @@ public class MeResponse {
     private String id;
     private String email;
     private String displayName;
+    private String pictureUrl;
+    private String baseCurrency;
+    private String displayTimezone;
 
-    public static MeResponse from(UserEntity entity) {
+    public static MeResponse from(UserEntity entity, String baseCurrency, String displayTimezone) {
         return MeResponse.builder()
                 .id(String.valueOf(entity.getId()))
                 .email(entity.getEmail())
                 .displayName(entity.getDisplayName())
+                .pictureUrl(entity.getPictureUrl())
+                .baseCurrency(baseCurrency)
+                .displayTimezone(displayTimezone)
                 .build();
     }
 }

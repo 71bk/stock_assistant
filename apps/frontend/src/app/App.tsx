@@ -1,32 +1,40 @@
 import React, { useEffect } from 'react';
-import { ConfigProvider, App as AntApp, theme as antdThemeAlgorithm } from 'antd';
+import { App as AntApp } from 'antd';
 import { RouterProvider } from 'react-router-dom';
+import { antd as antdGlobals } from '../utils/antd-globals';
 import { router } from '../router';
-import { useUIStore } from '../stores/ui.store';
 import { useAuthStore } from '../stores/auth.store';
-import { antdTheme } from '../styles/antd-theme';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
+import { AppProviders } from './AppProviders';
 import 'dayjs/locale/zh-tw';
 
+const AntdGlobalInitializer: React.FC = () => {
+    const { message, modal, notification } = AntApp.useApp();
+    
+    useEffect(() => {
+        antdGlobals.setInstances(message, modal, notification);
+    }, [message, modal, notification]);
+    
+    return null;
+};
+
 const App: React.FC = () => {
-  const { theme } = useUIStore();
   const { checkAuth } = useAuthStore();
 
   useEffect(() => {
     // Initialize authentication check on app load
     checkAuth();
-  }, [checkAuth]);
+  }, [checkAuth]); // Only once on mount
 
   return (
-    <ConfigProvider
-      theme={{
-        ...antdTheme,
-        algorithm: theme === 'dark' ? antdThemeAlgorithm.darkAlgorithm : antdThemeAlgorithm.defaultAlgorithm,
-      }}
-    >
+    <AppProviders>
       <AntApp>
-        <RouterProvider router={router} />
+        <AntdGlobalInitializer />
+        <ErrorBoundary>
+          <RouterProvider router={router} />
+        </ErrorBoundary>
       </AntApp>
-    </ConfigProvider>
+    </AppProviders>
   );
 };
 

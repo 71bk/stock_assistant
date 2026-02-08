@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appcommon.enums.AssetType;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 
 /**
@@ -16,6 +17,11 @@ import tw.bk.apppersistence.entity.InstrumentEntity;
 public class InstrumentResponse {
 
     /**
+     * 商品 ID（數字 ID）
+     */
+    private String instrumentId;
+
+    /**
      * 商品唯一識別碼（如 US:XNAS:AAPL）
      */
     private String symbolKey;
@@ -26,9 +32,14 @@ public class InstrumentResponse {
     private String ticker;
 
     /**
-     * 顯示名稱（優先中文，否則英文）
+     * 中文名稱
      */
-    private String displayName;
+    private String nameZh;
+
+    /**
+     * 英文名稱
+     */
+    private String nameEn;
 
     /**
      * 市場代碼（US, TW）
@@ -46,22 +57,24 @@ public class InstrumentResponse {
     private String currency;
 
     /**
+     * 資產類型（STOCK, ETF）
+     */
+    private AssetType assetType;
+
+    /**
      * 從 Entity 轉換
      */
     public static InstrumentResponse from(InstrumentEntity entity) {
-        // 組合顯示名稱（優先中文）
-        String displayName = entity.getNameZh() != null && !entity.getNameZh().isBlank()
-                ? entity.getNameZh() + " (" + entity.getTicker() + ")"
-                : (entity.getNameEn() != null ? entity.getNameEn() + " (" + entity.getTicker() + ")"
-                        : entity.getTicker());
-
         return InstrumentResponse.builder()
+                .instrumentId(entity.getId() != null ? entity.getId().toString() : null)
                 .symbolKey(entity.getSymbolKey())
                 .ticker(entity.getTicker())
-                .displayName(displayName)
+                .nameZh(entity.getNameZh())
+                .nameEn(entity.getNameEn())
                 .market(entity.getMarket() != null ? entity.getMarket().getCode() : null)
                 .exchange(entity.getExchange() != null ? entity.getExchange().getCode() : null)
                 .currency(entity.getCurrency())
+                .assetType(entity.getAssetTypeEnum())
                 .build();
     }
 }

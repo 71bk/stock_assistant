@@ -1,18 +1,27 @@
 package tw.bk.appstocks.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tw.bk.appcommon.enums.AssetType;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.InstrumentStatus;
+import tw.bk.appcommon.exception.BusinessException;
+import tw.bk.apppersistence.entity.ExchangeEntity;
 import tw.bk.apppersistence.entity.InstrumentEntity;
+import tw.bk.apppersistence.entity.MarketEntity;
+import tw.bk.apppersistence.repository.ExchangeRepository;
 import tw.bk.apppersistence.repository.InstrumentRepository;
+import tw.bk.apppersistence.repository.MarketRepository;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 商品主檔服務
+ * Instrument service.
  */
 @Service
 @RequiredArgsConstructor
@@ -20,39 +29,104 @@ import java.util.Optional;
 public class InstrumentService {
 
     private final InstrumentRepository instrumentRepository;
+    private final MarketRepository marketRepository;
+    private final ExchangeRepository exchangeRepository;
 
     /**
-     * 根據 symbol_key 查詢商品
-     * 
-     * @param symbolKey 商品唯一識別碼（如 US:XNAS:AAPL）
-     * @return 商品實體
+     * Create a new instrument manually.
      */
-    public Optional<InstrumentEntity> findBySymbolKey(String symbolKey) {
-        return instrumentRepository.findBySymbolKey(symbolKey);
+    @Transactional
+    public InstrumentEntity createInstrument(String ticker, String nameZh, String nameEn,
+            String marketCode, String exchangeCode,
+            String currency, String assetType) {
+        // Find market
+        MarketEntity market = marketRepository.findByCode(marketCode.toUpperCase())
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "不支援的市場: " + marketCode));
+
+        // Find exchange
+        ExchangeEntity exchange = exchangeRepository.findByMarketIdAndCodeIgnoreCase(market.getId(), exchangeCode)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "不支援的交易所: " + exchangeCode + " (市場: " + marketCode + ")"));
+
+        // Build symbol_key with MIC to keep uniqueness consistent with sync process
+        String symbolKey = marketCode.toUpperCase() + ":" + exchange.getMic().toUpperCase() + ":"
+                + ticker.toUpperCase();
+
+        // Check if already exists
+        if (instrumentRepository.findBySymbolKey(symbolKey).isPresent()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "商品已存在: " + symbolKey);
+        }
+
+        // Create entity
+        InstrumentEntity entity = new InstrumentEntity();
+        entity.setMarket(market);
+        entity.setExchange(exchange);
+        entity.setTicker(ticker.toUpperCase());
+        entity.setNameZh(nameZh);
+        entity.setNameEn(nameEn);
+        entity.setCurrency(currency.toUpperCase());
+        AssetType normalizedAssetType = AssetType.from(assetType);
+        if (normalizedAssetType == null) {
+            normalizedAssetType = AssetType.STOCK;
+        }
+        entity.setAssetType(normalizedAssetType.name());
+        entity.setStatus(InstrumentStatus.ACTIVE.name());
+        entity.setSymbolKey(symbolKey);
+
+        return instrumentRepository.save(entity);
     }
 
     /**
-     * 搜尋商品（自動補全用）
-     * 支援 ticker 和 name 的模糊搜尋
-     * 
-     * @param query 搜尋關鍵字
-     * @param limit 回傳數量限制（預設 10，最多 50）
-     * @return 符合條件的商品列表
+     * Find by symbol_key.
+     */
+    public Optional<InstrumentEntity> findBySymbolKey(String symbolKey) {
+        return instrumentRepository.findBySymbolKeyWithRelations(symbolKey);
+    }
+
+    /**
+     * Find by id.
+     */
+    public Optional<InstrumentEntity> findById(Long id) {
+        return instrumentRepository.findById(id);
+    }
+
+    /**
+     * Find by id with market/exchange relations loaded.
+     */
+    public Optional<InstrumentEntity> findByIdWithRelations(Long id) {
+        return instrumentRepository.findByIdWithRelations(id);
+    }
+
+    /**
+     * Search instruments by ticker or name (limit 1-50).
      */
     public List<InstrumentEntity> searchInstruments(String query, int limit) {
-        // 限制回傳數量，避免效能問題
+        // Clamp limit between 1 and 50.
         int validLimit = Math.min(Math.max(limit, 1), 50);
         Pageable pageable = PageRequest.of(0, validLimit);
 
-        return instrumentRepository.searchInstruments(query, pageable);
+        return instrumentRepository.searchInstrumentsWithRelations(query, pageable);
     }
 
     /**
-     * 取得所有商品
-     * 
-     * @return 商品列表
+     * Search instruments by ticker or name with pagination.
+     */
+    public Page<InstrumentEntity> searchInstrumentsPage(String query, Pageable pageable) {
+        return instrumentRepository.searchInstrumentsPage(query, pageable);
+    }
+
+    /**
+     * Find all instruments.
      */
     public List<InstrumentEntity> findAll() {
-        return instrumentRepository.findAll();
+        return instrumentRepository.findAllWithRelations();
+    }
+
+    /**
+     * Find all instruments (paged).
+     */
+    public Page<InstrumentEntity> findAll(Pageable pageable) {
+        return instrumentRepository.findAllWithRelations(pageable);
     }
 }

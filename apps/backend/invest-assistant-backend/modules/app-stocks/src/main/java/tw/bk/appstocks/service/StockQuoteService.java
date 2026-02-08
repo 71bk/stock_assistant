@@ -4,20 +4,27 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.AssetType;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
-import tw.bk.appcommon.model.MarketCode;
+import tw.bk.appcommon.enums.MarketCode;
 import tw.bk.appstocks.config.StockMarketProperties;
+import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
 import tw.bk.appstocks.port.StockMarketClient;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.repository.InstrumentRepository;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -32,7 +39,9 @@ public class StockQuoteService {
     private final List<StockMarketClient> stockMarketClients;
     private final StockCacheService cacheService;
     private final StockMarketProperties properties;
+    private final WarrantQuoteService warrantQuoteService;
     private Map<MarketCode, StockMarketClient> clientMap = Collections.emptyMap();
+    private final ConcurrentHashMap<String, CompletableFuture<Object>> inflight = new ConcurrentHashMap<>();
 
     @PostConstruct
     void initClientMap() {
@@ -42,8 +51,7 @@ public class StockQuoteService {
                         Function.identity(),
                         (a, b) -> {
                             throw new IllegalStateException("重複的市場 client: " + a.getSupportedMarket().getCode());
-                        }
-                ));
+                        }));
     }
 
     /**
@@ -60,32 +68,114 @@ public class StockQuoteService {
             return cached.get();
         }
 
-        // 2. 查詢商品資訊
-        InstrumentEntity instrument = instrumentRepository.findBySymbolKey(symbolKey)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
+        return singleFlight(cacheKey, () -> {
+            Optional<Quote> cachedAgain = cacheService.get(cacheKey, Quote.class);
+            if (cachedAgain.isPresent()) {
+                return cachedAgain.get();
+            }
 
-        // 3. 根據市場選擇對應的 client
-        String marketCodeValue = instrument.getMarket() != null ? instrument.getMarket().getCode() : null;
-        MarketCode marketCode = MarketCode.requireSupported(
-                marketCodeValue,
-                ErrorCode.INTERNAL_ERROR,
-                "不支援的市場: " + marketCodeValue);
-        StockMarketClient client = getClientByMarket(marketCode);
+            // 2. 查詢商品資訊
+            InstrumentEntity instrument = instrumentRepository.findBySymbolKeyWithRelations(symbolKey)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
+            if (AssetType.WARRANT.equals(instrument.getAssetTypeEnum())) {
+                Quote quote = warrantQuoteService.getQuote(instrument.getTicker());
+                cacheService.set(cacheKey, quote, properties.getCache().getQuoteTtl());
+                return quote;
+            }
 
-        // 4. 呼叫第三方 API
-        Quote quote = client.getQuote(instrument.getTicker())
-                .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR,
-                        "無法取得股票報價: " + symbolKey));
+            // 3. 根據市場選擇對應的 client
+            String marketCodeValue = instrument.getMarket() != null ? instrument.getMarket().getCode() : null;
+            MarketCode marketCode = MarketCode.requireSupported(
+                    marketCodeValue,
+                    ErrorCode.INTERNAL_ERROR,
+                    "無法取得股票報價: " + marketCodeValue);
+            StockMarketClient client = getClientByMarket(marketCode);
 
-        // 5. 寫入快取
-        cacheService.set(cacheKey, quote, properties.getCache().getQuoteTtl());
+            // 4. 呼叫第三方 API
+            Quote quote = client.getQuote(instrument.getTicker())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR,
+                            "無法取得報價資料: " + symbolKey));
 
-        return quote;
+            // 5. 寫入快取
+            cacheService.set(cacheKey, quote, properties.getCache().getQuoteTtl());
+            return quote;
+        });
     }
 
-    /**
-     * 根據市場代碼取得對應的 Client
-     */
+    public List<Candle> getCandles(String symbolKey, String interval, LocalDate from, LocalDate to) {
+        // 1. 檢查快取
+        String cacheKey = String.format("candles:%s:%s:%s:%s",
+                symbolKey, interval, from, to);
+        Optional<List<Candle>> cached = cacheService.getList(cacheKey, Candle.class);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+
+        return singleFlight(cacheKey, () -> {
+            Optional<List<Candle>> cachedAgain = cacheService.getList(cacheKey, Candle.class);
+            if (cachedAgain.isPresent()) {
+                return cachedAgain.get();
+            }
+
+            // 2. 查詢商品資訊
+            InstrumentEntity instrument = instrumentRepository.findBySymbolKeyWithRelations(symbolKey)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
+            if (AssetType.WARRANT.equals(instrument.getAssetTypeEnum())) {
+                List<Candle> candles = warrantQuoteService.getCandles(
+                        instrument.getTicker(), interval, from, to);
+                cacheService.setList(cacheKey, candles, properties.getCache().getCandlesTtl());
+                return candles;
+            }
+
+            // 3. 根據市場選擇對應的 client
+            String marketCodeValue = instrument.getMarket() != null ? instrument.getMarket().getCode() : null;
+            MarketCode marketCode = MarketCode.requireSupported(
+                    marketCodeValue,
+                    ErrorCode.INTERNAL_ERROR,
+                    "不支援的市場: " + marketCodeValue);
+            StockMarketClient client = getClientByMarket(marketCode);
+
+            // 4. 呼叫第三方 API
+            List<Candle> candles = client.getCandles(instrument.getTicker(), interval, from, to);
+
+            // 5. 寫入快取（空結果也快取避免重複請求）
+            cacheService.setList(cacheKey, candles, properties.getCache().getCandlesTtl());
+            return candles;
+        });
+    }
+
+    private <T> T singleFlight(String key, Supplier<T> supplier) {
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        CompletableFuture<Object> existing = inflight.putIfAbsent(key, future);
+        if (existing == null) {
+            try {
+                T value = supplier.get();
+                future.complete(value);
+                return value;
+            } catch (Throwable ex) {
+                future.completeExceptionally(ex);
+                throw ex;
+            } finally {
+                inflight.remove(key, future);
+            }
+        }
+
+        try {
+            @SuppressWarnings("unchecked")
+            T value = (T) existing.join();
+            return value;
+        } catch (CompletionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new RuntimeException(cause);
+        }
+    }
+
     private StockMarketClient getClientByMarket(MarketCode marketCode) {
         StockMarketClient client = clientMap.get(marketCode);
         if (client == null) {

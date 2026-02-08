@@ -23,7 +23,7 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     private final AuthProperties properties;
 
     public OAuth2LoginSuccessHandler(UserService userService, AuthService authService,
-                                     AuthCookieService cookieService, AuthProperties properties) {
+            AuthCookieService cookieService, AuthProperties properties) {
         this.userService = userService;
         this.authService = authService;
         this.cookieService = cookieService;
@@ -32,18 +32,19 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
-                                        Authentication authentication) throws IOException, ServletException {
+            Authentication authentication) throws IOException, ServletException {
         OAuth2User oauth2User = (OAuth2User) authentication.getPrincipal();
         String sub = getAttribute(oauth2User, "sub");
         String email = getAttribute(oauth2User, "email");
         String name = getAttribute(oauth2User, "name");
+        String picture = getAttribute(oauth2User, "picture");
 
         if (sub == null || sub.isBlank() || email == null || email.isBlank()) {
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid OAuth2 profile");
             return;
         }
 
-        UserEntity user = userService.upsertGoogleUser(sub, email, name);
+        UserEntity user = userService.upsertGoogleUser(sub, email, name, picture);
         AuthService.AuthTokens tokens = authService.issueTokens(user);
 
         response.addHeader(HttpHeaders.SET_COOKIE,

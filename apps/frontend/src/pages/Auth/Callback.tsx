@@ -16,7 +16,7 @@ const AuthCallback: React.FC = () => {
       const error = searchParams.get('error');
       if (error) {
         console.error('Auth error:', error);
-        navigate('/login?error=' + error, { replace: true });
+        navigate('/auth/login?error=' + error, { replace: true });
         return;
       }
 
@@ -32,13 +32,13 @@ const AuthCallback: React.FC = () => {
   }, [checkAuth, navigate, searchParams]);
 
   return (
-    <div style={{ 
-      display: 'flex', 
+    <div style={{
+      display: 'flex',
       flexDirection: 'column',
-      justifyContent: 'center', 
-      alignItems: 'center', 
-      height: '100vh', 
-      background: '#f0f2f5' 
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      background: '#f0f2f5'
     }}>
       <Spin size="large" />
       <Text type="secondary" style={{ marginTop: 16 }}>Verifying authentication...</Text>

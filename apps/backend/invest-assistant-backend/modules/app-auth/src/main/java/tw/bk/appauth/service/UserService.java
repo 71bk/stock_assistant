@@ -15,12 +15,14 @@ public class UserService {
     }
 
     @Transactional
-    public UserEntity upsertGoogleUser(String googleSub, String email, String displayName) {
+    public UserEntity upsertGoogleUser(String googleSub, String email, String displayName, String pictureUrl) {
         Optional<UserEntity> existing = userRepository.findByGoogleSub(googleSub);
         UserEntity user = existing.orElseGet(UserEntity::new);
         user.setGoogleSub(googleSub);
         user.setEmail(email);
         user.setDisplayName(displayName);
+        user.setPictureUrl(pictureUrl);
+        user.setLastLoginAt(java.time.LocalDateTime.now());
         if (user.getStatus() == null) {
             user.setStatus("ACTIVE");
         }

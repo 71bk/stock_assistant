@@ -313,7 +313,7 @@ CREATE TABLE IF NOT EXISTS app.files (
   size_bytes    BIGINT NOT NULL CHECK (size_bytes >= 0),
   content_type  TEXT NOT NULL,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (sha256)
+  UNIQUE (user_id, sha256)  -- v1.1: per-user uniqueness (different users can upload same file)
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_user_created ON app.files(user_id, created_at DESC);
@@ -362,6 +362,15 @@ CREATE TABLE IF NOT EXISTS app.statement_trades (
   row_hash      CHAR(64) NOT NULL,
   errors_json   JSONB NOT NULL DEFAULT '[]'::jsonb,
   warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+  -- v2: OCR dual-path parsing columns
+  parsed_a_json   JSONB,                                   -- Text LLM parsed result
+  parsed_b_json   JSONB,                                   -- Vision LLM parsed result (optional)
+  final_json      JSONB,                                   -- Merged final draft
+  diff_json       JSONB,                                   -- A/B differences (field-level)
+  confidence_a    NUMERIC(3, 2),                           -- A-path confidence (0.00-1.00)
+  confidence_b    NUMERIC(3, 2),                           -- B-path confidence (0.00-1.00)
+  merge_rule_version TEXT,                                 -- Merge rule version for traceability
 
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (statement_id, row_hash)
@@ -670,6 +679,14 @@ COMMENT ON COLUMN app.statement_trades.net_amount IS '淨額';
 COMMENT ON COLUMN app.statement_trades.row_hash IS '列雜湊（去重）';
 COMMENT ON COLUMN app.statement_trades.errors_json IS '錯誤列表（JSONB）';
 COMMENT ON COLUMN app.statement_trades.warnings_json IS '警告列表（JSONB）';
+-- v2: OCR dual-path parsing columns
+COMMENT ON COLUMN app.statement_trades.parsed_a_json IS 'v2: Text LLM 解析結果';
+COMMENT ON COLUMN app.statement_trades.parsed_b_json IS 'v2: Vision LLM 解析結果（可選）';
+COMMENT ON COLUMN app.statement_trades.final_json IS 'v2: 融合後的最終草稿';
+COMMENT ON COLUMN app.statement_trades.diff_json IS 'v2: A/B 差異清單（欄位級別）';
+COMMENT ON COLUMN app.statement_trades.confidence_a IS 'v2: A 路徑信心分數（0.00-1.00）';
+COMMENT ON COLUMN app.statement_trades.confidence_b IS 'v2: B 路徑信心分數（0.00-1.00）';
+COMMENT ON COLUMN app.statement_trades.merge_rule_version IS 'v2: 融合規則版本（追溯用）';
 
 -- --- app.statement_holdings ---
 COMMENT ON TABLE app.statement_holdings IS '匯入庫存（對帳用）';

@@ -15,11 +15,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.error.ErrorCode;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.time.ClockProvider;
 import tw.bk.appportfolio.model.TradeCommand;
-import tw.bk.appportfolio.model.TradeSide;
+import tw.bk.appcommon.enums.TradeSide;
+import tw.bk.appportfolio.model.PortfolioSummary;
+import tw.bk.appportfolio.model.PositionWithQuote;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.entity.PortfolioEntity;
 import tw.bk.apppersistence.entity.StockTradeEntity;
@@ -36,7 +39,7 @@ public class PortfolioService {
     private static final int AVG_COST_SCALE = 8;
     private static final String DEFAULT_PORTFOLIO_NAME = "Main";
     private static final String DEFAULT_BASE_CURRENCY = "TWD";
-    private static final String SOURCE_MANUAL = "MANUAL";
+    private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
 
     private final PortfolioRepository portfolioRepository;
     private final StockTradeRepository tradeRepository;
@@ -45,10 +48,10 @@ public class PortfolioService {
     private final ClockProvider clockProvider;
 
     public PortfolioService(PortfolioRepository portfolioRepository,
-                            StockTradeRepository tradeRepository,
-                            UserPositionRepository positionRepository,
-                            InstrumentRepository instrumentRepository,
-                            ClockProvider clockProvider) {
+            StockTradeRepository tradeRepository,
+            UserPositionRepository positionRepository,
+            InstrumentRepository instrumentRepository,
+            ClockProvider clockProvider) {
         this.portfolioRepository = portfolioRepository;
         this.tradeRepository = tradeRepository;
         this.positionRepository = positionRepository;
@@ -60,7 +63,8 @@ public class PortfolioService {
         PortfolioEntity portfolio = new PortfolioEntity();
         portfolio.setUserId(userId);
         portfolio.setName(isBlank(name) ? DEFAULT_PORTFOLIO_NAME : name.trim());
-        portfolio.setBaseCurrency(isBlank(baseCurrency) ? DEFAULT_BASE_CURRENCY : baseCurrency.trim().toUpperCase(Locale.ROOT));
+        portfolio.setBaseCurrency(
+                isBlank(baseCurrency) ? DEFAULT_BASE_CURRENCY : baseCurrency.trim().toUpperCase(Locale.ROOT));
         return portfolioRepository.save(portfolio);
     }
 
@@ -73,20 +77,85 @@ public class PortfolioService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
     }
 
+    private PortfolioEntity lockPortfolio(Long userId, Long portfolioId) {
+        return portfolioRepository.findByIdAndUserIdForUpdate(portfolioId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
+    }
+
+    /**
+     * Calculate portfolio summary statistics with real-time quotes.
+     *
+     * @param userId        User ID
+     * @param portfolioId   Portfolio ID
+     * @param quoteProvider Quote provider for real-time prices
+     * @return PortfolioSummary with totalMarketValue, totalCost, totalPnl,
+     *         totalPnlPercent
+     */
+    public PortfolioSummary getPortfolioSummary(Long userId, Long portfolioId, QuoteProvider quoteProvider) {
+        getPortfolio(userId, portfolioId);
+        List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
+
+        if (positions.isEmpty()) {
+            return PortfolioSummary.empty();
+        }
+
+        BigDecimal totalCost = BigDecimal.ZERO;
+        BigDecimal totalMarketValue = BigDecimal.ZERO;
+
+        for (UserPositionEntity position : positions) {
+            BigDecimal quantity = position.getTotalQuantity();
+            BigDecimal avgCost = position.getAvgCostNative();
+
+            // Calculate cost for this position
+            BigDecimal positionCost = avgCost.multiply(quantity)
+                    .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+            totalCost = totalCost.add(positionCost);
+
+            // Get real-time price from quote provider, fallback to avgCost if unavailable
+            BigDecimal currentPrice = avgCost;
+            if (quoteProvider != null) {
+                InstrumentEntity instrument = instrumentRepository.findById(position.getInstrumentId()).orElse(null);
+                if (instrument != null && instrument.getSymbolKey() != null) {
+                    currentPrice = quoteProvider.getCurrentPrice(instrument.getSymbolKey())
+                            .orElse(avgCost);
+                }
+            }
+            BigDecimal positionMarketValue = currentPrice.multiply(quantity)
+                    .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+            totalMarketValue = totalMarketValue.add(positionMarketValue);
+        }
+
+        BigDecimal totalPnl = totalMarketValue.subtract(totalCost)
+                .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+
+        BigDecimal totalPnlPercent = BigDecimal.ZERO;
+        if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
+            totalPnlPercent = totalPnl
+                    .divide(totalCost, 4, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"))
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return new PortfolioSummary(totalMarketValue, totalCost, totalPnl, totalPnlPercent);
+    }
+
     public Page<StockTradeEntity> listTrades(Long userId,
-                                             Long portfolioId,
-                                             LocalDate from,
-                                             LocalDate to,
-                                             Pageable pageable) {
+            Long portfolioId,
+            LocalDate from,
+            LocalDate to,
+            Pageable pageable) {
         getPortfolio(userId, portfolioId);
         if (from != null && to != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateBetween(userId, portfolioId, from, to, pageable);
+            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateBetween(userId, portfolioId, from, to,
+                    pageable);
         }
         if (from != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateGreaterThanEqual(userId, portfolioId, from, pageable);
+            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateGreaterThanEqual(userId, portfolioId, from,
+                    pageable);
         }
         if (to != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateLessThanEqual(userId, portfolioId, to, pageable);
+            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateLessThanEqual(userId, portfolioId, to,
+                    pageable);
         }
         return tradeRepository.findByUserIdAndPortfolioId(userId, portfolioId, pageable);
     }
@@ -96,9 +165,74 @@ public class PortfolioService {
         return positionRepository.findByPortfolioId(portfolioId);
     }
 
+    /**
+     * 取得持倉列表（含報價與損益計算）
+     *
+     * @param userId        使用者 ID
+     * @param portfolioId   投資組合 ID
+     * @param quoteProvider 報價查詢函數
+     * @return 持倉資料列表（含市值與損益）
+     */
+    public List<PositionWithQuote> listPositionsWithQuotes(Long userId, Long portfolioId, QuoteProvider quoteProvider) {
+        getPortfolio(userId, portfolioId);
+        List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
+
+        return positions.stream()
+                .map(pos -> buildPositionWithQuote(pos, quoteProvider))
+                .toList();
+    }
+
+    private PositionWithQuote buildPositionWithQuote(UserPositionEntity pos, QuoteProvider quoteProvider) {
+        InstrumentEntity instrument = instrumentRepository.findById(pos.getInstrumentId()).orElse(null);
+
+        String ticker = instrument != null ? instrument.getTicker() : null;
+        String name = instrument != null ? instrument.getNameZh() : null;
+        String symbolKey = instrument != null ? instrument.getSymbolKey() : null;
+
+        BigDecimal quantity = pos.getTotalQuantity();
+        BigDecimal avgCost = pos.getAvgCostNative();
+
+        // 查詢報價
+        BigDecimal currentPrice = null;
+        if (symbolKey != null && quoteProvider != null) {
+            currentPrice = quoteProvider.getCurrentPrice(symbolKey).orElse(null);
+        }
+
+        // 計算損益
+        BigDecimal marketValue = null;
+        BigDecimal unrealizedPnl = null;
+        BigDecimal unrealizedPnlPercent = null;
+
+        if (currentPrice != null && quantity != null && avgCost != null) {
+            marketValue = currentPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal totalCost = avgCost.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
+            unrealizedPnl = marketValue.subtract(totalCost);
+
+            if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
+                unrealizedPnlPercent = unrealizedPnl
+                        .divide(totalCost, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+        }
+
+        return new PositionWithQuote(
+                pos.getPortfolioId(),
+                pos.getInstrumentId(),
+                ticker,
+                name,
+                quantity,
+                avgCost,
+                pos.getCurrency(),
+                currentPrice,
+                marketValue,
+                unrealizedPnl,
+                unrealizedPnlPercent);
+    }
+
     @Transactional
     public StockTradeEntity createTrade(Long userId, Long portfolioId, TradeCommand command) {
-        getPortfolio(userId, portfolioId);
+        lockPortfolio(userId, portfolioId);
         InstrumentEntity instrument = requireInstrument(command.instrumentId());
         validateCurrency(instrument, command.currency());
 
@@ -123,7 +257,7 @@ public class PortfolioService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Trade not found"));
 
         Long portfolioId = trade.getPortfolioId();
-        getPortfolio(userId, portfolioId);
+        lockPortfolio(userId, portfolioId);
 
         Long originalInstrumentId = trade.getInstrumentId();
         InstrumentEntity instrument = requireInstrument(command.instrumentId());
@@ -151,6 +285,7 @@ public class PortfolioService {
 
         Long portfolioId = trade.getPortfolioId();
         Long instrumentId = trade.getInstrumentId();
+        lockPortfolio(userId, portfolioId);
         tradeRepository.delete(trade);
         tradeRepository.flush();
         rebuildPosition(userId, portfolioId, instrumentId);
@@ -188,8 +323,8 @@ public class PortfolioService {
     }
 
     private void rebuildPosition(Long userId, Long portfolioId, Long instrumentId) {
-        List<StockTradeEntity> trades =
-                tradeRepository.findByUserIdAndPortfolioIdAndInstrumentIdOrderByTradeDateAscIdAsc(
+        List<StockTradeEntity> trades = tradeRepository
+                .findByUserIdAndPortfolioIdAndInstrumentIdOrderByTradeDateAscIdAsc(
                         userId, portfolioId, instrumentId);
         if (trades.isEmpty()) {
             positionRepository.deleteByPortfolioIdAndInstrumentId(portfolioId, instrumentId);

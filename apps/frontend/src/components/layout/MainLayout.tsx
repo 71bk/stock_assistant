@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Layout, Menu, Button, Dropdown, Avatar, theme, Breadcrumb } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -11,10 +11,12 @@ import {
   MenuFoldOutlined,
   UserOutlined,
   LogoutOutlined,
-  HomeOutlined
+  RobotOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
+import { FloatingAiAssistant } from '../ai/FloatingAiAssistant';
 
 const { Header, Sider, Content } = Layout;
 
@@ -35,13 +37,13 @@ export const MainLayout: React.FC = () => {
     items: [
       {
         key: 'settings',
-        label: 'Settings',
+        label: '設定',
         icon: <SettingOutlined />,
         onClick: () => navigate('/settings'),
       },
       {
         key: 'logout',
-        label: 'Logout',
+        label: '登出',
         icon: <LogoutOutlined />,
         onClick: () => logout(),
       },
@@ -49,17 +51,31 @@ export const MainLayout: React.FC = () => {
   };
 
   // Generate breadcrumb items based on path
-  const breadcrumbItems = location.pathname
-    .split('/')
-    .filter((i) => i)
-    .map((i) => ({ title: i.charAt(0).toUpperCase() + i.slice(1) }));
+  const breadcrumbItems = useMemo(() => {
+    const paths = location.pathname.split('/').filter(Boolean);
+    if (paths.length === 0) {
+      return [{ title: '總覽' }];
+    }
+    return paths.map((path) => {
+      const labelMap: Record<string, string> = {
+        dashboard: '總覽',
+        portfolio: '投資組合',
+        trades: '交易紀錄',
+        stocks: '股票行情',
+        import: '匯入交易',
+        chat: 'AI 助理',
+        'knowledge-base': '知識庫',
+        reports: '分析報告',
+        settings: '設定',
+      };
+      return { title: labelMap[path] || path.charAt(0).toUpperCase() + path.slice(1) };
+    });
+  }, [location.pathname]);
 
   // Determine selected key logic
   const getSelectedKey = () => {
-      // Default match
       const key = location.pathname;
-      if (key === '/') return '/'; 
-      // Handle sub-routes if necessary
+      if (key === '/' || key === '') return '/dashboard';
       return key;
   };
 
@@ -76,40 +92,50 @@ export const MainLayout: React.FC = () => {
           onClick={handleMenuClick}
           items={[
             {
-              key: '/',
-              icon: <HomeOutlined />,
-              label: 'Home',
-            },
-            {
               key: '/dashboard',
               icon: <PieChartOutlined />,
-              label: 'Dashboard',
+              label: '總覽',
             },
             {
               key: '/portfolio',
               icon: <RiseOutlined />,
-              label: 'Portfolio',
+              label: '投資組合',
+            },
+            {
+              key: '/trades',
+              icon: <FileTextOutlined />,
+              label: '交易紀錄',
             },
             {
               key: '/stocks',
               icon: <FileTextOutlined />,
-              label: 'Stocks',
+              label: '股票行情',
             },
             {
               key: '/import',
               icon: <UploadOutlined />,
-              label: 'Import',
+              label: '匯入交易',
             },
-            // {
-            //   key: '/reports',
-            //   icon: <FileTextOutlined />,
-            //   label: 'Reports',
-            // },
-            // {
-            //   key: '/settings',
-            //   icon: <SettingOutlined />,
-            //   label: 'Settings',
-            // },
+            {
+              key: '/chat',
+              icon: <RobotOutlined />,
+              label: 'AI 助理',
+            },
+            {
+              key: '/knowledge-base',
+              icon: <BookOutlined />,
+              label: '知識庫',
+            },
+            {
+              key: '/reports',
+              icon: <FileTextOutlined />,
+              label: '分析報告',
+            },
+            {
+              key: '/settings',
+              icon: <SettingOutlined />,
+              label: '設定',
+            },
           ]}
         />
       </Sider>
@@ -126,7 +152,7 @@ export const MainLayout: React.FC = () => {
                 height: 64,
               }}
             />
-            <Breadcrumb items={[{ title: 'App' }, ...breadcrumbItems]} style={{ marginLeft: 16 }} />
+            <Breadcrumb items={[{ title: '首頁' }, ...breadcrumbItems]} style={{ marginLeft: 16 }} />
           </div>
           <Dropdown menu={userMenu} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', borderRadius: 6, transition: 'background 0.3s' }} className="user-dropdown-trigger">
@@ -142,12 +168,16 @@ export const MainLayout: React.FC = () => {
             minHeight: 280,
             background: colorBgContainer,
             borderRadius: borderRadiusLG,
-            overflow: 'auto' 
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden', // Disable scroll on container, let pages handle it
+            position: 'relative' // Ensure absolute children are relative to content
           }}
         >
           <Outlet />
         </Content>
       </Layout>
+      <FloatingAiAssistant />
     </Layout>
   );
 };

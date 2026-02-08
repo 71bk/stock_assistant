@@ -12,20 +12,33 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "stock")
 public class StockMarketProperties {
 
-    private AlphaVantage alphaVantage = new AlphaVantage();
+    private Alpaca alpaca = new Alpaca();
     private Fugle fugle = new Fugle();
+    private Tpex tpex = new Tpex();
+    private Twse twse = new Twse();
     private Cache cache = new Cache();
 
     @Data
-    public static class AlphaVantage {
-        private String apiKey;
-        private String baseUrl = "https://www.alphavantage.co/query";
+    public static class Alpaca {
+        private String keyId;
+        private String secretKey;
+        private String baseUrl = "https://data.alpaca.markets";
     }
 
     @Data
     public static class Fugle {
         private String apiKey;
-        private String baseUrl = "https://api.fugle.tw/realtime/v0.3";
+        private String baseUrl = "https://api.fugle.tw/marketdata/v1.0/stock/";
+    }
+
+    @Data
+    public static class Tpex {
+        private String baseUrl = "https://www.tpex.org.tw/openapi/v1";
+    }
+
+    @Data
+    public static class Twse {
+        private String isinUrl = "https://isin.twse.com.tw/isin/class_main.jsp?issuetype=4&market=2";
     }
 
     @Data
