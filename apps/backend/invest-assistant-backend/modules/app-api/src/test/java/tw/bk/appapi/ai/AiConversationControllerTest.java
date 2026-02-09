@@ -2,7 +2,9 @@ package tw.bk.appapi.ai;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,7 +61,7 @@ class AiConversationControllerTest {
         ReflectionTestUtils.setField(controller, "instrumentSearchEnabled", true);
         ReflectionTestUtils.setField(controller, "instrumentSearchLimit", 10);
         ReflectionTestUtils.setField(controller, "quoteSearchEnabled", true);
-        ReflectionTestUtils.setField(controller, "quoteSearchKeywords", "價格,股價,多少,現價,收盤,漲跌,報價,quote,price");
+        ReflectionTestUtils.setField(controller, "quoteSearchKeywordsEn", "quote,price");
         ReflectionTestUtils.setField(controller, "pronounLookbackLimit", 5);
     }
 
@@ -85,6 +87,7 @@ class AiConversationControllerTest {
         assertTrue(context.contains("TW:XTAI:2330"));
         assertTrue(context.contains("quote:"));
         assertTrue(context.contains("price: 1000"));
+        assertTrue(context.contains("tool_quote_available: true"));
         verify(conversationService, never()).getRecentMessages(1L, 2L, 7);
     }
 
@@ -116,10 +119,69 @@ class AiConversationControllerTest {
 
         assertNotNull(context);
         assertTrue(context.contains("TW:XTAI:2330"));
+        assertTrue(context.contains("tool_quote_available: true"));
         assertEquals(
                 "TW:XTAI:2330",
                 cacheManager.getCache("conversationLastMentioned").get("1:2", String.class));
         verify(conversationService).getRecentMessages(1L, 2L, 7);
+    }
+
+    @Test
+    void buildInstrumentContext_shouldUseCacheOnQuoteIntentWithoutPronoun() {
+        InstrumentCandidate candidate = candidate("TW:XTAI:2330");
+        QuoteCandidate quote = quote("TW:XTAI:2330");
+        cacheManager.getCache("conversationLastMentioned").put("1:2", "TW:XTAI:2330");
+
+        when(instrumentToolService.searchCandidates("現在價格多少", 10)).thenReturn(List.of());
+        when(instrumentToolService.searchCandidates("TW:XTAI:2330", 1)).thenReturn(List.of(candidate));
+        when(quoteToolService.getQuote("TW:XTAI:2330")).thenReturn(quote);
+
+        String context = ReflectionTestUtils.invokeMethod(
+                controller,
+                "buildInstrumentContext",
+                1L,
+                2L,
+                3L,
+                "現在價格多少");
+
+        assertNotNull(context);
+        assertTrue(context.contains("TW:XTAI:2330"));
+        assertTrue(context.contains("quote:"));
+        assertTrue(context.contains("tool_quote_available: true"));
+        verify(conversationService, never()).getRecentMessages(1L, 2L, 7);
+    }
+
+    @Test
+    void buildInstrumentContext_shouldExposeQuoteUnavailableSignalOnToolFailure() {
+        InstrumentCandidate candidate = candidate("TW:XTAI:2330");
+        when(instrumentToolService.searchCandidates("台積電現在價格多少", 10)).thenReturn(List.of(candidate));
+        doThrow(new RuntimeException("vendor timeout")).when(quoteToolService).getQuote("TW:XTAI:2330");
+
+        String context = ReflectionTestUtils.invokeMethod(
+                controller,
+                "buildInstrumentContext",
+                1L,
+                2L,
+                3L,
+                "台積電現在價格多少");
+
+        assertNotNull(context);
+        assertTrue(context.contains("TW:XTAI:2330"));
+        assertTrue(context.contains("tool_quote_available: false"));
+        assertTrue(context.contains("tool_quote_error: vendor timeout"));
+    }
+
+    @Test
+    void buildDirectQuoteReply_shouldReturnNullWhenDirectReplyDisabled() {
+        String reply = ReflectionTestUtils.invokeMethod(
+                controller,
+                "buildDirectQuoteReply",
+                1L,
+                2L,
+                3L,
+                "標價多少");
+
+        assertNull(reply);
     }
 
     private InstrumentCandidate candidate(String symbolKey) {

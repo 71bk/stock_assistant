@@ -1,13 +1,14 @@
 import { create } from 'zustand';
 import { message, notification } from 'antd';
 import { portfoliosApi } from '../api/portfolios.api';
-import type { Position, PortfolioSummary, Trade } from '../api/portfolios.api';
+import type { Position, PortfolioSummary, Trade, PortfolioValuation } from '../api/portfolios.api';
 
 interface PortfolioState {
   summary: PortfolioSummary | null;
   currentPortfolioId: string | null;
   positions: Position[];
   recentTrades: Trade[];
+  valuations: PortfolioValuation[];
   trades: Trade[];
   tradesTotal: number;
   isLoading: boolean;
@@ -15,6 +16,7 @@ interface PortfolioState {
 
   initPortfolioId: () => Promise<string | null>;
   fetchPortfolioData: (portfolioId?: string) => Promise<void>;
+  fetchPortfolioValuations: (portfolioId?: string, from?: string, to?: string) => Promise<void>;
   fetchPortfolioSummary: (portfolioId?: string) => Promise<void>;
   fetchRecentTrades: (portfolioId?: string) => Promise<void>;
   fetchTrades: (portfolioId?: string, page?: number, size?: number) => Promise<void>;
@@ -28,6 +30,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   currentPortfolioId: null,
   positions: [],
   recentTrades: [],
+  valuations: [],
   trades: [],
   tradesTotal: 0,
   isLoading: false,
@@ -132,6 +135,20 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       });
     } catch (err) {
       console.error('Failed to fetch recent trades', err);
+    }
+  },
+
+  fetchPortfolioValuations: async (portfolioId?: string, from?: string, to?: string) => {
+    const pid = portfolioId || await get().initPortfolioId();
+    if (!pid) return;
+
+    try {
+      const res = await portfoliosApi.getValuations(pid, from, to);
+      set({
+        valuations: res,
+      });
+    } catch (err) {
+      console.error('Failed to fetch valuations', err);
     }
   },
 

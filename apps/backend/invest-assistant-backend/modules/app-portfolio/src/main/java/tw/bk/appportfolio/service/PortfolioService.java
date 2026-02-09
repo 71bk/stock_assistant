@@ -19,16 +19,21 @@ import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.time.ClockProvider;
-import tw.bk.appportfolio.model.TradeCommand;
 import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appportfolio.model.PortfolioSummary;
+import tw.bk.appportfolio.model.PortfolioValuationView;
+import tw.bk.appportfolio.model.PortfolioView;
 import tw.bk.appportfolio.model.PositionWithQuote;
+import tw.bk.appportfolio.model.TradeCommand;
+import tw.bk.appportfolio.model.TradeView;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.entity.PortfolioEntity;
+import tw.bk.apppersistence.entity.PortfolioValuationEntity;
 import tw.bk.apppersistence.entity.StockTradeEntity;
 import tw.bk.apppersistence.entity.UserPositionEntity;
 import tw.bk.apppersistence.repository.InstrumentRepository;
 import tw.bk.apppersistence.repository.PortfolioRepository;
+import tw.bk.apppersistence.repository.PortfolioValuationRepository;
 import tw.bk.apppersistence.repository.StockTradeRepository;
 import tw.bk.apppersistence.repository.UserPositionRepository;
 
@@ -42,39 +47,67 @@ public class PortfolioService {
     private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
 
     private final PortfolioRepository portfolioRepository;
+    private final PortfolioValuationRepository portfolioValuationRepository;
     private final StockTradeRepository tradeRepository;
     private final UserPositionRepository positionRepository;
     private final InstrumentRepository instrumentRepository;
     private final ClockProvider clockProvider;
 
     public PortfolioService(PortfolioRepository portfolioRepository,
+            PortfolioValuationRepository portfolioValuationRepository,
             StockTradeRepository tradeRepository,
             UserPositionRepository positionRepository,
             InstrumentRepository instrumentRepository,
             ClockProvider clockProvider) {
         this.portfolioRepository = portfolioRepository;
+        this.portfolioValuationRepository = portfolioValuationRepository;
         this.tradeRepository = tradeRepository;
         this.positionRepository = positionRepository;
         this.instrumentRepository = instrumentRepository;
         this.clockProvider = clockProvider;
     }
 
-    public PortfolioEntity createPortfolio(Long userId, String name, String baseCurrency) {
+    public PortfolioView createPortfolio(Long userId, String name, String baseCurrency) {
         PortfolioEntity portfolio = new PortfolioEntity();
         portfolio.setUserId(userId);
         portfolio.setName(isBlank(name) ? DEFAULT_PORTFOLIO_NAME : name.trim());
         portfolio.setBaseCurrency(
                 isBlank(baseCurrency) ? DEFAULT_BASE_CURRENCY : baseCurrency.trim().toUpperCase(Locale.ROOT));
-        return portfolioRepository.save(portfolio);
+        return toPortfolioView(portfolioRepository.save(portfolio));
     }
 
-    public List<PortfolioEntity> listPortfolios(Long userId) {
-        return portfolioRepository.findByUserId(userId);
+    public List<PortfolioView> listPortfolios(Long userId) {
+        return portfolioRepository.findByUserId(userId).stream()
+                .map(this::toPortfolioView)
+                .toList();
     }
 
-    public PortfolioEntity getPortfolio(Long userId, Long portfolioId) {
+    public PortfolioView getPortfolio(Long userId, Long portfolioId) {
+        return toPortfolioView(requirePortfolioEntity(userId, portfolioId));
+    }
+
+    private PortfolioEntity requirePortfolioEntity(Long userId, Long portfolioId) {
         return portfolioRepository.findByIdAndUserId(portfolioId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PortfolioValuationView> listValuations(Long userId, Long portfolioId, LocalDate from, LocalDate to) {
+        requirePortfolioEntity(userId, portfolioId);
+
+        LocalDate safeTo = to != null ? to : clockProvider.nowUtc().toLocalDate();
+        LocalDate safeFrom = from != null ? from : safeTo.minusDays(30);
+        if (safeFrom.isAfter(safeTo)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "from must be <= to");
+        }
+
+        return portfolioValuationRepository.findByPortfolioIdAndAsOfDateBetweenOrderByAsOfDateAsc(
+                portfolioId,
+                safeFrom,
+                safeTo)
+                .stream()
+                .map(this::toPortfolioValuationView)
+                .toList();
     }
 
     private PortfolioEntity lockPortfolio(Long userId, Long portfolioId) {
@@ -92,7 +125,7 @@ public class PortfolioService {
      *         totalPnlPercent
      */
     public PortfolioSummary getPortfolioSummary(Long userId, Long portfolioId, QuoteProvider quoteProvider) {
-        getPortfolio(userId, portfolioId);
+        requirePortfolioEntity(userId, portfolioId);
         List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
 
         if (positions.isEmpty()) {
@@ -139,29 +172,34 @@ public class PortfolioService {
         return new PortfolioSummary(totalMarketValue, totalCost, totalPnl, totalPnlPercent);
     }
 
-    public Page<StockTradeEntity> listTrades(Long userId,
+    public Page<TradeView> listTrades(Long userId,
             Long portfolioId,
             LocalDate from,
             LocalDate to,
             Pageable pageable) {
-        getPortfolio(userId, portfolioId);
+        requirePortfolioEntity(userId, portfolioId);
+        Page<StockTradeEntity> trades;
         if (from != null && to != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateBetween(userId, portfolioId, from, to,
+            trades = tradeRepository.findByUserIdAndPortfolioIdAndTradeDateBetween(userId, portfolioId, from, to,
                     pageable);
+            return trades.map(this::toTradeView);
         }
         if (from != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateGreaterThanEqual(userId, portfolioId, from,
+            trades = tradeRepository.findByUserIdAndPortfolioIdAndTradeDateGreaterThanEqual(userId, portfolioId, from,
                     pageable);
+            return trades.map(this::toTradeView);
         }
         if (to != null) {
-            return tradeRepository.findByUserIdAndPortfolioIdAndTradeDateLessThanEqual(userId, portfolioId, to,
+            trades = tradeRepository.findByUserIdAndPortfolioIdAndTradeDateLessThanEqual(userId, portfolioId, to,
                     pageable);
+            return trades.map(this::toTradeView);
         }
-        return tradeRepository.findByUserIdAndPortfolioId(userId, portfolioId, pageable);
+        trades = tradeRepository.findByUserIdAndPortfolioId(userId, portfolioId, pageable);
+        return trades.map(this::toTradeView);
     }
 
     public List<UserPositionEntity> listPositions(Long userId, Long portfolioId) {
-        getPortfolio(userId, portfolioId);
+        requirePortfolioEntity(userId, portfolioId);
         return positionRepository.findByPortfolioId(portfolioId);
     }
 
@@ -174,7 +212,7 @@ public class PortfolioService {
      * @return 持倉資料列表（含市值與損益）
      */
     public List<PositionWithQuote> listPositionsWithQuotes(Long userId, Long portfolioId, QuoteProvider quoteProvider) {
-        getPortfolio(userId, portfolioId);
+        requirePortfolioEntity(userId, portfolioId);
         List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
 
         return positions.stream()
@@ -231,7 +269,7 @@ public class PortfolioService {
     }
 
     @Transactional
-    public StockTradeEntity createTrade(Long userId, Long portfolioId, TradeCommand command) {
+    public TradeView createTrade(Long userId, Long portfolioId, TradeCommand command) {
         lockPortfolio(userId, portfolioId);
         InstrumentEntity instrument = requireInstrument(command.instrumentId());
         validateCurrency(instrument, command.currency());
@@ -248,11 +286,11 @@ public class PortfolioService {
         }
 
         rebuildPosition(userId, portfolioId, command.instrumentId());
-        return trade;
+        return toTradeView(trade);
     }
 
     @Transactional
-    public StockTradeEntity updateTrade(Long userId, Long tradeId, TradeCommand command) {
+    public TradeView updateTrade(Long userId, Long tradeId, TradeCommand command) {
         StockTradeEntity trade = tradeRepository.findByIdAndUserId(tradeId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Trade not found"));
 
@@ -275,7 +313,7 @@ public class PortfolioService {
             rebuildPosition(userId, portfolioId, originalInstrumentId);
         }
         rebuildPosition(userId, portfolioId, command.instrumentId());
-        return trade;
+        return toTradeView(trade);
     }
 
     @Transactional
@@ -451,6 +489,40 @@ public class PortfolioService {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
+    }
+
+    private PortfolioView toPortfolioView(PortfolioEntity entity) {
+        return new PortfolioView(
+                entity.getId(),
+                entity.getName(),
+                entity.getBaseCurrency());
+    }
+
+    private PortfolioValuationView toPortfolioValuationView(PortfolioValuationEntity entity) {
+        return new PortfolioValuationView(
+                entity.getAsOfDate(),
+                entity.getTotalValue(),
+                entity.getCashValue(),
+                entity.getPositionsValue(),
+                entity.getBaseCurrency());
+    }
+
+    private TradeView toTradeView(StockTradeEntity entity) {
+        return new TradeView(
+                entity.getId(),
+                entity.getInstrumentId(),
+                entity.getTradeDate(),
+                entity.getSettlementDate(),
+                entity.getSideEnum(),
+                entity.getQuantity(),
+                entity.getPrice(),
+                entity.getCurrency(),
+                entity.getGrossAmount(),
+                entity.getFee(),
+                entity.getTax(),
+                entity.getNetAmount(),
+                entity.getSourceEnum(),
+                entity.getAccountId());
     }
 
     private boolean isBlank(String value) {

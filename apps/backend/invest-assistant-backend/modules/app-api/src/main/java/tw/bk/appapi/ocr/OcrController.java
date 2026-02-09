@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.ocr.dto.ConfirmOcrRequest;
@@ -32,9 +33,9 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
 import tw.bk.appocr.model.OcrDraftUpdate;
+import tw.bk.appocr.model.OcrDraftView;
+import tw.bk.appocr.model.OcrJobView;
 import tw.bk.appocr.service.OcrService;
-import tw.bk.apppersistence.entity.OcrJobEntity;
-import tw.bk.apppersistence.entity.StatementTradeEntity;
 
 @Slf4j
 @RestController
@@ -53,15 +54,14 @@ public class OcrController {
     @PostMapping("/jobs")
     @Operation(summary = "Create OCR job")
     public Result<OcrJobResponse> createJob(@Valid @RequestBody CreateOcrJobRequest request) {
-        log.info("接收到建立 OCR Job 請求: fileId={}, portfolioId={}, force={}",
+        log.info("Create OCR job: fileId={}, portfolioId={}, force={}",
                 request.getFileId(), request.getPortfolioId(), request.getForce());
         Long userId = requireUserId();
-        log.info("OCR Job userId={}", userId);
         Long fileId = parseId(request.getFileId());
         Long portfolioId = parseId(request.getPortfolioId());
         boolean force = Boolean.TRUE.equals(request.getForce());
-        OcrJobEntity job = ocrService.createJob(userId, fileId, portfolioId, force);
-        log.info("OCR Job 建立成功: jobId={}, status={}", job.getId(), job.getStatus());
+        OcrJobView job = ocrService.createJob(userId, fileId, portfolioId, force);
+        log.info("Created OCR job: jobId={}, status={}", job.id(), job.status());
         return Result.ok(OcrJobResponse.from(job));
     }
 
@@ -69,7 +69,7 @@ public class OcrController {
     @Operation(summary = "Get OCR job status")
     public Result<OcrJobResponse> getJob(@PathVariable String jobId) {
         Long userId = requireUserId();
-        OcrJobEntity job = ocrService.getJob(userId, parseId(jobId));
+        OcrJobView job = ocrService.getJob(userId, parseId(jobId));
         return Result.ok(OcrJobResponse.from(job));
     }
 
@@ -77,20 +77,20 @@ public class OcrController {
     @Operation(summary = "Get draft trades by job")
     public Result<OcrDraftListResponse> getDrafts(@PathVariable String jobId) {
         Long userId = requireUserId();
-        List<StatementTradeEntity> drafts = ocrService.getDrafts(userId, parseId(jobId));
+        List<OcrDraftView> drafts = ocrService.getDrafts(userId, parseId(jobId));
         List<OcrDraftResponse> items = drafts.stream()
                 .map(draft -> OcrDraftResponse.from(
                         draft,
-                        parseList(draft.getWarningsJson()),
-                        parseList(draft.getErrorsJson())))
+                        parseList(draft.warningsJson()),
+                        parseList(draft.errorsJson())))
                 .toList();
         return Result.ok(OcrDraftListResponse.builder().items(items).build());
     }
 
-    @RequestMapping(value = "/drafts/{draftId}", method = { org.springframework.web.bind.annotation.RequestMethod.PUT,
-            org.springframework.web.bind.annotation.RequestMethod.PATCH })
+    @RequestMapping(value = "/drafts/{draftId}", method = { RequestMethod.PUT, RequestMethod.PATCH })
     @Operation(summary = "Update draft trade")
-    public Result<OcrDraftResponse> updateDraft(@PathVariable String draftId,
+    public Result<OcrDraftResponse> updateDraft(
+            @PathVariable String draftId,
             @RequestBody UpdateOcrDraftRequest request) {
         Long userId = requireUserId();
         OcrDraftUpdate update = new OcrDraftUpdate(
@@ -106,15 +106,15 @@ public class OcrController {
                 parseDecimalOrNull(request.getFee()),
                 parseDecimalOrNull(request.getTax()));
 
-        StatementTradeEntity updated = ocrService.updateDraft(userId, parseId(draftId), update);
+        OcrDraftView updated = ocrService.updateDraft(userId, parseId(draftId), update);
         return Result.ok(OcrDraftResponse.from(
                 updated,
-                parseList(updated.getWarningsJson()),
-                parseList(updated.getErrorsJson())));
+                parseList(updated.warningsJson()),
+                parseList(updated.errorsJson())));
     }
 
     @PostMapping("/jobs/{jobId}/confirm")
-    @Operation(summary = "Confirm OCR import", description = "Import selected drafts. If draftIds is null/empty, imports all drafts.")
+    @Operation(summary = "Confirm OCR import", description = "Import selected drafts. If draftIds is null or empty, imports all drafts.")
     public Result<OcrConfirmResponse> confirm(
             @PathVariable String jobId,
             @RequestBody(required = false) ConfirmOcrRequest request) {
@@ -128,7 +128,6 @@ public class OcrController {
         }
         var result = ocrService.confirm(userId, parseId(jobId), selectedIds);
 
-        // Convert ConfirmResult to OcrConfirmResponse
         List<DraftError> errors = result.getErrors() != null
                 ? result.getErrors().stream()
                         .map(e -> DraftError.builder()
@@ -144,7 +143,17 @@ public class OcrController {
                 .build());
     }
 
-    
+    @PostMapping("/jobs/{jobId}/retry")
+    @Operation(summary = "Retry OCR job")
+    public Result<OcrJobResponse> retry(
+            @PathVariable String jobId,
+            @RequestParam(required = false) Boolean force) {
+        Long userId = requireUserId();
+        boolean isForce = Boolean.TRUE.equals(force);
+        OcrJobView job = ocrService.retryJob(userId, parseId(jobId), isForce);
+        return Result.ok(OcrJobResponse.from(job));
+    }
+
     @PostMapping("/jobs/{jobId}/reparse")
     @Operation(summary = "Reparse OCR job")
     public Result<OcrJobResponse> reparse(
@@ -152,7 +161,7 @@ public class OcrController {
             @RequestParam(required = false) Boolean force) {
         Long userId = requireUserId();
         boolean isForce = Boolean.TRUE.equals(force);
-        OcrJobEntity job = ocrService.reparse(userId, parseId(jobId), isForce);
+        OcrJobView job = ocrService.reparse(userId, parseId(jobId), isForce);
         return Result.ok(OcrJobResponse.from(job));
     }
 
@@ -163,11 +172,11 @@ public class OcrController {
             @RequestParam(required = false) Boolean force) {
         Long userId = requireUserId();
         boolean isForce = Boolean.TRUE.equals(force);
-        OcrJobEntity job = ocrService.cancel(userId, parseId(jobId), isForce);
+        OcrJobView job = ocrService.cancel(userId, parseId(jobId), isForce);
         return Result.ok(OcrJobResponse.from(job));
     }
 
-@DeleteMapping("/drafts/{draftId}")
+    @DeleteMapping("/drafts/{draftId}")
     @Operation(summary = "Delete draft trade")
     public Result<Void> deleteDraft(@PathVariable String draftId) {
         Long userId = requireUserId();

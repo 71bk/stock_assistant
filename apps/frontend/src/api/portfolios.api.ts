@@ -44,6 +44,14 @@ export interface PortfolioSummary {
   totalPnlPercent: number;
 }
 
+export interface PortfolioValuation {
+  date: string;
+  totalValue: number;
+  cashValue: number;
+  positionsValue: number;
+  currency: string;
+}
+
 export interface CreateTradeRequest {
   instrumentId: string;
   tradeDate: string;
@@ -82,4 +90,7 @@ export const portfoliosApi = {
 
   deleteTrade: (tradeId: string) =>
     http.delete<void>(`/trades/${tradeId}`),
+
+  getValuations: (portfolioId: string, from?: string, to?: string) =>
+    http.get<PortfolioValuation[]>(`/portfolios/${portfolioId}/valuations`, { params: { from, to } }),
 };

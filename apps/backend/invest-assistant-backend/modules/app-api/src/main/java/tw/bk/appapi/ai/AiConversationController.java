@@ -56,7 +56,8 @@ public class AiConversationController {
     private static final Pattern URL_SYMBOL_KEY_PATTERN = Pattern
             .compile("(?i)(?:symbolKey|symbol_key)=([A-Za-z]{2}:[A-Za-z0-9]{4}:[A-Za-z0-9.\\-]{1,16})");
     private static final List<String> PRONOUN_MARKERS = List.of(
-            "這隻", "這檔", "這支", "那隻", "那檔", "那支", "它", "該股");
+            "這隻", "這檔", "這支", "那隻", "那檔", "那支", "它", "該股",
+            "他", "她", "這個", "那個");
 
     private final AiConversationService conversationService;
     private final GroqChatClient groqChatClient;
@@ -75,8 +76,11 @@ public class AiConversationController {
     @org.springframework.beans.factory.annotation.Value("${app.ai.chat.quote-search.enabled:true}")
     private boolean quoteSearchEnabled;
 
-    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.quote-search.keywords:價格,股價,多少,現價,收盤,漲跌,報價,quote,price}")
-    private String quoteSearchKeywords;
+    // Chinese keywords defined in code to avoid properties encoding issues
+    private static final String QUOTE_KEYWORDS_CHINESE = "價格,股價,多少,現價,收盤,漲跌,報價,最新,標價";
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.quote-search.keywords-en:quote,price}")
+    private String quoteSearchKeywordsEn;
 
     @org.springframework.beans.factory.annotation.Value("${app.ai.chat.pronoun-lookback.limit:5}")
     private int pronounLookbackLimit;
@@ -155,6 +159,15 @@ public class AiConversationController {
                 ConversationMessageEntity userMessage = conversationService.appendUserMessage(
                         userId, id, content, clientMessageId);
                 sendMeta(emitter, requestId, id, userMessage.getId());
+
+                String directQuoteReply = buildDirectQuoteReply(userId, id, userMessage.getId(), content);
+                if (directQuoteReply != null) {
+                    sendDelta(emitter, directQuoteReply);
+                    ConversationMessageEntity assistant = conversationService.appendAssistantMessage(
+                            userId, id, directQuoteReply, ConversationMessageStatus.COMPLETED);
+                    sendDone(emitter, assistant.getId());
+                    return;
+                }
 
                 String toolContext = buildInstrumentContext(userId, id, userMessage.getId(), content);
                 List<Map<String, String>> messages = toolContext == null
@@ -255,9 +268,18 @@ public class AiConversationController {
             return null;
         }
         int limit = Math.min(Math.max(instrumentSearchLimit, 1), 20);
+        boolean pronounQuery = containsPronoun(content);
+        boolean fetchQuote = shouldFetchQuote(content);
+        boolean quoteIntent = quoteSearchEnabled && fetchQuote;
+        log.info("Quote intent debug: quoteSearchEnabled={}, shouldFetchQuote={}",
+                quoteSearchEnabled, fetchQuote);
         List<InstrumentCandidate> candidates = resolveCandidates(content, limit);
-        if ((candidates == null || candidates.isEmpty()) && containsPronoun(content)) {
+        if ((candidates == null || candidates.isEmpty()) && pronounQuery) {
             candidates = resolveCandidatesFromConversation(userId, conversationId, currentUserMessageId, limit);
+        } else if ((candidates == null || candidates.isEmpty()) && quoteIntent) {
+            // For quote-intent follow-up questions without pronouns, only try
+            // last-mentioned cache.
+            candidates = loadLastMentionedSymbolKey(userId, conversationId);
         }
         if (candidates == null || candidates.isEmpty()) {
             return null;
@@ -286,20 +308,65 @@ public class AiConversationController {
             sb.append('\n');
         }
 
-        if (quoteSearchEnabled && shouldFetchQuote(content)) {
+        if (quoteIntent) {
             InstrumentCandidate first = candidates.get(0);
             QuoteCandidate quote = null;
+            String quoteError = null;
             try {
                 quote = quoteToolService.getQuote(first.symbolKey());
             } catch (Exception ex) {
+                quoteError = ex.getMessage();
                 log.warn("Quote tool failed: symbolKey={}, reason={}", first.symbolKey(), ex.getMessage());
             }
             if (quote != null) {
                 sb.append("quote:\n");
                 appendQuote(sb, quote);
+                sb.append("tool_quote_available: true\n");
+            } else {
+                sb.append("tool_quote_available: false\n");
+                if (quoteError == null || quoteError.isBlank()) {
+                    quoteError = "QUOTE_NOT_AVAILABLE";
+                }
+                sb.append("tool_quote_error: ").append(sanitizeToolValue(quoteError)).append('\n');
             }
         }
         return sb.toString().trim();
+    }
+
+    private String buildDirectQuoteReply(Long userId, Long conversationId, Long currentUserMessageId, String content) {
+        // Disabled: All responses go through LLM for a more natural conversational
+        // experience.
+        // The quote data is provided via buildInstrumentContext() as tool context.
+        return null;
+    }
+
+    private String formatDirectQuoteReply(InstrumentCandidate candidate, QuoteCandidate quote) {
+        String display = candidate != null && candidate.name() != null && !candidate.name().isBlank()
+                ? candidate.name().trim()
+                : (candidate != null && candidate.ticker() != null && !candidate.ticker().isBlank()
+                        ? candidate.ticker().trim()
+                        : quote.symbolKey());
+        String ticker = candidate != null ? candidate.ticker() : quote.ticker();
+        StringBuilder sb = new StringBuilder();
+        sb.append(display);
+        if (ticker != null && !ticker.isBlank()) {
+            sb.append("（").append(ticker.trim()).append("）");
+        }
+        sb.append(" 最新價 ").append(quote.price());
+        if ((quote.change() != null && !quote.change().isBlank())
+                || (quote.changePercent() != null && !quote.changePercent().isBlank())) {
+            sb.append("，漲跌 ");
+            if (quote.change() != null && !quote.change().isBlank()) {
+                sb.append(quote.change());
+            }
+            if (quote.changePercent() != null && !quote.changePercent().isBlank()) {
+                sb.append(" (").append(quote.changePercent()).append("%)");
+            }
+        }
+        if (quote.timestamp() != null) {
+            sb.append("，時間 ").append(quote.timestamp());
+        }
+        return sb.toString();
     }
 
     private List<InstrumentCandidate> resolveCandidates(String content, int limit) {
@@ -323,7 +390,8 @@ public class AiConversationController {
         }
 
         int lookback = Math.min(Math.max(pronounLookbackLimit, 1), 10);
-        List<ConversationMessageEntity> recentMessages = conversationService.getRecentMessages(userId, conversationId, lookback + 2);
+        List<ConversationMessageEntity> recentMessages = conversationService.getRecentMessages(userId, conversationId,
+                lookback + 2);
         for (int i = recentMessages.size() - 1; i >= 0; i--) {
             ConversationMessageEntity message = recentMessages.get(i);
             if (message == null) {
@@ -407,6 +475,13 @@ public class AiConversationController {
         return userId + ":" + conversationId;
     }
 
+    private String sanitizeToolValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace('\n', ' ').replace('\r', ' ').trim();
+    }
+
     private void appendQuote(StringBuilder sb, QuoteCandidate quote) {
         sb.append("- symbol_key: ").append(quote.symbolKey()).append('\n');
         if (quote.ticker() != null) {
@@ -446,7 +521,9 @@ public class AiConversationController {
             return false;
         }
         String lowered = content.toLowerCase();
-        String[] keywords = quoteSearchKeywords.split(",");
+        // Combine Chinese keywords (from code) and English keywords (from properties)
+        String allKeywords = QUOTE_KEYWORDS_CHINESE + "," + quoteSearchKeywordsEn;
+        String[] keywords = allKeywords.split(",");
         for (String keyword : keywords) {
             String trimmed = keyword.trim().toLowerCase();
             if (trimmed.isEmpty()) {

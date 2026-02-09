@@ -8,8 +8,15 @@ interface LoadingProps {
 /**
  * 加載中指示器
  */
+import { Typography, Space } from "antd";
+
 export function Loading({ tip = "加載中...", fullscreen = false }: LoadingProps) {
-  const content = <Spin tip={tip} size="large" />;
+  const content = (
+    <Space direction="vertical" align="center">
+      <Spin size="large" />
+      <Typography.Text type="secondary">{tip}</Typography.Text>
+    </Space>
+  );
 
   if (fullscreen) {
     return (

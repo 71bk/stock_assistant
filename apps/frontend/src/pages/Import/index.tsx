@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Steps, Card, Upload, Typography, Button, Progress, Table,
   Tag, Tooltip, Space, Popconfirm, InputNumber, DatePicker, Select,
-  Alert, Result, message, Input
+  Alert, Result, message, Input, Row, Col, Image, Empty, Spin
 } from 'antd';
 import {
   InboxOutlined, CheckCircleOutlined,
   ExclamationCircleOutlined, DeleteOutlined, SaveOutlined,
-  ReloadOutlined, UploadOutlined, ImportOutlined
+  ReloadOutlined, UploadOutlined, ImportOutlined, FileImageOutlined
 } from '@ant-design/icons';
 import { useImportFlow } from '../../hooks/useImportFlow';
+import { filesApi } from '../../api/files.api';
 import type { DraftTrade } from '../../api/ocr.api';
 import type { GetProp, UploadProps } from 'antd';
 import dayjs from 'dayjs';
@@ -103,8 +104,34 @@ return (
 
 // --- Step 2: Review ---
 const ReviewStep: React.FC = () => {
-  const { draftTrades, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob, isLoading, currentStep } = useImportFlow();
-  
+  const { draftTrades, fileId, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob, isLoading, currentStep } = useImportFlow();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
+
+  useEffect(() => {
+    const fetchPreview = async () => {
+      if (!fileId) return;
+      setLoadingPreview(true);
+      try {
+        const res = await filesApi.getDownloadUrl(fileId);
+        if (res?.url) {
+          setPreviewUrl(res.url);
+          // Simple heuristic for file type based on URL or generic assumption
+          // If we had contentType from fileId metadata, that would be better.
+          // For now, assume image unless URL ends in pdf
+          const isPdf = res.url.toLowerCase().includes('.pdf') || res.url.toLowerCase().includes('response-content-type=application%2fpdf');
+          setFileType(isPdf ? 'pdf' : 'image');
+        }
+      } catch (e) {
+        console.error('Failed to load preview', e);
+      } finally {
+        setLoadingPreview(false);
+      }
+    };
+    fetchPreview();
+  }, [fileId]);
+
   // 預設選取邏輯：狀態為 VALID 且 非重複 的草稿
   // 若使用者想匯入重複或警告的交易，需手動勾選
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>(
@@ -360,53 +387,79 @@ const ReviewStep: React.FC = () => {
 
   return (
     <div>
-      {draftTrades.some(t => t.status !== 'VALID') ? (
-        <Alert
-          title="發現異常資料"
-          description={`在 ${draftTrades.length} 筆交易中，有 ${draftTrades.filter(t => t.status !== 'VALID').length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      ) : (
-        <Alert
-          title={`找到 ${draftTrades.length} 筆交易`}
-          description="請校對以下細節，確認無誤後再匯入。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      )}
+      <Row gutter={24}>
+        {/* Left Side: Preview */}
+        <Col xs={24} xl={8}>
+          <Card
+            title={<Space><FileImageOutlined /> 原始文件預覽</Space>}
+            style={{ height: '100%', minHeight: 500 }}
+            styles={{ body: { height: 'calc(100% - 57px)', overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f5f5f5' } }}
+          >
+            {loadingPreview ? (
+              <Spin tip="載入預覽中..." />
+            ) : previewUrl ? (
+              fileType === 'pdf' ? (
+                <iframe src={previewUrl} style={{ width: '100%', height: '100%', border: 'none', minHeight: 600 }} title="PDF Preview" />
+              ) : (
+                <Image src={previewUrl} style={{ maxWidth: '100%' }} />
+              )
+            ) : (
+              <Empty description="無法預覽文件" />
+            )}
+          </Card>
+        </Col>
 
-      <Table
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
-        dataSource={draftTrades}
-        columns={columns}
-        rowKey="draftId"
-        pagination={false}
-        scroll={{ x: 1400 }}
-        rowClassName={(record) => {
-          if (record.status === 'ERROR') return 'row-error';
-          if (record.duplicate) return 'row-warning row-duplicate';
-          if (record.status === 'WARNING') return 'row-warning';
-          return '';
-        }}
-      />
+        {/* Right Side: Table */}
+        <Col xs={24} xl={16}>
+          {draftTrades.some(t => t.status !== 'VALID') ? (
+            <Alert
+              title="發現異常資料"
+              description={`在 ${draftTrades.length} 筆交易中，有 ${draftTrades.filter(t => t.status !== 'VALID').length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          ) : (
+            <Alert
+              title={`找到 ${draftTrades.length} 筆交易`}
+              description="請校對以下細節，確認無誤後再匯入。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
 
-      <div style={{ marginTop: 24, textAlign: 'right' }}>
-        <Space>
-          <Text>已選: {selectedRowKeys.length}</Text>
-          <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
-            重新辨識
-          </Button>
-          <Button type="primary" size="large" disabled={selectedRowKeys.length === 0} loading={isLoading} onClick={handleConfirm}>
-            確認匯入
-          </Button>
-        </Space>
-      </div>
+          <Table
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+            }}
+            dataSource={draftTrades}
+            columns={columns}
+            rowKey="draftId"
+            pagination={false}
+            scroll={{ x: 1400, y: 600 }}
+            rowClassName={(record) => {
+              if (record.status === 'ERROR') return 'row-error';
+              if (record.duplicate) return 'row-warning row-duplicate';
+              if (record.status === 'WARNING') return 'row-warning';
+              return '';
+            }}
+          />
+
+          <div style={{ marginTop: 24, textAlign: 'right' }}>
+            <Space>
+              <Text>已選: {selectedRowKeys.length}</Text>
+              <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
+                重新辨識
+              </Button>
+              <Button type="primary" size="large" disabled={selectedRowKeys.length === 0} loading={isLoading} onClick={handleConfirm}>
+                確認匯入
+              </Button>
+            </Space>
+          </div>
+        </Col>
+      </Row>
     </div>
   );
 };

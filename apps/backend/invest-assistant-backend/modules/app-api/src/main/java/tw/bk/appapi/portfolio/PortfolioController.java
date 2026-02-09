@@ -23,6 +23,7 @@ import tw.bk.appapi.portfolio.dto.CreatePortfolioRequest;
 import tw.bk.appapi.portfolio.dto.CreateTradeRequest;
 import tw.bk.appapi.portfolio.dto.UpdateTradeRequest;
 import tw.bk.appapi.portfolio.vo.PortfolioResponse;
+import tw.bk.appapi.portfolio.vo.PortfolioValuationResponse;
 import tw.bk.appapi.portfolio.vo.PositionResponse;
 import tw.bk.appapi.portfolio.vo.TradeResponse;
 import tw.bk.appcommon.enums.ErrorCode;
@@ -31,10 +32,11 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appportfolio.model.PortfolioValuationView;
+import tw.bk.appportfolio.model.PortfolioView;
+import tw.bk.appportfolio.model.TradeView;
 import tw.bk.appportfolio.model.TradeCommand;
 import tw.bk.appportfolio.service.PortfolioService;
-import tw.bk.apppersistence.entity.PortfolioEntity;
-import tw.bk.apppersistence.entity.StockTradeEntity;
 import tw.bk.appportfolio.model.PositionWithQuote;
 import tw.bk.appportfolio.service.QuoteProvider;
 import tw.bk.appstocks.service.StockQuoteService;
@@ -67,7 +69,7 @@ public class PortfolioController {
     @Operation(summary = "取得投資組合列表")
     public Result<List<PortfolioResponse>> listPortfolios() {
         Long userId = requireUserId();
-        List<PortfolioEntity> portfolios = portfolioService.listPortfolios(userId);
+        List<PortfolioView> portfolios = portfolioService.listPortfolios(userId);
         List<PortfolioResponse> response = portfolios.stream()
                 .map(PortfolioResponse::from)
                 .toList();
@@ -78,7 +80,7 @@ public class PortfolioController {
     @Operation(summary = "新增投資組合")
     public Result<PortfolioResponse> createPortfolio(@Valid @RequestBody CreatePortfolioRequest request) {
         Long userId = requireUserId();
-        PortfolioEntity portfolio = portfolioService.createPortfolio(
+        PortfolioView portfolio = portfolioService.createPortfolio(
                 userId,
                 request.getName(),
                 request.getBaseCurrency());
@@ -90,7 +92,7 @@ public class PortfolioController {
     public Result<PortfolioResponse> getPortfolio(@PathVariable String portfolioId) {
         Long userId = requireUserId();
         Long id = parseId(portfolioId);
-        PortfolioEntity portfolio = portfolioService.getPortfolio(userId, id);
+        PortfolioView portfolio = portfolioService.getPortfolio(userId, id);
         QuoteProvider quoteProvider = createQuoteProvider();
         tw.bk.appportfolio.model.PortfolioSummary summary = portfolioService.getPortfolioSummary(userId, id,
                 quoteProvider);
@@ -100,6 +102,24 @@ public class PortfolioController {
                 summary.totalCost(),
                 summary.totalPnl(),
                 summary.totalPnlPercent()));
+    }
+
+    @GetMapping("/portfolios/{portfolioId}/valuations")
+    @Operation(summary = "取得資產歷史價值")
+    public Result<List<PortfolioValuationResponse>> listValuations(
+            @PathVariable String portfolioId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        Long userId = requireUserId();
+        List<PortfolioValuationView> valuations = portfolioService.listValuations(
+                userId,
+                parseId(portfolioId),
+                from,
+                to);
+        List<PortfolioValuationResponse> response = valuations.stream()
+                .map(PortfolioValuationResponse::from)
+                .toList();
+        return Result.ok(response);
     }
 
     // ======================= Positions =======================
@@ -143,7 +163,7 @@ public class PortfolioController {
 
         Long userId = requireUserId();
         Pageable pageable = buildPageable(page, size, sort);
-        Page<StockTradeEntity> trades = portfolioService.listTrades(
+        Page<TradeView> trades = portfolioService.listTrades(
                 userId, parseId(portfolioId), from, to, pageable);
 
         List<TradeResponse> items = trades.getContent().stream()
@@ -160,7 +180,7 @@ public class PortfolioController {
 
         Long userId = requireUserId();
         TradeCommand command = toTradeCommand(request);
-        StockTradeEntity trade = portfolioService.createTrade(userId, parseId(portfolioId), command);
+        TradeView trade = portfolioService.createTrade(userId, parseId(portfolioId), command);
         return Result.ok(TradeResponse.from(trade));
     }
 
@@ -172,7 +192,7 @@ public class PortfolioController {
 
         Long userId = requireUserId();
         TradeCommand command = toTradeCommand(request);
-        StockTradeEntity trade = portfolioService.updateTrade(userId, parseId(tradeId), command);
+        TradeView trade = portfolioService.updateTrade(userId, parseId(tradeId), command);
         return Result.ok(TradeResponse.from(trade));
     }
 

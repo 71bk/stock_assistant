@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -15,11 +16,12 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
-      // "/rag-api": {
-      //   target: "http://localhost:8001",
-      //   changeOrigin: true,
-      //   rewrite: (path) => path.replace(/^\/rag-api/, ""),
-      // },
     },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    css: false,
   },
 });

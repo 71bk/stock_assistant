@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Card, Form, Upload, Button, Input, message, Tabs, Alert } from 'antd';
-import { InboxOutlined, FileTextOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Card, Form, Upload, Button, Input, message, Tabs, Alert, Table, Tag, Popconfirm } from 'antd';
+import { InboxOutlined, FileTextOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined } from '@ant-design/icons';
 import { ragApi } from '@/api/rag.api';
+import type { RagDocument } from '@/api/rag.api';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useAuthStore } from '@/stores/auth.store';
+import { formatDateTime } from '@/utils/format';
 
 const { Dragger } = Upload;
 const { TextArea } = Input;
@@ -11,8 +13,29 @@ const { TextArea } = Input;
 const DocumentManager: React.FC = () => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [documents, setDocuments] = useState<RagDocument[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [totalDocs, setTotalDocs] = useState(0);
   const [textForm] = Form.useForm();
   const { user } = useAuthStore();
+
+  const fetchDocuments = async (page = 1, size = 10) => {
+    setLoadingDocs(true);
+    try {
+      const res = await ragApi.getDocuments(page, size);
+      setDocuments(res.items);
+      setTotalDocs(res.total);
+    } catch (error) {
+      console.error(error);
+      message.error('無法載入文件列表');
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
   
   const handleUpload = async () => {
     if (fileList.length === 0) return;
@@ -26,6 +49,7 @@ const DocumentManager: React.FC = () => {
       await ragApi.ingestDocument(file.originFileObj as File, userId, file.name);
       message.success('文件上傳並處理成功！');
       setFileList([]);
+      fetchDocuments(); // Refresh list
     } catch (error) {
       console.error(error);
       message.error('文件上傳失敗');
@@ -48,6 +72,7 @@ const DocumentManager: React.FC = () => {
       });
       message.success('文字內容已寫入知識庫！');
       textForm.resetFields();
+      fetchDocuments(); // Refresh list
     } catch (error) {
       console.error(error);
       message.error('寫入失敗');
@@ -72,19 +97,79 @@ const DocumentManager: React.FC = () => {
     fileList,
   };
 
+  const handleDeleteDocument = async (id: string) => {
+    try {
+      await ragApi.deleteDocument(id);
+      message.success('文件已刪除');
+      fetchDocuments();
+    } catch (error) {
+      console.error(error);
+      message.error('刪除失敗');
+    }
+  };
+
+  const documentColumns = [
+    {
+      title: '標題',
+      dataIndex: 'title',
+      key: 'title',
+      render: (text: string) => <span style={{ fontWeight: 500 }}>{text}</span>,
+    },
+    {
+      title: '類型',
+      dataIndex: 'sourceType',
+      key: 'sourceType',
+      render: (type: string) => <Tag color={type === 'UPLOAD' ? 'blue' : 'green'}>{type}</Tag>,
+    },
+    {
+      title: '建立時間',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (text: string) => formatDateTime(text),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: any, record: RagDocument) => (
+        <Popconfirm title="確定刪除此文件？" onConfirm={() => handleDeleteDocument(record.id)}>
+          <Button type="text" danger icon={<DeleteOutlined />} />
+        </Popconfirm>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <Alert
         message="關於文件管理"
-        description="目前支援上傳 PDF 與 Markdown 文件。上傳後系統將自動進行切分與向量化處理。目前版本暫不支援查看已上傳文件列表。"
+        description="您可以上傳 PDF/Markdown 文件或直接輸入文字筆記。系統會自動將其切分並存入向量資料庫，供 AI 助理檢索使用。"
         type="info"
         showIcon
         className="mb-4"
       />
 
       <Tabs
-        defaultActiveKey="file"
+        defaultActiveKey="list"
         items={[
+          {
+            key: 'list',
+            label: (<span><DatabaseOutlined /> 已上傳文件</span>),
+            children: (
+              <Card title="知識庫文件列表" extra={<Button icon={<ReloadOutlined />} onClick={() => fetchDocuments()}>重新整理</Button>}>
+                <Table
+                  dataSource={documents}
+                  columns={documentColumns}
+                  rowKey="id"
+                  loading={loadingDocs}
+                  pagination={{
+                    total: totalDocs,
+                    pageSize: 10,
+                    onChange: (page) => fetchDocuments(page),
+                  }}
+                />
+              </Card>
+            )
+          },
           {
             key: 'file',
             label: '文件上傳',

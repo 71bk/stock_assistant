@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appcommon.enums.TradeSource;
-import tw.bk.apppersistence.entity.StockTradeEntity;
+import tw.bk.appportfolio.model.TradeView;
 
 @Data
 @Builder
@@ -29,22 +29,22 @@ public class TradeResponse {
     private TradeSource source;
     private String accountId;
 
-    public static TradeResponse from(StockTradeEntity entity) {
+    public static TradeResponse from(TradeView entity) {
         return TradeResponse.builder()
-                .tradeId(String.valueOf(entity.getId()))
-                .instrumentId(String.valueOf(entity.getInstrumentId()))
-                .tradeDate(entity.getTradeDate() != null ? entity.getTradeDate().toString() : null)
-                .settlementDate(entity.getSettlementDate() != null ? entity.getSettlementDate().toString() : null)
-                .side(entity.getSideEnum())
-                .quantity(entity.getQuantity() != null ? entity.getQuantity().toPlainString() : null)
-                .price(entity.getPrice() != null ? entity.getPrice().toPlainString() : null)
-                .currency(entity.getCurrency())
-                .grossAmount(entity.getGrossAmount() != null ? entity.getGrossAmount().toPlainString() : null)
-                .fee(entity.getFee() != null ? entity.getFee().toPlainString() : null)
-                .tax(entity.getTax() != null ? entity.getTax().toPlainString() : null)
-                .netAmount(entity.getNetAmount() != null ? entity.getNetAmount().toPlainString() : null)
-                .source(entity.getSourceEnum())
-                .accountId(entity.getAccountId() != null ? String.valueOf(entity.getAccountId()) : null)
+                .tradeId(String.valueOf(entity.id()))
+                .instrumentId(String.valueOf(entity.instrumentId()))
+                .tradeDate(entity.tradeDate() != null ? entity.tradeDate().toString() : null)
+                .settlementDate(entity.settlementDate() != null ? entity.settlementDate().toString() : null)
+                .side(entity.side())
+                .quantity(entity.quantity() != null ? entity.quantity().toPlainString() : null)
+                .price(entity.price() != null ? entity.price().toPlainString() : null)
+                .currency(entity.currency())
+                .grossAmount(entity.grossAmount() != null ? entity.grossAmount().toPlainString() : null)
+                .fee(entity.fee() != null ? entity.fee().toPlainString() : null)
+                .tax(entity.tax() != null ? entity.tax().toPlainString() : null)
+                .netAmount(entity.netAmount() != null ? entity.netAmount().toPlainString() : null)
+                .source(entity.source())
+                .accountId(entity.accountId() != null ? String.valueOf(entity.accountId()) : null)
                 .build();
     }
 }

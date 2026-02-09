@@ -21,7 +21,9 @@ import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.ConfirmResult;
+import tw.bk.appocr.model.OcrDraftView;
 import tw.bk.appocr.model.OcrDraftUpdate;
+import tw.bk.appocr.model.OcrJobView;
 import tw.bk.appportfolio.model.TradeCommand;
 import tw.bk.appportfolio.service.PortfolioService;
 import tw.bk.apppersistence.entity.FileEntity;
@@ -77,7 +79,7 @@ public class OcrService {
      * @return OCR Job 實體
      */
     @Transactional
-    public OcrJobEntity createJob(Long userId, Long fileId, Long portfolioId, boolean force) {
+    public OcrJobView createJob(Long userId, Long fileId, Long portfolioId, boolean force) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -107,7 +109,7 @@ public class OcrService {
                         ocrJobRepository.save(existing);
                         queueService.enqueue(existing);
                     }
-                    return existing;
+                    return toJobView(existing);
                 }
             }
 
@@ -117,7 +119,7 @@ public class OcrService {
                 if (jobId.isPresent()) {
                     OcrJobEntity existing = ocrJobRepository.findByIdAndUserId(jobId.get(), userId).orElse(null);
                     if (existing != null) {
-                        return existing;
+                        return toJobView(existing);
                     }
                 }
                 throw new BusinessException(ErrorCode.CONFLICT, "OCR job is being created, please retry");
@@ -147,7 +149,7 @@ public class OcrService {
             dedupeService.store(userId, sha256, portfolioId, job.getId());
         }
         queueService.enqueue(job);
-        return job;
+        return toJobView(job);
     }
 
     /**
@@ -160,14 +162,18 @@ public class OcrService {
     }
 
     @Transactional(readOnly = true)
-    public OcrJobEntity getJob(Long userId, Long jobId) {
+    public OcrJobView getJob(Long userId, Long jobId) {
+        return toJobView(getJobEntity(userId, jobId));
+    }
+
+    private OcrJobEntity getJobEntity(Long userId, Long jobId) {
         return ocrJobRepository.findByIdAndUserId(jobId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "OCR job not found"));
     }
 
     @Transactional(readOnly = true)
-    public List<StatementTradeEntity> getDrafts(Long userId, Long jobId) {
-        OcrJobEntity job = getJob(userId, jobId);
+    public List<OcrDraftView> getDrafts(Long userId, Long jobId) {
+        OcrJobEntity job = getJobEntity(userId, jobId);
         if (job.getStatementId() == null) {
             return List.of();
         }
@@ -175,12 +181,15 @@ public class OcrService {
         if (statement == null) {
             return List.of();
         }
-        return statementTradeRepository.findByStatementIdOrderByIdAsc(statement.getId());
+        return statementTradeRepository.findByStatementIdOrderByIdAsc(statement.getId())
+                .stream()
+                .map(this::toDraftView)
+                .toList();
     }
 
     @Transactional
-    public OcrJobEntity retryJob(Long userId, Long jobId, boolean force) {
-        OcrJobEntity job = getJob(userId, jobId);
+    public OcrJobView retryJob(Long userId, Long jobId, boolean force) {
+        OcrJobEntity job = getJobEntity(userId, jobId);
         String status = job.getStatus();
 
         if (JOB_DONE.equals(status) && !force) {
@@ -211,11 +220,11 @@ public class OcrService {
         job.setErrorMessage(null);
         ocrJobRepository.save(job);
         queueService.enqueue(job);
-        return job;
+        return toJobView(job);
     }
 
     @Transactional
-    public OcrJobEntity reparse(Long userId, Long jobId, boolean force) {
+    public OcrJobView reparse(Long userId, Long jobId, boolean force) {
         OcrJobEntity job = ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "OCR job not found"));
         String status = job.getStatus();
@@ -256,29 +265,29 @@ public class OcrService {
         job.setErrorMessage(null);
         ocrJobRepository.save(job);
         queueService.enqueue(job);
-        return job;
+        return toJobView(job);
     }
 
     @Transactional
-    public OcrJobEntity cancel(Long userId, Long jobId, boolean force) {
-        OcrJobEntity job = getJob(userId, jobId);
+    public OcrJobView cancel(Long userId, Long jobId, boolean force) {
+        OcrJobEntity job = getJobEntity(userId, jobId);
         String status = job.getStatus();
         if (!force && JOB_RUNNING.equals(status)) {
             throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
         }
         if (JOB_DONE.equals(status) || JOB_FAILED.equals(status) || JOB_CANCELLED.equals(status)) {
-            return job;
+            return toJobView(job);
         }
 
         job.setStatus(JOB_CANCELLED);
         job.setProgress(100);
         job.setErrorMessage("Cancelled by user");
-        return ocrJobRepository.save(job);
+        return toJobView(ocrJobRepository.save(job));
     }
 
     @Transactional(readOnly = true)
     public Long getPortfolioIdByJob(Long userId, Long jobId) {
-        OcrJobEntity job = getJob(userId, jobId);
+        OcrJobEntity job = getJobEntity(userId, jobId);
         if (job.getStatementId() == null) {
             return null;
         }
@@ -296,8 +305,8 @@ public class OcrService {
     }
 
     @Transactional
-    public StatementTradeEntity updateDraft(Long userId, Long draftId, OcrDraftUpdate update) {
-        return ocrDraftService.updateDraft(userId, draftId, update);
+    public OcrDraftView updateDraft(Long userId, Long draftId, OcrDraftUpdate update) {
+        return toDraftView(ocrDraftService.updateDraft(userId, draftId, update));
     }
 
     /**
@@ -311,7 +320,7 @@ public class OcrService {
      */
     @Transactional
     public ConfirmResult confirm(Long userId, Long jobId, Set<Long> selectedDraftIds) {
-        OcrJobEntity job = getJob(userId, jobId);
+        OcrJobEntity job = getJobEntity(userId, jobId);
         if (!JOB_DONE.equals(job.getStatus())) {
             throw new BusinessException(ErrorCode.CONFLICT, "OCR job not completed");
         }
@@ -518,6 +527,35 @@ public class OcrService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Amount cannot be negative");
         }
         return amount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private OcrJobView toJobView(OcrJobEntity entity) {
+        return new OcrJobView(
+                entity.getId(),
+                entity.getStatementId(),
+                entity.getStatusEnum(),
+                entity.getProgress(),
+                entity.getErrorMessage());
+    }
+
+    private OcrDraftView toDraftView(StatementTradeEntity entity) {
+        return new OcrDraftView(
+                entity.getId(),
+                entity.getInstrumentId(),
+                entity.getRawTicker(),
+                entity.getName(),
+                entity.getTradeDate(),
+                entity.getSettlementDate(),
+                entity.getSideEnum(),
+                entity.getQuantity(),
+                entity.getPrice(),
+                entity.getCurrency(),
+                entity.getFee(),
+                entity.getTax(),
+                entity.getNetAmount(),
+                entity.getWarningsJson(),
+                entity.getErrorsJson(),
+                entity.getRowHash());
     }
 
     private boolean isSettlementBeforeTrade(LocalDate tradeDate, LocalDate settlementDate) {

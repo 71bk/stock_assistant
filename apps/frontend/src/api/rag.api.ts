@@ -1,4 +1,5 @@
 import { http } from '../utils/http';
+import type { PageData } from '../types/api';
 
 export interface RagChunk {
   content: string;
@@ -8,6 +9,15 @@ export interface RagChunk {
   title?: string;
   source_type?: string;
   source_id?: string;
+}
+
+export interface RagDocument {
+  id: string;
+  title: string;
+  sourceType: string;
+  sourceId: string;
+  meta: Record<string, any>;
+  createdAt: string;
 }
 
 export interface RagQueryResponse {
@@ -32,6 +42,12 @@ export interface IngestTextRequest {
 }
 
 export const ragApi = {
+  getDocuments: (page = 1, size = 20) =>
+    http.get<PageData<RagDocument>>('/rag/documents', { params: { page, size } }),
+
+  deleteDocument: (id: string) =>
+    http.delete<void>(`/rag/documents/${id}`),
+
   ingestDocument: (file: File, userId: string, title?: string, tags?: string) => {
     const formData = new FormData();
     formData.append('file', file);

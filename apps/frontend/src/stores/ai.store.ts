@@ -7,6 +7,7 @@ interface AiState {
   reports: AiReport[];
   totalReports: number;
   isLoading: boolean;
+  error: string | null;
   isAnalyzing: boolean;
   analysisStream: string;
   
@@ -19,16 +20,18 @@ export const useAiStore = create<AiState>((set, get) => ({
   reports: [],
   totalReports: 0,
   isLoading: false,
+  error: null,
   isAnalyzing: false,
   analysisStream: '',
 
   fetchReports: async (page = 1, size = 20) => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       const res = await aiApi.getReports(page, size);
       set({ reports: res.items, totalReports: res.total });
     } catch (e) {
       console.error('Failed to fetch reports', e);
+      set({ error: e instanceof Error ? e.message : '無法載入報告' });
     } finally {
       set({ isLoading: false });
     }

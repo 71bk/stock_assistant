@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Typography, Card, Table, Tag, Button, Modal, Skeleton } from 'antd';
 import { FileSearchOutlined, RobotOutlined } from '@ant-design/icons';
 import { useAiStore } from '../../stores/ai.store';
+import { ErrorState } from '../../components/common/ErrorState';
 import { formatDateTime } from '../../utils/format';
 import type { AiReport } from '../../api/ai.api';
 
 const { Title } = Typography;
 
 const Reports: React.FC = () => {
-  const { reports, totalReports, isLoading, fetchReports } = useAiStore();
+  const { reports, totalReports, isLoading, error, fetchReports } = useAiStore();
   const [selectedReport, setSelectedReport] = useState<AiReport | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -20,6 +21,16 @@ const Reports: React.FC = () => {
     setSelectedReport(report);
     setIsModalOpen(true);
   };
+
+  if (error) {
+    return (
+      <ErrorState
+        status="500"
+        title="無法載入報告"
+        message={error}
+      />
+    );
+  }
 
   const columns = [
     {
@@ -69,17 +80,22 @@ const Reports: React.FC = () => {
       </Title>
       
       <Card>
-        <Table
-          dataSource={reports}
-          columns={columns}
-          rowKey="reportId"
-          loading={isLoading}
-          pagination={{
-            total: totalReports,
-            pageSize: 20,
-            onChange: (page) => fetchReports(page),
-          }}
-        />
+        {isLoading ? (
+          <div style={{ padding: 20 }}>
+            <Skeleton active paragraph={{ rows: 10 }} />
+          </div>
+        ) : (
+          <Table
+            dataSource={reports}
+            columns={columns}
+            rowKey="reportId"
+            pagination={{
+              total: totalReports,
+              pageSize: 20,
+              onChange: (page) => fetchReports(page),
+            }}
+          />
+        )}
       </Card>
 
       <Modal

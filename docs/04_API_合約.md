@@ -650,6 +650,7 @@ Response：`Result<InstrumentDetailResponse>`
 | POST | `/api/portfolios/{portfolioId}/trades` | 新增交易 | 是 |
 | PATCH | `/api/trades/{tradeId}` | 更新交易 | 是 |
 | DELETE | `/api/trades/{tradeId}` | 刪除交易 | 是 |
+| GET | `/api/portfolios/{portfolioId}/valuations` | 取得資產歷史價值 | 是 |
 
 #### 取得投資組合（`GET /api/portfolios/{portfolioId}`）
 Response 欄位說明：
@@ -674,6 +675,41 @@ Response：
     "totalPnl": 30000,
     "totalPnlPercent": 25.0
   },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+#### 取得資產歷史價值（`GET /api/portfolios/{portfolioId}/valuations`）
+Query Parameters：
+- `from`：起始日期（YYYY-MM-DD，可選，預設 30 天前）
+- `to`：結束日期（YYYY-MM-DD，可選，預設今天）
+
+實作規則（已落地）：
+- 若 `to` 未提供：使用伺服器當下 UTC 日期（`today`）
+- 若 `from` 未提供：使用 `to - 30 days`
+- 若 `from > to`：回傳 `400 VALIDATION_ERROR`（message: `from must be <= to`）
+
+Response：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "date": "2026-01-01",
+      "totalValue": 100000,
+      "cashValue": 50000,
+      "positionsValue": 50000,
+      "currency": "TWD"
+    },
+    {
+      "date": "2026-01-02",
+      "totalValue": 102000,
+      "cashValue": 50000,
+      "positionsValue": 52000,
+      "currency": "TWD"
+    }
+  ],
   "error": null,
   "traceId": "..."
 }
@@ -764,6 +800,7 @@ Response（節錄）
 | POST | `/api/files` | 上傳檔案（multipart） | 是 |
 | GET | `/api/files/{fileId}` | 取得檔案 metadata | 是 |
 | POST | `/api/files/presign` | 取得預簽 URL | 是 |
+| GET | `/api/files/{fileId}/url` | 取得檔案下載/預覽連結 | 是 |
 
 #### 上傳檔案（`POST /api/files`）
 Request（`multipart/form-data`）：
@@ -812,8 +849,26 @@ Response：
 }
 ```
 
+#### 取得檔案下載/預覽連結（`GET /api/files/{fileId}/url`）
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "url": "https://storage.example.com/...",
+    "expiresAt": "2026-02-09T06:20:00Z"
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+實作規則（已落地）：
+- `provider=s3/minio`：回傳 presigned download URL，`expiresAt` 為過期時間。
+- `provider=local`：回傳後端代理 URL（`/api/files/{fileId}/content`），`expiresAt=null`。
+
 備註：
-- presigned **下載** URL 僅供後端內部使用（RAG ingestion），前端不需要也不會取得。
+- `GET /api/files/{fileId}/content` 為 local provider 的實體內容串流端點（需登入）。
 
 ---
 
@@ -1063,6 +1118,24 @@ Response（節錄）
 | PATCH | `/api/ai/conversations/{id}` | 更新對話標題 | 是 |
 | POST | `/api/ai/conversations/{id}/messages` | 傳送訊息（SSE） | 是 |
 
+### 伺服器端工具補強（不改 API 介面）
+- Chat 為 **server-side tool enrichment**：後端先補 `instrument_candidates/quote` 到 system prompt，再呼叫 LLM。
+- LLM 不直接呼叫 `GET /api/stocks/quote`；即使使用者貼 URL，也由後端從訊息抽取 `symbolKey` 後查詢。
+- symbol 擷取優先序：`symbolKey`（含 `symbolKey=...`）→ 數字 ticker（如 `2330`）→ 英文/中文 token。
+- 代詞 fallback 觸發條件：**本輪無候選標的** 且訊息含 `這隻/這檔/這支/那隻/那檔/那支/它/該股/他/她/這個/那個`。
+- 代詞 fallback 流程：
+  - 先查 `lastMentionedSymbolKey`（key=`{userId}:{conversationId}`）。
+  - 未命中才回看最近 user 訊息（`app.ai.chat.pronoun-lookback.limit`，預設 `5`）。
+- 非代詞但報價意圖（命中 `quote-search.keywords`）且本輪無候選時：只嘗試 `lastMentionedSymbolKey`，不做回溯掃描。
+- Tool context 會輸出：
+  - `tool_quote_available: true|false`
+  - `tool_quote_error: ...`（僅 `false` 時）
+- 回覆策略：當 `tool_quote_available: true` 時，助手不得回覆「無法提供即時/最新價格」。
+- 相關設定：
+  - `APP_AI_CHAT_LAST_MENTIONED_CACHE_TTL`（預設 `12h`）
+  - `APP_AI_CHAT_PRONOUN_LOOKBACK_LIMIT`（預設 `5`）
+  - `APP_AI_CHAT_QUOTE_SEARCH_KEYWORDS`（控制何時補 quote）
+
 #### 建立對話（`POST /api/ai/conversations`）
 Request 欄位：
 - `title`（可選）
@@ -1180,6 +1253,8 @@ Request 欄位：
 }
 ```
 > **Note**: `clientMessageId` 為可選，重送相同 `clientMessageId` 會回 409 / SSE error。
+> **Note**: 若要提高即時報價命中率，建議在同一輪帶明確標的（例：`台積電現在多少`、`TW:XTAI:2330 現價`）。
+> **Note**: 對話中使用代詞（例：`那現在這隻股票價格多少`）會觸發上述 fallback 規則。
 
 #### SSE Response（`text/event-stream`）
 ```
@@ -1303,6 +1378,8 @@ Response：
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
 | POST | `/api/rag/documents` | 建立文件（可含 rawText 或 fileId） | 是 |
+| GET | `/api/rag/documents` | 取得文件列表 | 是 |
+| DELETE | `/api/rag/documents/{id}` | 刪除文件 | 是 |
 | POST | `/api/rag/query` | RAG 問答 | 是 |
 
 ---
@@ -1370,20 +1447,18 @@ Response：
   "chunks": [
     {
       "content": "AI Worker 是一個 Python FastAPI 服務...",
-      "document_id": "123",
+      "document_id": 123,
       "chunk_index": 3,
-      "distance": 0.92,
+      "score": 0.92,
       "title": "Monthly Report",
       "source_type": "upload",
-      "source_id": "file-123",
-      "meta": {
-        "start_char": 120,
-        "end_char": 420
-      }
+      "source_id": "file-123"
     }
   ]
 }
 ```
+
+> **欄位說明**：`score` 範圍為 `0~1`，數值越高代表越相關；目前不回傳 `distance` 與 `meta` 欄位。
 
 > **v1.3 增強**：Query 端新增 embedding retry/backoff 機制，遇到 API 限流時會自動重試（指數退避 + jitter）。
 

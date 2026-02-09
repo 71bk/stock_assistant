@@ -7,7 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import tw.bk.appcommon.enums.TradeSide;
-import tw.bk.apppersistence.entity.StatementTradeEntity;
+import tw.bk.appocr.model.OcrDraftView;
 
 @Data
 @Builder
@@ -32,24 +32,24 @@ public class OcrDraftResponse {
     private List<String> errors;
     private String rowHash;
 
-    public static OcrDraftResponse from(StatementTradeEntity entity, List<String> warnings, List<String> errors) {
+    public static OcrDraftResponse from(OcrDraftView entity, List<String> warnings, List<String> errors) {
         return OcrDraftResponse.builder()
-                .draftId(entity.getId() != null ? entity.getId().toString() : null)
-                .instrumentId(entity.getInstrumentId() != null ? entity.getInstrumentId().toString() : null)
-                .rawTicker(entity.getRawTicker())
-                .name(entity.getName())
-                .tradeDate(entity.getTradeDate())
-                .settlementDate(entity.getSettlementDate())
-                .side(entity.getSideEnum())
-                .quantity(entity.getQuantity() != null ? entity.getQuantity().toPlainString() : null)
-                .price(entity.getPrice() != null ? entity.getPrice().toPlainString() : null)
-                .currency(entity.getCurrency())
-                .fee(entity.getFee() != null ? entity.getFee().toPlainString() : null)
-                .tax(entity.getTax() != null ? entity.getTax().toPlainString() : null)
-                .netAmount(entity.getNetAmount() != null ? entity.getNetAmount().toPlainString() : null)
+                .draftId(entity.id() != null ? entity.id().toString() : null)
+                .instrumentId(entity.instrumentId() != null ? entity.instrumentId().toString() : null)
+                .rawTicker(entity.rawTicker())
+                .name(entity.name())
+                .tradeDate(entity.tradeDate())
+                .settlementDate(entity.settlementDate())
+                .side(entity.side())
+                .quantity(entity.quantity() != null ? entity.quantity().toPlainString() : null)
+                .price(entity.price() != null ? entity.price().toPlainString() : null)
+                .currency(entity.currency())
+                .fee(entity.fee() != null ? entity.fee().toPlainString() : null)
+                .tax(entity.tax() != null ? entity.tax().toPlainString() : null)
+                .netAmount(entity.netAmount() != null ? entity.netAmount().toPlainString() : null)
                 .warnings(warnings)
                 .errors(errors)
-                .rowHash(entity.getRowHash())
+                .rowHash(entity.rowHash())
                 .build();
     }
 }

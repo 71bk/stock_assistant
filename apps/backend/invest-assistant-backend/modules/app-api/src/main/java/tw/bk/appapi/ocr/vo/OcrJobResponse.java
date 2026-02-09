@@ -5,7 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import tw.bk.appcommon.enums.OcrJobStatus;
-import tw.bk.apppersistence.entity.OcrJobEntity;
+import tw.bk.appocr.model.OcrJobView;
 
 @Data
 @Builder
@@ -18,13 +18,13 @@ public class OcrJobResponse {
     private Integer progress;
     private String errorMessage;
 
-    public static OcrJobResponse from(OcrJobEntity entity) {
+    public static OcrJobResponse from(OcrJobView entity) {
         return OcrJobResponse.builder()
-                .jobId(entity.getId() != null ? entity.getId().toString() : null)
-                .statementId(entity.getStatementId() != null ? entity.getStatementId().toString() : null)
-                .status(entity.getStatusEnum())
-                .progress(entity.getProgress())
-                .errorMessage(entity.getErrorMessage())
+                .jobId(entity.id() != null ? entity.id().toString() : null)
+                .statementId(entity.statementId() != null ? entity.statementId().toString() : null)
+                .status(entity.status())
+                .progress(entity.progress())
+                .errorMessage(entity.errorMessage())
                 .build();
     }
 }

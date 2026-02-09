@@ -27,9 +27,9 @@ export class ErrorBoundary extends Component<Props, State> {
   public render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: '40px', textAlign: 'center' }}>
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Result
-            status="error"
+            status="500"
             title="應用程式發生錯誤"
             subTitle={this.state.error?.message || '發生了未預期的錯誤，請重新整理頁面。'}
             extra={[

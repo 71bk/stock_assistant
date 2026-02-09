@@ -5,7 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import tw.bk.apppersistence.entity.PortfolioEntity;
+import tw.bk.appportfolio.model.PortfolioView;
 
 @Data
 @Builder
@@ -26,11 +26,11 @@ public class PortfolioResponse {
     /**
      * Create response from entity without summary (for list view).
      */
-    public static PortfolioResponse from(PortfolioEntity entity) {
+    public static PortfolioResponse from(PortfolioView entity) {
         return PortfolioResponse.builder()
-                .id(String.valueOf(entity.getId()))
-                .name(entity.getName())
-                .baseCurrency(entity.getBaseCurrency())
+                .id(String.valueOf(entity.id()))
+                .name(entity.name())
+                .baseCurrency(entity.baseCurrency())
                 .build();
     }
 
@@ -38,15 +38,15 @@ public class PortfolioResponse {
      * Create response with summary statistics (for detail view).
      */
     public static PortfolioResponse fromWithSummary(
-            PortfolioEntity entity,
+            PortfolioView entity,
             BigDecimal totalMarketValue,
             BigDecimal totalCost,
             BigDecimal totalPnl,
             BigDecimal totalPnlPercent) {
         return PortfolioResponse.builder()
-                .id(String.valueOf(entity.getId()))
-                .name(entity.getName())
-                .baseCurrency(entity.getBaseCurrency())
+                .id(String.valueOf(entity.id()))
+                .name(entity.name())
+                .baseCurrency(entity.baseCurrency())
                 .totalMarketValue(totalMarketValue)
                 .totalCost(totalCost)
                 .totalPnl(totalPnl)

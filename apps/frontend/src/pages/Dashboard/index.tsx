@@ -12,13 +12,14 @@ const { Title } = Typography;
 
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
-  const { summary, positions, recentTrades, isLoading, fetchPortfolioData, fetchRecentTrades } = usePortfolioStore();
+  const { summary, positions, recentTrades, valuations, isLoading, fetchPortfolioData, fetchRecentTrades, fetchPortfolioValuations } = usePortfolioStore();
   const baseCurrency = user?.baseCurrency || 'TWD';
 
   useEffect(() => {
     fetchPortfolioData(); // Fetch summary AND positions
     fetchRecentTrades();
-  }, [fetchPortfolioData, fetchRecentTrades]);
+    fetchPortfolioValuations();
+  }, [fetchPortfolioData, fetchRecentTrades, fetchPortfolioValuations]);
 
   // Chart Configs
   // Calculate value for pie chart (fallback to cost if market value missing)
@@ -46,17 +47,20 @@ const Dashboard: React.FC = () => {
   };
 
   const areaConfig = {
-    data: [
-      { date: '2026-01-01', value: 100000 },
-      { date: '2026-01-08', value: 105000 },
-      { date: '2026-01-15', value: 103000 },
-      { date: '2026-01-22', value: 110000 },
-      { date: '2026-01-29', value: 115000 },
-    ],
+    data: valuations.map(v => ({
+      date: v.date,
+      value: v.totalValue
+    })),
     xField: 'date',
     yField: 'value',
     style: {
       fill: 'linear-gradient(-90deg, white 0%, #1677ff 100%)',
+    },
+    // Add tooltip formatting
+    tooltip: {
+      formatter: (datum: any) => {
+        return { name: '總資產', value: formatCurrency(datum.value, baseCurrency) };
+      },
     },
   };
 

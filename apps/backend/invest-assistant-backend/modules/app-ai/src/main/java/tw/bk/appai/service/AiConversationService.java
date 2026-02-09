@@ -26,6 +26,12 @@ import tw.bk.apppersistence.repository.ConversationRepository;
 @Slf4j
 public class AiConversationService {
     private static final String DEFAULT_SYSTEM_PROMPT = "You are a financial analysis assistant. Be concise and factual.";
+    private static final String TOOL_ENFORCEMENT_PROMPT = """
+            Tool-use policy:
+            - If Tool Results contains a `quote:` section, you must use that quote data in your answer.
+            - When `tool_quote_available: true`, do not claim you cannot provide real-time/latest price.
+            - If `tool_quote_available: false`, explain quote is currently unavailable and include `tool_quote_error` if present.
+            """;
     private static final int MAX_TITLE_LENGTH = 30;
 
     private final ConversationRepository conversationRepository;
@@ -204,6 +210,8 @@ public class AiConversationService {
         Map<String, String> system = messages.get(0);
         String systemContent = system.get("content");
         String enhanced = (systemContent == null ? "" : systemContent)
+                + "\n\n--- Tool Policy ---\n"
+                + TOOL_ENFORCEMENT_PROMPT
                 + "\n\n--- Tool Results ---\n"
                 + toolContext.trim();
         merged.add(Map.of("role", ConversationRole.SYSTEM.value(), "content", enhanced));
