@@ -5,7 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import tw.bk.apppersistence.entity.FileEntity;
+import tw.bk.appfiles.model.FileView;
 
 @Data
 @Builder
@@ -22,13 +22,13 @@ public class FileResponse {
 
     private OffsetDateTime createdAt;
 
-    public static FileResponse from(FileEntity entity) {
+    public static FileResponse from(FileView entity) {
         return FileResponse.builder()
-                .fileId(entity.getId() != null ? entity.getId().toString() : null)
-                .sha256(entity.getSha256())
-                .sizeBytes(entity.getSizeBytes())
-                .contentType(entity.getContentType())
-                .createdAt(entity.getCreatedAt())
+                .fileId(entity.id() != null ? entity.id().toString() : null)
+                .sha256(entity.sha256())
+                .sizeBytes(entity.sizeBytes())
+                .contentType(entity.contentType())
+                .createdAt(entity.createdAt())
                 .build();
     }
 }

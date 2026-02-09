@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries, type IChartApi, type ISeriesApi } from 'lightweight-charts';
 import { Radio, Spin, Checkbox, Popover, Button, InputNumber } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
+import { logger } from '../../utils/logger';
 import { stocksApi } from '../../api/stocks.api';
 import { calculateSMA, calculateEMA, calculateRSI, calculateMACD } from './indicators';
 import type { OHLCData } from './indicators';
@@ -121,7 +122,7 @@ export function PriceChart({
           chart.timeScale().fitContent();
         }
       } catch (e) {
-        console.error('Failed to fetch candles', e);
+        logger.error('Failed to fetch candles', e);
       } finally {
         setLoading(false);
       }

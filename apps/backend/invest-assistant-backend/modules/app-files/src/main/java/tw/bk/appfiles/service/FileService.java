@@ -19,6 +19,7 @@ import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.FileProvider;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appfiles.config.FileStorageProperties;
+import tw.bk.appfiles.model.FileView;
 import tw.bk.apppersistence.entity.FileEntity;
 import tw.bk.apppersistence.repository.FileRepository;
 import io.minio.GetPresignedObjectUrlArgs;
@@ -128,6 +129,11 @@ public class FileService {
         }
     }
 
+    @Transactional
+    public FileView uploadView(Long userId, String contentType, InputStream input) {
+        return toFileView(upload(userId, contentType, input));
+    }
+
     @Transactional(readOnly = true)
     public FileEntity getFile(Long userId, Long fileId) {
         if (userId == null) {
@@ -135,6 +141,11 @@ public class FileService {
         }
         return fileRepository.findByIdAndUserId(fileId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "檔案不存在"));
+    }
+
+    @Transactional(readOnly = true)
+    public FileView getFileView(Long userId, Long fileId) {
+        return toFileView(getFile(userId, fileId));
     }
 
     @Transactional(readOnly = true)
@@ -164,6 +175,35 @@ public class FileService {
 
         Path baseDir = ensureBaseDir();
         Path filePath = baseDir.resolve(file.getObjectKey()).toAbsolutePath().normalize();
+        try {
+            return Files.readAllBytes(filePath);
+        } catch (IOException ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read file content");
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] loadBytes(FileView file) {
+        if (file == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
+        }
+
+        String provider = file.provider();
+        provider = isBlank(provider) ? properties.getProvider() : provider;
+        if (isBlank(provider)) {
+            provider = PROVIDER_LOCAL;
+        }
+        provider = provider.trim().toLowerCase(Locale.ROOT);
+
+        if (!PROVIDER_LOCAL.equals(provider)) {
+            throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "File provider not supported");
+        }
+        if (isBlank(file.objectKey())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File object key not found");
+        }
+
+        Path baseDir = ensureBaseDir();
+        Path filePath = baseDir.resolve(file.objectKey()).toAbsolutePath().normalize();
         try {
             return Files.readAllBytes(filePath);
         } catch (IOException ex) {
@@ -216,7 +256,12 @@ public class FileService {
         }
 
         PresignResult presign = presignByProvider(entity);
-        return new PresignResult(entity, presign.uploadUrl(), presign.method(), presign.headers());
+        return new PresignResult(
+                entity.getId(),
+                entity.getObjectKey(),
+                presign.uploadUrl(),
+                presign.method(),
+                presign.headers());
     }
 
     @Transactional(readOnly = true)
@@ -226,16 +271,41 @@ public class FileService {
         }
         FileProvider provider = resolveProvider(file);
         if (provider == FileProvider.S3) {
-            return presignS3Download(file);
+            return presignS3Download(file.getObjectKey());
         }
         if (provider == FileProvider.MINIO) {
-            return presignMinioDownload(file);
+            return presignMinioDownload(file.getObjectKey());
+        }
+        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Presign download not supported for local storage");
+    }
+
+    @Transactional(readOnly = true)
+    public String presignDownloadUrl(FileView file) {
+        if (file == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
+        }
+        FileProvider provider = resolveProvider(file);
+        if (provider == FileProvider.S3) {
+            return presignS3Download(file.objectKey());
+        }
+        if (provider == FileProvider.MINIO) {
+            return presignMinioDownload(file.objectKey());
         }
         throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Presign download not supported for local storage");
     }
 
     public FileProvider resolveProvider(FileEntity file) {
         String provider = isBlank(file.getProvider()) ? properties.getProvider() : file.getProvider();
+        if (isBlank(provider)) {
+            provider = PROVIDER_LOCAL;
+        }
+        FileProvider resolved = FileProvider.from(provider);
+        return resolved != null ? resolved : FileProvider.LOCAL;
+    }
+
+    public FileProvider resolveProvider(FileView file) {
+        String provider = file == null ? null : file.provider();
+        provider = isBlank(provider) ? properties.getProvider() : provider;
         if (isBlank(provider)) {
             provider = PROVIDER_LOCAL;
         }
@@ -338,7 +408,7 @@ public class FileService {
             PresignedPutObjectRequest presigned = presigner.presignPutObject(presignRequest);
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", entity.getContentType());
-            return new PresignResult(entity, presigned.url().toString(), "PUT", headers);
+            return new PresignResult(entity.getId(), entity.getObjectKey(), presigned.url().toString(), "PUT", headers);
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign S3 upload");
         }
@@ -373,13 +443,13 @@ public class FileService {
 
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", entity.getContentType());
-            return new PresignResult(entity, url, "PUT", headers);
+            return new PresignResult(entity.getId(), entity.getObjectKey(), url, "PUT", headers);
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign MinIO upload");
         }
     }
 
-    private String presignS3Download(FileEntity entity) {
+    private String presignS3Download(String objectKey) {
         String bucket = requireBucket();
         String region = isBlank(properties.getRegion()) ? "us-east-1" : properties.getRegion().trim();
         String accessKey = properties.getAccessKey();
@@ -399,7 +469,7 @@ public class FileService {
 
         GetObjectRequest getRequest = GetObjectRequest.builder()
                 .bucket(bucket)
-                .key(entity.getObjectKey())
+                .key(objectKey)
                 .build();
 
         int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
@@ -416,7 +486,7 @@ public class FileService {
         }
     }
 
-    private String presignMinioDownload(FileEntity entity) {
+    private String presignMinioDownload(String objectKey) {
         String bucket = requireBucket();
         String endpoint = properties.getEndpoint();
         String accessKey = properties.getAccessKey();
@@ -439,7 +509,7 @@ public class FileService {
                     GetPresignedObjectUrlArgs.builder()
                             .method(Method.GET)
                             .bucket(bucket)
-                            .object(entity.getObjectKey())
+                            .object(objectKey)
                             .expiry(expirySeconds)
                             .build());
         } catch (Exception ex) {
@@ -453,5 +523,17 @@ public class FileService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bucket is required");
         }
         return bucket.trim();
+    }
+
+    private FileView toFileView(FileEntity entity) {
+        return new FileView(
+                entity.getId(),
+                entity.getProvider(),
+                entity.getBucket(),
+                entity.getObjectKey(),
+                entity.getSha256(),
+                entity.getSizeBytes(),
+                entity.getContentType(),
+                entity.getCreatedAt());
     }
 }

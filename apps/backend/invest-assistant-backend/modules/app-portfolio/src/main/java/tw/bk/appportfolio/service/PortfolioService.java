@@ -7,9 +7,14 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -21,6 +26,8 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.time.ClockProvider;
 import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appportfolio.model.PortfolioSummary;
+import tw.bk.appportfolio.model.PortfolioRefView;
+import tw.bk.appportfolio.model.PortfolioPositionsRebuildResult;
 import tw.bk.appportfolio.model.PortfolioValuationView;
 import tw.bk.appportfolio.model.PortfolioView;
 import tw.bk.appportfolio.model.PositionWithQuote;
@@ -39,6 +46,7 @@ import tw.bk.apppersistence.repository.UserPositionRepository;
 
 @Service
 public class PortfolioService {
+    private static final Logger log = LoggerFactory.getLogger(PortfolioService.class);
     private static final int AMOUNT_SCALE = 6;
     private static final int PRICE_SCALE = 8;
     private static final int AVG_COST_SCALE = 8;
@@ -79,6 +87,25 @@ public class PortfolioService {
     public List<PortfolioView> listPortfolios(Long userId) {
         return portfolioRepository.findByUserId(userId).stream()
                 .map(this::toPortfolioView)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PortfolioRefView> findPortfolioRefById(Long portfolioId) {
+        return portfolioRepository.findById(portfolioId).map(this::toPortfolioRefView);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PortfolioRefView> listPortfolioRefsByUser(Long userId) {
+        return portfolioRepository.findByUserId(userId).stream()
+                .map(this::toPortfolioRefView)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PortfolioRefView> listAllPortfolioRefs() {
+        return portfolioRepository.findAll().stream()
+                .map(this::toPortfolioRefView)
                 .toList();
     }
 
@@ -203,6 +230,50 @@ public class PortfolioService {
         return positionRepository.findByPortfolioId(portfolioId);
     }
 
+    @Transactional
+    public PortfolioPositionsRebuildResult rebuildPositions(Long portfolioId, Long instrumentId) {
+        PortfolioEntity portfolio = portfolioRepository.findById(portfolioId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
+        Long userId = portfolio.getUserId();
+
+        Set<Long> targetInstrumentIds = resolveRebuildTargets(userId, portfolioId, instrumentId);
+        if (targetInstrumentIds.isEmpty()) {
+            return new PortfolioPositionsRebuildResult(
+                    portfolioId,
+                    userId,
+                    0,
+                    0,
+                    0,
+                    List.of());
+        }
+
+        int rebuiltCount = 0;
+        List<Long> failedInstrumentIds = new ArrayList<>();
+        for (Long targetInstrumentId : targetInstrumentIds) {
+            try {
+                rebuildPosition(userId, portfolioId, targetInstrumentId);
+                rebuiltCount++;
+            } catch (RuntimeException ex) {
+                failedInstrumentIds.add(targetInstrumentId);
+                log.warn(
+                        "Rebuild position failed: portfolioId={}, userId={}, instrumentId={}, error={}",
+                        portfolioId,
+                        userId,
+                        targetInstrumentId,
+                        ex.getMessage(),
+                        ex);
+            }
+        }
+
+        return new PortfolioPositionsRebuildResult(
+                portfolioId,
+                userId,
+                targetInstrumentIds.size(),
+                rebuiltCount,
+                failedInstrumentIds.size(),
+                List.copyOf(failedInstrumentIds));
+    }
+
     /**
      * 取得持倉列表（含報價與損益計算）
      *
@@ -218,6 +289,17 @@ public class PortfolioService {
         return positions.stream()
                 .map(pos -> buildPositionWithQuote(pos, quoteProvider))
                 .toList();
+    }
+
+    private Set<Long> resolveRebuildTargets(Long userId, Long portfolioId, Long instrumentId) {
+        Set<Long> targets = new LinkedHashSet<>();
+        if (instrumentId != null) {
+            targets.add(instrumentId);
+            return targets;
+        }
+        targets.addAll(tradeRepository.findDistinctInstrumentIdsByUserIdAndPortfolioId(userId, portfolioId));
+        targets.addAll(positionRepository.findDistinctInstrumentIdsByPortfolioId(portfolioId));
+        return targets;
     }
 
     private PositionWithQuote buildPositionWithQuote(UserPositionEntity pos, QuoteProvider quoteProvider) {
@@ -496,6 +578,12 @@ public class PortfolioService {
                 entity.getId(),
                 entity.getName(),
                 entity.getBaseCurrency());
+    }
+
+    private PortfolioRefView toPortfolioRefView(PortfolioEntity entity) {
+        return new PortfolioRefView(
+                entity.getId(),
+                entity.getUserId());
     }
 
     private PortfolioValuationView toPortfolioValuationView(PortfolioValuationEntity entity) {

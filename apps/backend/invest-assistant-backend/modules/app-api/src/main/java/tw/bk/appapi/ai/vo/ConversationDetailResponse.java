@@ -6,7 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import tw.bk.apppersistence.entity.ConversationEntity;
+import tw.bk.appai.model.ConversationView;
 
 @Data
 @Builder
@@ -20,13 +20,13 @@ public class ConversationDetailResponse {
     private OffsetDateTime updatedAt;
     private List<ConversationMessageResponse> messages;
 
-    public static ConversationDetailResponse of(ConversationEntity entity, List<ConversationMessageResponse> messages) {
+    public static ConversationDetailResponse of(ConversationView entity, List<ConversationMessageResponse> messages) {
         return ConversationDetailResponse.builder()
-                .conversationId(entity.getId() != null ? entity.getId().toString() : null)
-                .title(entity.getTitle())
-                .summary(entity.getSummary())
-                .createdAt(entity.getCreatedAt())
-                .updatedAt(entity.getUpdatedAt())
+                .conversationId(entity.id() != null ? entity.id().toString() : null)
+                .title(entity.title())
+                .summary(entity.summary())
+                .createdAt(entity.createdAt())
+                .updatedAt(entity.updatedAt())
                 .messages(messages)
                 .build();
     }

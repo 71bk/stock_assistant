@@ -4,7 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import tw.bk.apppersistence.entity.UserSettingsEntity;
+import tw.bk.appauth.model.UserSettingsView;
 
 @Data
 @Builder
@@ -14,10 +14,10 @@ public class UserSettingsResponse {
     private String baseCurrency;
     private String displayTimezone;
 
-    public static UserSettingsResponse from(UserSettingsEntity entity) {
+    public static UserSettingsResponse from(UserSettingsView entity) {
         return UserSettingsResponse.builder()
-                .baseCurrency(entity.getBaseCurrency())
-                .displayTimezone(entity.getDisplayTimezone())
+                .baseCurrency(entity.baseCurrency())
+                .displayTimezone(entity.displayTimezone())
                 .build();
     }
 }

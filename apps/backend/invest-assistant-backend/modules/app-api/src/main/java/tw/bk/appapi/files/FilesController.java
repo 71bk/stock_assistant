@@ -26,9 +26,9 @@ import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appfiles.model.FileView;
 import tw.bk.appfiles.model.PresignResult;
 import tw.bk.appfiles.service.FileService;
-import tw.bk.apppersistence.entity.FileEntity;
 import jakarta.validation.Valid;
 
 @Slf4j
@@ -55,9 +55,9 @@ public class FilesController {
         }
         Long userId = requireUserId();
         log.info("檔案上傳 userId={}", userId);
-        FileEntity entity;
+        FileView entity;
         try {
-            entity = fileService.upload(userId, file.getContentType(), file.getInputStream());
+            entity = fileService.uploadView(userId, file.getContentType(), file.getInputStream());
         } catch (Exception ex) {
             if (ex instanceof BusinessException) {
                 throw (BusinessException) ex;
@@ -71,7 +71,7 @@ public class FilesController {
     @Operation(summary = "Get file metadata")
     public Result<FileResponse> getMetadata(@PathVariable String fileId) {
         Long userId = requireUserId();
-        FileEntity entity = fileService.getFile(userId, parseId(fileId));
+        FileView entity = fileService.getFileView(userId, parseId(fileId));
         return Result.ok(FileResponse.from(entity));
     }
 
@@ -80,7 +80,7 @@ public class FilesController {
     public Result<FileUrlResponse> getFileUrl(@PathVariable String fileId) {
         Long userId = requireUserId();
         Long id = parseId(fileId);
-        FileEntity file = fileService.getFile(userId, id);
+        FileView file = fileService.getFileView(userId, id);
         FileProvider provider = fileService.resolveProvider(file);
 
         if (provider == FileProvider.LOCAL) {
@@ -104,9 +104,9 @@ public class FilesController {
     public ResponseEntity<byte[]> getContent(@PathVariable String fileId) {
         Long userId = requireUserId();
         Long id = parseId(fileId);
-        FileEntity file = fileService.getFile(userId, id);
-        byte[] bytes = fileService.loadBytes(file);
-        MediaType mediaType = parseMediaType(file.getContentType());
+        FileView file = fileService.getFileView(userId, id);
+        byte[] bytes = fileService.loadBytes(userId, id);
+        MediaType mediaType = parseMediaType(file.contentType());
         return ResponseEntity.ok()
                 .contentType(mediaType)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline")

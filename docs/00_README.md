@@ -1,6 +1,6 @@
 # 文件導覽（docs/）
 
-> 更新日期：2026-01-07  
+> 更新日期：2026-02-09  
 > 目標：把「穩定不常改」的內容留在架構書，會一直變動的細節拆到各自文件，避免所有內容都塞在同一份。
 
 ---
@@ -16,7 +16,7 @@
 8. **08_AI_RAG_設計.md**：Prompt、Chunking/Embedding、pgvector、citations
 9. **09_Stocks_行情代理.md**：第三方 API proxy、cache TTL、rate limit、symbol_key
 10. **10_部署與基礎設施.md**：Docker Compose、Nginx、env、CI/CD
-11. **11_可觀測性與日誌.md**：log/trace/metrics（v1 後補）
+11. **11_可觀測性與日誌.md**：log/trace/metrics（已落地基礎監控）
 12. **12_後端開發規範.md**：模組依賴、DTO/VO、例外處理、交易邊界
 
 ---
@@ -68,4 +68,3 @@
   不要塞表欄位、Redis key、Nginx 設定、程式碼片段。
 - 需要新增規格 → **加到對應文件**，並在架構書補一行連結即可。
 - 重大決策 → **寫 ADR**，架構書引用 ADR。
-

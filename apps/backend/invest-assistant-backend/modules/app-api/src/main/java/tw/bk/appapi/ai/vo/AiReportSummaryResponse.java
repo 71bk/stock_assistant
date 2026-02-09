@@ -5,8 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appai.model.AiReportView;
 import tw.bk.appcommon.enums.AiReportType;
-import tw.bk.apppersistence.entity.AiReportEntity;
 
 @Data
 @Builder
@@ -23,13 +23,13 @@ public class AiReportSummaryResponse {
 
     private OffsetDateTime createdAt;
 
-    public static AiReportSummaryResponse from(AiReportEntity entity) {
+    public static AiReportSummaryResponse from(AiReportView entity) {
         return AiReportSummaryResponse.builder()
-                .reportId(entity.getId() != null ? entity.getId().toString() : null)
-                .reportType(AiReportType.from(entity.getReportType()))
-                .portfolioId(entity.getPortfolioId() != null ? entity.getPortfolioId().toString() : null)
-                .instrumentId(entity.getInstrumentId() != null ? entity.getInstrumentId().toString() : null)
-                .createdAt(entity.getCreatedAt())
+                .reportId(entity.id() != null ? entity.id().toString() : null)
+                .reportType(entity.reportType())
+                .portfolioId(entity.portfolioId() != null ? entity.portfolioId().toString() : null)
+                .instrumentId(entity.instrumentId() != null ? entity.instrumentId().toString() : null)
+                .createdAt(entity.createdAt())
                 .build();
     }
 }

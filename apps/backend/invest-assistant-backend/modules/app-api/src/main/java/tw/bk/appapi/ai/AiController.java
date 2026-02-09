@@ -27,6 +27,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tw.bk.appai.client.GroqChatClient;
 import tw.bk.appai.model.AiAnalysisInput;
 import tw.bk.appai.model.AiReportContext;
+import tw.bk.appai.model.AiReportView;
 import tw.bk.appai.service.AiReportService;
 import tw.bk.appapi.ai.dto.AiAnalysisRequest;
 import tw.bk.appapi.ai.vo.AiReportResponse;
@@ -37,7 +38,6 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
-import tw.bk.apppersistence.entity.AiReportEntity;
 
 /**
  * AI 分析 API 控制器。
@@ -149,12 +149,12 @@ public class AiController {
                             }
                             // Step 3: 儲存報告並送 done
                             try {
-                                AiReportEntity report = aiReportService.saveReport(context, buffer.toString());
+                                AiReportView report = aiReportService.saveReport(context, buffer.toString());
                                 Map<String, Object> done = new LinkedHashMap<>();
-                                done.put("reportId", report.getId() != null ? report.getId().toString() : null);
+                                done.put("reportId", report.id() != null ? report.id().toString() : null);
                                 emitter.send(SseEmitter.event().name("done").data(done));
                                 log.info("SSE stream completed: requestId={}, reportId={}",
-                                        requestId, report.getId());
+                                        requestId, report.id());
                             } catch (Exception ex) {
                                 log.error("Failed to save report or send done", ex);
                             } finally {
@@ -186,7 +186,7 @@ public class AiController {
             @RequestParam(defaultValue = "20") int size) {
         Long userId = requireUserId();
         PageableInfo pageInfo = buildPageable(page, size);
-        Page<AiReportEntity> reports = aiReportService.listReports(userId, pageInfo.pageable);
+        Page<AiReportView> reports = aiReportService.listReports(userId, pageInfo.pageable);
         List<AiReportSummaryResponse> items = reports.getContent().stream()
                 .map(AiReportSummaryResponse::from)
                 .toList();
@@ -200,7 +200,7 @@ public class AiController {
     @Operation(summary = "Get AI report detail")
     public Result<AiReportResponse> getReport(@PathVariable String reportId) {
         Long userId = requireUserId();
-        AiReportEntity report = aiReportService.getReport(userId, parseId(reportId));
+        AiReportView report = aiReportService.getReport(userId, parseId(reportId));
         return Result.ok(AiReportResponse.from(report));
     }
 

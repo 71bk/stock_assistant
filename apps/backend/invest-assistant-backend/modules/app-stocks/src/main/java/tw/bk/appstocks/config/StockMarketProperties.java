@@ -17,6 +17,7 @@ public class StockMarketProperties {
     private Tpex tpex = new Tpex();
     private Twse twse = new Twse();
     private Cache cache = new Cache();
+    private RateLimit rateLimit = new RateLimit();
 
     @Data
     public static class Alpaca {
@@ -52,5 +53,28 @@ public class StockMarketProperties {
          * Candles 快取 TTL（毫秒）
          */
         private long candlesTtl = 3600000;
+    }
+
+    @Data
+    public static class RateLimit {
+        /**
+         * Enable in-process rate limiting for external market APIs.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Fixed window size in milliseconds.
+         */
+        private long windowMs = 1000;
+
+        /**
+         * Allowed requests per window for Alpaca calls.
+         */
+        private int alpacaLimit = 8;
+
+        /**
+         * Allowed requests per window for Fugle calls.
+         */
+        private int fugleLimit = 8;
     }
 }

@@ -26,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tw.bk.appai.client.GroqChatClient;
+import tw.bk.appai.model.ConversationMessageView;
+import tw.bk.appai.model.ConversationView;
 import tw.bk.appai.model.InstrumentCandidate;
 import tw.bk.appai.model.QuoteCandidate;
 import tw.bk.appai.service.AiConversationService;
@@ -42,8 +44,6 @@ import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
-import tw.bk.apppersistence.entity.ConversationEntity;
-import tw.bk.apppersistence.entity.ConversationMessageEntity;
 
 @RestController
 @RequestMapping("/ai/conversations")
@@ -105,7 +105,7 @@ public class AiConversationController {
     @Operation(summary = "Create conversation")
     public Result<ConversationSummaryResponse> createConversation(@RequestBody CreateConversationRequest request) {
         Long userId = requireUserId();
-        ConversationEntity conversation = conversationService.createConversation(userId,
+        ConversationView conversation = conversationService.createConversation(userId,
                 request != null ? request.getTitle() : null);
         return Result.ok(ConversationSummaryResponse.from(conversation));
     }
@@ -116,7 +116,7 @@ public class AiConversationController {
             @RequestBody UpdateConversationRequest request) {
         Long userId = requireUserId();
         Long id = parseId(conversationId);
-        ConversationEntity conversation = conversationService.updateTitle(userId, id,
+        ConversationView conversation = conversationService.updateTitle(userId, id,
                 request != null ? request.getTitle() : null);
         return Result.ok(ConversationSummaryResponse.from(conversation));
     }
@@ -137,7 +137,7 @@ public class AiConversationController {
             @RequestParam(required = false) Integer limit) {
         Long userId = requireUserId();
         Long id = parseId(conversationId);
-        ConversationEntity conversation = conversationService.getConversation(userId, id);
+        ConversationView conversation = conversationService.getConversation(userId, id);
         List<ConversationMessageResponse> messages = conversationService.getRecentMessages(userId, id, limit).stream()
                 .map(ConversationMessageResponse::from)
                 .toList();
@@ -156,23 +156,23 @@ public class AiConversationController {
 
         CompletableFuture.runAsync(() -> {
             try {
-                ConversationMessageEntity userMessage = conversationService.appendUserMessage(
+                ConversationMessageView userMessage = conversationService.appendUserMessage(
                         userId, id, content, clientMessageId);
-                sendMeta(emitter, requestId, id, userMessage.getId());
+                sendMeta(emitter, requestId, id, userMessage.id());
 
-                String directQuoteReply = buildDirectQuoteReply(userId, id, userMessage.getId(), content);
+                String directQuoteReply = buildDirectQuoteReply(userId, id, userMessage.id(), content);
                 if (directQuoteReply != null) {
                     sendDelta(emitter, directQuoteReply);
-                    ConversationMessageEntity assistant = conversationService.appendAssistantMessage(
+                    ConversationMessageView assistant = conversationService.appendAssistantMessage(
                             userId, id, directQuoteReply, ConversationMessageStatus.COMPLETED);
-                    sendDone(emitter, assistant.getId());
+                    sendDone(emitter, assistant.id());
                     return;
                 }
 
-                String toolContext = buildInstrumentContext(userId, id, userMessage.getId(), content);
+                String toolContext = buildInstrumentContext(userId, id, userMessage.id(), content);
                 List<Map<String, String>> messages = toolContext == null
-                        ? conversationService.buildContextMessages(userId, id, content, userMessage.getId())
-                        : conversationService.buildContextMessagesWithTool(userId, id, content, userMessage.getId(),
+                        ? conversationService.buildContextMessages(userId, id, content, userMessage.id())
+                        : conversationService.buildContextMessagesWithTool(userId, id, content, userMessage.id(),
                                 toolContext);
                 StringBuilder buffer = new StringBuilder();
                 AtomicBoolean failed = new AtomicBoolean(false);
@@ -201,9 +201,9 @@ public class AiConversationController {
                                 return;
                             }
                             try {
-                                ConversationMessageEntity assistant = conversationService.appendAssistantMessage(
+                                ConversationMessageView assistant = conversationService.appendAssistantMessage(
                                         userId, id, buffer.toString(), ConversationMessageStatus.COMPLETED);
-                                sendDone(emitter, assistant.getId());
+                                sendDone(emitter, assistant.id());
                             } catch (Exception ex) {
                                 log.error("Failed to save assistant message", ex);
                             } finally {
@@ -390,20 +390,20 @@ public class AiConversationController {
         }
 
         int lookback = Math.min(Math.max(pronounLookbackLimit, 1), 10);
-        List<ConversationMessageEntity> recentMessages = conversationService.getRecentMessages(userId, conversationId,
+        List<ConversationMessageView> recentMessages = conversationService.getRecentMessages(userId, conversationId,
                 lookback + 2);
         for (int i = recentMessages.size() - 1; i >= 0; i--) {
-            ConversationMessageEntity message = recentMessages.get(i);
+            ConversationMessageView message = recentMessages.get(i);
             if (message == null) {
                 continue;
             }
-            if (currentUserMessageId != null && currentUserMessageId.equals(message.getId())) {
+            if (currentUserMessageId != null && currentUserMessageId.equals(message.id())) {
                 continue;
             }
-            if (!"user".equalsIgnoreCase(message.getRole())) {
+            if (message.role() == null || !"user".equalsIgnoreCase(message.role().value())) {
                 continue;
             }
-            List<InstrumentCandidate> candidates = resolveCandidates(message.getContent(), limit);
+            List<InstrumentCandidate> candidates = resolveCandidates(message.content(), limit);
             if (candidates != null && !candidates.isEmpty()) {
                 rememberLastMentionedSymbolKey(userId, conversationId, candidates.get(0));
                 return candidates;

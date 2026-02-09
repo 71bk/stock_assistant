@@ -5,7 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import tw.bk.appcommon.enums.AssetType;
-import tw.bk.apppersistence.entity.InstrumentEntity;
+import tw.bk.appstocks.model.InstrumentView;
 
 /**
  * 商品搜尋回應（用於自動補全）
@@ -64,17 +64,17 @@ public class InstrumentResponse {
     /**
      * 從 Entity 轉換
      */
-    public static InstrumentResponse from(InstrumentEntity entity) {
+    public static InstrumentResponse from(InstrumentView entity) {
         return InstrumentResponse.builder()
-                .instrumentId(entity.getId() != null ? entity.getId().toString() : null)
-                .symbolKey(entity.getSymbolKey())
-                .ticker(entity.getTicker())
-                .nameZh(entity.getNameZh())
-                .nameEn(entity.getNameEn())
-                .market(entity.getMarket() != null ? entity.getMarket().getCode() : null)
-                .exchange(entity.getExchange() != null ? entity.getExchange().getCode() : null)
-                .currency(entity.getCurrency())
-                .assetType(entity.getAssetTypeEnum())
+                .instrumentId(entity.id() != null ? entity.id().toString() : null)
+                .symbolKey(entity.symbolKey())
+                .ticker(entity.ticker())
+                .nameZh(entity.nameZh())
+                .nameEn(entity.nameEn())
+                .market(entity.marketCode())
+                .exchange(entity.exchangeCode())
+                .currency(entity.currency())
+                .assetType(entity.assetType())
                 .build();
     }
 }

@@ -6,6 +6,7 @@ import type { RagDocument } from '@/api/rag.api';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatDateTime } from '@/utils/format';
+import { logger } from '@/utils/logger';
 
 const { Dragger } = Upload;
 const { TextArea } = Input;
@@ -26,7 +27,7 @@ const DocumentManager: React.FC = () => {
       setDocuments(res.items);
       setTotalDocs(res.total);
     } catch (error) {
-      console.error(error);
+      logger.error('Failed to fetch documents', error);
       message.error('無法載入文件列表');
     } finally {
       setLoadingDocs(false);
@@ -51,7 +52,7 @@ const DocumentManager: React.FC = () => {
       setFileList([]);
       fetchDocuments(); // Refresh list
     } catch (error) {
-      console.error(error);
+      logger.error('Upload document failed', error);
       message.error('文件上傳失敗');
     } finally {
       setUploading(false);
@@ -74,7 +75,7 @@ const DocumentManager: React.FC = () => {
       textForm.resetFields();
       fetchDocuments(); // Refresh list
     } catch (error) {
-      console.error(error);
+      logger.error('Ingest text failed', error);
       message.error('寫入失敗');
     } finally {
       setUploading(false);
@@ -103,7 +104,7 @@ const DocumentManager: React.FC = () => {
       message.success('文件已刪除');
       fetchDocuments();
     } catch (error) {
-      console.error(error);
+      logger.error('Delete document failed', error);
       message.error('刪除失敗');
     }
   };

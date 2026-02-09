@@ -16,6 +16,7 @@ import type { GetProp, UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { PageContainer } from '../../components/layout/PageContainer';
+import { logger } from '../../utils/logger';
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
 
@@ -71,7 +72,7 @@ return (
     />
     <div style={{ marginTop: 20 }}>
       {isFailedOrCancelled ? (
-        <Space orientation="vertical" size="middle">
+        <Space direction="vertical" size="middle">
           <Text type={jobStatus === 'FAILED' ? "danger" : "secondary"}>
             {jobStatus === 'FAILED' ? (errorMessage || 'OCR 解析失敗，請嘗試其他影像或重試。') : '您已取消此任務。'}
           </Text>
@@ -85,7 +86,7 @@ return (
           </Space>
         </Space>
       ) : (
-        <Space orientation="vertical" size="middle">
+        <Space direction="vertical" size="middle">
           <Text type="secondary">正在辨識日期、代號與金額...</Text>
           <Space>
             <Button icon={<ReloadOutlined />} onClick={reprocessJob} size="small">
@@ -124,7 +125,7 @@ const ReviewStep: React.FC = () => {
           setFileType(isPdf ? 'pdf' : 'image');
         }
       } catch (e) {
-        console.error('Failed to load preview', e);
+        logger.error('Failed to load preview', e);
       } finally {
         setLoadingPreview(false);
       }

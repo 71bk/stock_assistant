@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tw.bk.appai.model.ConversationMessageView;
+import tw.bk.appai.model.ConversationView;
 import tw.bk.appcommon.enums.ConversationMessageStatus;
 import tw.bk.appcommon.enums.ConversationRole;
 import tw.bk.appcommon.enums.ErrorCode;
@@ -44,7 +46,7 @@ public class AiConversationService {
     private int tokenBudget;
 
     @Transactional
-    public ConversationEntity createConversation(Long userId, String title) {
+    public ConversationView createConversation(Long userId, String title) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -60,19 +62,25 @@ public class AiConversationService {
         systemMessage.setContent(DEFAULT_SYSTEM_PROMPT);
         messageRepository.save(systemMessage);
 
-        return saved;
+        return toConversationView(saved);
     }
 
     @Transactional(readOnly = true)
-    public List<ConversationEntity> listConversations(Long userId) {
+    public List<ConversationView> listConversations(Long userId) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
-        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId).stream()
+                .map(this::toConversationView)
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public ConversationEntity getConversation(Long userId, Long conversationId) {
+    public ConversationView getConversation(Long userId, Long conversationId) {
+        return toConversationView(getConversationEntity(userId, conversationId));
+    }
+
+    private ConversationEntity getConversationEntity(Long userId, Long conversationId) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -81,19 +89,21 @@ public class AiConversationService {
     }
 
     @Transactional(readOnly = true)
-    public List<ConversationMessageEntity> getRecentMessages(Long userId, Long conversationId, Integer limit) {
-        getConversation(userId, conversationId);
+    public List<ConversationMessageView> getRecentMessages(Long userId, Long conversationId, Integer limit) {
+        getConversationEntity(userId, conversationId);
         int size = limit == null ? historyLimit : Math.min(Math.max(limit, 1), 200);
         List<ConversationMessageEntity> recentDesc = messageRepository
                 .findByConversationIdOrderByIdDesc(conversationId, PageRequest.of(0, size));
         Collections.reverse(recentDesc);
-        return recentDesc;
+        return recentDesc.stream()
+                .map(this::toConversationMessageView)
+                .toList();
     }
 
     @Transactional
-    public ConversationMessageEntity appendUserMessage(Long userId, Long conversationId, String content,
+    public ConversationMessageView appendUserMessage(Long userId, Long conversationId, String content,
             String clientMessageId) {
-        ConversationEntity conversation = getConversation(userId, conversationId);
+        ConversationEntity conversation = getConversationEntity(userId, conversationId);
         if (content == null || content.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Message content is required");
         }
@@ -125,13 +135,13 @@ public class AiConversationService {
         } else {
             conversationRepository.touchById(conversationId);
         }
-        return saved;
+        return toConversationMessageView(saved);
     }
 
     @Transactional
-    public ConversationMessageEntity appendAssistantMessage(Long userId, Long conversationId, String content,
+    public ConversationMessageView appendAssistantMessage(Long userId, Long conversationId, String content,
             ConversationMessageStatus status) {
-        getConversation(userId, conversationId);
+        getConversationEntity(userId, conversationId);
         ConversationMessageEntity message = new ConversationMessageEntity();
         message.setConversationId(conversationId);
         message.setRole(ConversationRole.ASSISTANT.value());
@@ -139,25 +149,25 @@ public class AiConversationService {
         message.setStatus(status == null ? null : status.name());
         ConversationMessageEntity saved = messageRepository.save(message);
         conversationRepository.touchById(conversationId);
-        return saved;
+        return toConversationMessageView(saved);
     }
 
     @Transactional
-    public ConversationEntity updateTitle(Long userId, Long conversationId, String title) {
-        ConversationEntity conversation = getConversation(userId, conversationId);
+    public ConversationView updateTitle(Long userId, Long conversationId, String title) {
+        ConversationEntity conversation = getConversationEntity(userId, conversationId);
         if (title == null || title.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Title is required");
         }
         String normalized = title.trim();
         conversationRepository.updateTitleById(conversationId, normalized);
-        return conversationRepository.findByIdAndUserId(conversationId, userId)
-                .orElse(conversation);
+        return toConversationView(conversationRepository.findByIdAndUserId(conversationId, userId)
+                .orElse(conversation));
     }
 
     @Transactional(readOnly = true)
     public List<Map<String, String>> buildContextMessages(Long userId, Long conversationId, String newUserContent,
             Long excludeMessageId) {
-        getConversation(userId, conversationId);
+        getConversationEntity(userId, conversationId);
         ConversationMessageEntity systemMessage = messageRepository
                 .findFirstByConversationIdAndRoleOrderByIdAsc(conversationId, ConversationRole.SYSTEM.value())
                 .orElse(null);
@@ -219,6 +229,24 @@ public class AiConversationService {
             merged.add(messages.get(i));
         }
         return merged;
+    }
+
+    private ConversationView toConversationView(ConversationEntity entity) {
+        return new ConversationView(
+                entity.getId(),
+                entity.getTitle(),
+                entity.getSummary(),
+                entity.getCreatedAt(),
+                entity.getUpdatedAt());
+    }
+
+    private ConversationMessageView toConversationMessageView(ConversationMessageEntity entity) {
+        return new ConversationMessageView(
+                entity.getId(),
+                entity.getRoleEnum(),
+                entity.getContent(),
+                entity.getStatusEnum(),
+                entity.getCreatedAt());
     }
 
     private int estimateTokens(String content) {

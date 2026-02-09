@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Select, Spin, Tag, Empty, Typography } from 'antd';
 import { debounce } from 'lodash';
+import { logger } from '../../utils/logger';
 import { stocksApi } from '../../api/stocks.api';
 import type { Instrument } from '../../api/stocks.api';
 
@@ -26,7 +27,7 @@ export const InstrumentSearch: React.FC<InstrumentSearchProps> = ({ onSelect, st
       const data = await stocksApi.search(value);
       setOptions(data);
     } catch (e) {
-      console.error(e);
+      logger.error('Search instrument failed', e);
       setOptions([]);
     } finally {
       setFetching(false);

@@ -1,12 +1,13 @@
 import { notification } from 'antd';
 import { useCallback } from 'react';
+import { logger } from '../utils/logger';
 
 /**
  * Unified API Error Handling Hook
  */
 export function useApiError() {
   const handleError = useCallback((error: unknown, context?: string) => {
-    console.error(`API Error [${context || 'Unknown'}]:`, error);
+    logger.error(`API Error [${context || 'Unknown'}]:`, error);
 
     let message = '發生未知錯誤，請稍後再試。';
     let description = '';

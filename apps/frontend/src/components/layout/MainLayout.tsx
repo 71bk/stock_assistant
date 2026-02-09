@@ -171,7 +171,7 @@ export const MainLayout: React.FC = () => {
           onClose={() => setDrawerOpen(false)}
           open={drawerOpen}
           styles={{ body: { padding: 0 } }}
-          width={240}
+          width="240px"
         >
           {MenuContent}
         </Drawer>

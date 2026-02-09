@@ -1,6 +1,6 @@
 ﻿# Stocks 行情代理
 
-> 狀態：已實作 (2026-02-06)
+> 狀態：已實作 (2026-02-09)
 
 ## 第三方供應商抽象（Port/Adapter）
 
@@ -29,15 +29,37 @@
 
 | 資料類型 | Cache Key Pattern | 預設 TTL | 更新策略 |
 |---------|-------------------|----------|----------|
-| 即時報價 | `quote:{symbolKey}` | 1 分鐘 | 若快取存在直接回傳；過期則穿透查詢並回寫 |
-| K 線資料 | `candles:{symbolKey}:{interval}:{from}:{to}` | 5 分鐘 | 歷史資料可設更長 TTL |
+| 即時報價 | `quote:{symbolKey}` | 5 分鐘 (`stock.cache.quote-ttl=300000`) | 若快取存在直接回傳；過期則穿透查詢並回寫 |
+| K 線資料 | `candles:{symbolKey}:{interval}:{from}:{to}` | 60 分鐘 (`stock.cache.candles-ttl=3600000`) | 歷史資料可設更長 TTL |
 
 - **防擊穿機制 (Single Flight)**:
   - 使用 `ConcurrentHashMap<String, CompletableFuture>` (`inflight` map)確保同一時間對同一 `symbolKey` 只有一個請求會打到外部 API，其餘請求等待該結果。
 
 ## Rate limit
 
-除了快取外，針對外部 API 實作了 **Rate Limiter** (基於 Token Bucket 或漏桶演算法，視 `app-common` 實作細節而定)，防止觸發第三方服務的 Rate Limit 配額，保障系統穩定性。
+除了快取外，針對外部 API 實作了 **in-process fixed-window Rate Limiter**：
+
+- 實作位置：`ExternalApiRateLimiter`
+- 目前套用：`AlpacaClient`、`FugleClient`
+- 設定鍵：
+  - `stock.rate-limit.enabled`
+  - `stock.rate-limit.window-ms`
+  - `stock.rate-limit.alpaca-limit`
+  - `stock.rate-limit.fugle-limit`
+
+當超過限制時，會回傳 `RATE_LIMITED`，並附帶 `vendor/endpoint/limit/windowMs`。
+
+## Observability 落地
+
+外部行情呼叫已統一記錄結構化欄位與 metrics：
+
+- Log 欄位：`vendor`, `endpoint`, `status`, `latency_ms`, `request_id`, `trace_id`
+- Metrics：
+  - `stock.external.calls`
+  - `stock.external.latency`
+  - `stock.external.ratelimit.blocked`
+  - `stock.cache.requests` (`hit/miss`)
+  - `stock.singleflight.joined`
 
 ## Instrument master（symbol_key/aliases）
 

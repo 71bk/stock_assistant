@@ -1,21 +1,24 @@
+import { lazy } from "react";
 import type { RouteObject } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { RequireAuth, PublicOnly } from "@/utils/guards";
 
-// Pages
-import Dashboard from "@/pages/Dashboard";
-import Portfolio from "@/pages/Portfolio";
-import Trades from "@/pages/Trades";
-import Reports from "@/pages/Reports";
-import Settings from "@/pages/Settings";
-import Stocks from "@/pages/Stocks";
-import ImportPage from "@/pages/Import";
-import ChatPage from "@/pages/Chat";
-import KnowledgeBasePage from "@/pages/KnowledgeBase";
-import { Login } from "@/pages/Auth";
-import OAuthCallback from "@/pages/Auth/Callback";
+// Pages (Lazy Loading)
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Portfolio = lazy(() => import("@/pages/Portfolio"));
+const Trades = lazy(() => import("@/pages/Trades"));
+const Reports = lazy(() => import("@/pages/Reports"));
+const Settings = lazy(() => import("@/pages/Settings"));
+const Stocks = lazy(() => import("@/pages/Stocks"));
+const ImportPage = lazy(() => import("@/pages/Import"));
+const ChatPage = lazy(() => import("@/pages/Chat"));
+const KnowledgeBasePage = lazy(() => import("@/pages/KnowledgeBase"));
+const Login = lazy(() => import("@/pages/Auth").then(module => ({ default: module.Login })));
+const OAuthCallback = lazy(() => import("@/pages/Auth/Callback"));
+
+import { LazyWrapper } from "@/components/common/LazyWrapper";
 
 /**
  * 路由配置
@@ -35,43 +38,83 @@ export const routeConfig: RouteObject[] = [
         children: [
           {
             index: true,
-            element: <Dashboard />, // Redirect root to Dashboard by default for logged-in users
+            element: (
+              <LazyWrapper>
+                <Dashboard />
+              </LazyWrapper>
+            ),
           },
           {
             path: "dashboard",
-            element: <Dashboard />,
+            element: (
+              <LazyWrapper>
+                <Dashboard />
+              </LazyWrapper>
+            ),
           },
           {
             path: "portfolio",
-            element: <Portfolio />,
+            element: (
+              <LazyWrapper>
+                <Portfolio />
+              </LazyWrapper>
+            ),
           },
           {
             path: "trades",
-            element: <Trades />,
+            element: (
+              <LazyWrapper>
+                <Trades />
+              </LazyWrapper>
+            ),
           },
           {
             path: "reports",
-            element: <Reports />,
+            element: (
+              <LazyWrapper>
+                <Reports />
+              </LazyWrapper>
+            ),
           },
           {
             path: "settings",
-            element: <Settings />,
+            element: (
+              <LazyWrapper>
+                <Settings />
+              </LazyWrapper>
+            ),
           },
           {
             path: "stocks",
-            element: <Stocks />,
+            element: (
+              <LazyWrapper>
+                <Stocks />
+              </LazyWrapper>
+            ),
           },
           {
             path: "import",
-            element: <ImportPage />,
+            element: (
+              <LazyWrapper>
+                <ImportPage />
+              </LazyWrapper>
+            ),
           },
           {
             path: "chat",
-            element: <ChatPage />,
+            element: (
+              <LazyWrapper>
+                <ChatPage />
+              </LazyWrapper>
+            ),
           },
           {
             path: "knowledge-base",
-            element: <KnowledgeBasePage />,
+            element: (
+              <LazyWrapper>
+                <KnowledgeBasePage />
+              </LazyWrapper>
+            ),
           },
         ],
       },
@@ -85,11 +128,19 @@ export const routeConfig: RouteObject[] = [
         children: [
           {
             path: "login",
-            element: <Login />,
+            element: (
+              <LazyWrapper>
+                <Login />
+              </LazyWrapper>
+            ),
           },
           {
             path: "callback",
-            element: <OAuthCallback />,
+            element: (
+              <LazyWrapper>
+                <OAuthCallback />
+              </LazyWrapper>
+            ),
           },
         ],
       },

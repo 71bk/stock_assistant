@@ -15,7 +15,7 @@ import tw.bk.appcommon.enums.MarketCode;
 import tw.bk.appcommon.enums.TickerType;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
-import tw.bk.apppersistence.entity.InstrumentEntity;
+import tw.bk.appstocks.model.InstrumentView;
 import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
 import tw.bk.appstocks.model.TickerList;
@@ -95,7 +95,7 @@ public class StockController {
         int safePage = Math.max(1, page) - 1;
         int safeSize = Math.min(Math.max(size, 1), 50);
         Pageable pageable = PageRequest.of(safePage, safeSize);
-        Page<InstrumentEntity> entities = instrumentService.searchInstrumentsPage(q, pageable);
+        Page<InstrumentView> entities = instrumentService.searchInstrumentViewsPage(q, pageable);
         List<InstrumentResponse> items = entities.getContent().stream()
                 .map(InstrumentResponse::from)
                 .collect(Collectors.toList());
@@ -116,17 +116,17 @@ public class StockController {
     @Operation(summary = "取得商品詳情", description = "根據 instrument_id 查詢商品詳細資訊")
     public Result<InstrumentResponse> getInstrument(@PathVariable String instrumentId) {
         // 支援數字 ID 或 symbol_key
-        InstrumentEntity entity;
+        InstrumentView entity;
 
         if (instrumentId.contains(":")) {
             // 是 symbol_key
             validateSymbolKey(instrumentId);
-            entity = instrumentService.findBySymbolKey(instrumentId)
+            entity = instrumentService.findViewBySymbolKey(instrumentId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + instrumentId));
         } else {
             // 是數字 ID
             Long id = parseInstrumentId(instrumentId);
-            entity = instrumentService.findByIdWithRelations(id)
+            entity = instrumentService.findViewByIdWithRelations(id)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + instrumentId));
         }
 
@@ -165,20 +165,20 @@ public class StockController {
             actualSymbolKey = normalizedSymbolKey;
 
             // 取得 instrument_id（如DB有的話）
-            InstrumentEntity entity = instrumentService.findBySymbolKey(normalizedSymbolKey)
+            InstrumentView entity = instrumentService.findViewBySymbolKey(normalizedSymbolKey)
                     .orElse(null);
-            actualInstrumentId = entity != null && entity.getId() != null
-                    ? entity.getId().toString()
+            actualInstrumentId = entity != null && entity.id() != null
+                    ? entity.id().toString()
                     : null;
         } else {
             // 使用 instrument_id 查詢
             Long id = parseInstrumentId(normalizedInstrumentId);
-            InstrumentEntity entity = instrumentService.findById(id)
+            InstrumentView entity = instrumentService.findViewById(id)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
                             "商品不存在: " + normalizedInstrumentId));
 
-            actualSymbolKey = entity.getSymbolKey();
-            actualInstrumentId = entity.getId().toString();
+            actualSymbolKey = entity.symbolKey();
+            actualInstrumentId = entity.id().toString();
 
             // 驗證從 DB 取得的 symbolKey 格式
             validateSymbolKey(actualSymbolKey);
@@ -224,11 +224,11 @@ public class StockController {
         } else {
             // 使用 instrument_id 查詢
             Long id = parseInstrumentId(normalizedInstrumentId);
-            InstrumentEntity entity = instrumentService.findById(id)
+            InstrumentView entity = instrumentService.findViewById(id)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
                             "商品不存在: " + normalizedInstrumentId));
 
-            actualSymbolKey = entity.getSymbolKey();
+            actualSymbolKey = entity.symbolKey();
 
             // 驗證從 DB 取得的 symbolKey 格式
             validateSymbolKey(actualSymbolKey);

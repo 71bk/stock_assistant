@@ -2,7 +2,7 @@ package tw.bk.appapi.stocks.vo;
 
 import lombok.Builder;
 import lombok.Data;
-import tw.bk.apppersistence.entity.WarrantProfileEntity;
+import tw.bk.appstocks.model.WarrantProfileView;
 
 /**
  * Warrant profile response.
@@ -13,10 +13,10 @@ public class WarrantProfileResponse {
     private String underlyingSymbol;
     private String expiryDate;
 
-    public static WarrantProfileResponse from(WarrantProfileEntity entity) {
+    public static WarrantProfileResponse from(WarrantProfileView entity) {
         return WarrantProfileResponse.builder()
-                .underlyingSymbol(entity.getUnderlyingSymbol())
-                .expiryDate(entity.getExpiryDate() != null ? entity.getExpiryDate().toString() : null)
+                .underlyingSymbol(entity.underlyingSymbol())
+                .expiryDate(entity.expiryDate() != null ? entity.expiryDate().toString() : null)
                 .build();
     }
 }

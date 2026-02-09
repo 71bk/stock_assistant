@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tw.bk.appai.model.AiAnalysisInput;
 import tw.bk.appai.model.AiReportContext;
+import tw.bk.appai.model.AiReportView;
 import tw.bk.appcommon.enums.AiReportType;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
@@ -43,23 +44,24 @@ public class AiReportService {
      * 列出使用者的 AI 報告（分頁）。
      */
     @Transactional(readOnly = true)
-    public Page<AiReportEntity> listReports(Long userId, Pageable pageable) {
+    public Page<AiReportView> listReports(Long userId, Pageable pageable) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
-        return aiReportRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable);
+        return aiReportRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable)
+                .map(this::toReportView);
     }
 
     /**
      * 取得單一 AI 報告詳情。
      */
     @Transactional(readOnly = true)
-    public AiReportEntity getReport(Long userId, Long reportId) {
+    public AiReportView getReport(Long userId, Long reportId) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
-        return aiReportRepository.findByIdAndUserId(reportId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Report not found"));
+        return toReportView(aiReportRepository.findByIdAndUserId(reportId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Report not found")));
     }
 
     /**
@@ -111,7 +113,7 @@ public class AiReportService {
      * @return 儲存後的報告實體
      */
     @Transactional
-    public AiReportEntity saveReport(AiReportContext context, String outputText) {
+    public AiReportView saveReport(AiReportContext context, String outputText) {
         if (context == null || context.getUserId() == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -127,14 +129,14 @@ public class AiReportService {
         AiReportEntity saved = aiReportRepository.save(entity);
         log.info("Saved AI report: id={}, userId={}, reportType={}",
                 saved.getId(), saved.getUserId(), saved.getReportType());
-        return saved;
+        return toReportView(saved);
     }
 
     /**
      * 產生報告（非串流版本，用於測試或備用）。
      */
     @Transactional
-    public AiReportEntity generateReport(AiAnalysisInput input) {
+    public AiReportView generateReport(AiAnalysisInput input) {
         if (input == null || input.getUserId() == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -142,6 +144,17 @@ public class AiReportService {
         AiReportContext context = prepareContext(input);
         String outputText = buildOutputText(context);
         return saveReport(context, outputText);
+    }
+
+    private AiReportView toReportView(AiReportEntity entity) {
+        return new AiReportView(
+                entity.getId(),
+                AiReportType.from(entity.getReportType()),
+                entity.getPortfolioId(),
+                entity.getInstrumentId(),
+                entity.getInputSummary(),
+                entity.getOutputText(),
+                entity.getCreatedAt());
     }
 
     // ============================================================

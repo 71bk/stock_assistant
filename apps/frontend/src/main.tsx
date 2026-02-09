@@ -2,10 +2,15 @@ import React from 'react';
 import * as Sentry from "@sentry/react";
 import ReactDOM from 'react-dom/client';
 import App from './app/App';
+import { setupGlobalErrorHandlers } from './utils/setupGlobalErrorHandlers';
+import { VERSION } from './version';
 import './styles/global.css';
 
+setupGlobalErrorHandlers();
+
 Sentry.init({
-  dsn: "https://ad9e4479e68e0eef5600a269f11cb9bd@o4510673121968128.ingest.us.sentry.io/4510826173169664",
+  dsn: import.meta.env.VITE_SENTRY_DSN,
+  release: `frontend@${VERSION.version}+${VERSION.commit}`,
   // Setting this option to true will send default PII data to Sentry.
   // For example, automatic IP address collection on events
   sendDefaultPii: true,

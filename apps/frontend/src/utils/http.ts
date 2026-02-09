@@ -1,4 +1,4 @@
-import axios, { AxiosError, type AxiosInstance, type AxiosResponse } from 'axios';
+import axios, { AxiosError, type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { notification } from 'antd';
 
 // Environment variables can be loaded from import.meta.env (Vite)
@@ -42,9 +42,23 @@ instance.interceptors.response.use(
     return res;
   },
   async (error: AxiosError) => {
+    const config = error.config as InternalAxiosRequestConfig & { retryCount?: number };
     const status = error.response?.status;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = error.response?.data as any;
+    
+    // Retry logic
+    const MAX_RETRIES = 3;
+    const isNetworkError = !error.response && error.code !== 'ECONNABORTED'; // Network error (no response) but not timeout (unless we want to retry timeout too)
+    const isRetryableStatus = status === 408 || (status && status >= 500 && status < 600); // 408 Timeout, 5xx Server Error
+    
+    if (config && (config.retryCount || 0) < MAX_RETRIES && (isNetworkError || isRetryableStatus)) {
+      config.retryCount = (config.retryCount || 0) + 1;
+      const delayMs = Math.pow(2, config.retryCount) * 1000; // Exponential backoff: 2s, 4s, 8s
+      
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      return instance(config);
+    }
+
+    const data = error.response?.data as { error?: { message?: string }; message?: string } | undefined;
 
     if (status === 401) {
       if (!window.location.pathname.includes('/auth/login')) {

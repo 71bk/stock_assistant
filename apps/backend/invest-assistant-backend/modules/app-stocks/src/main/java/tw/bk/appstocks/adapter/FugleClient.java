@@ -3,17 +3,30 @@ package tw.bk.appstocks.adapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.enums.MarketCode;
+import tw.bk.appcommon.exception.BusinessException;
+import tw.bk.appcommon.util.TraceIdUtils;
 import tw.bk.appstocks.adapter.dto.FugleCandlesResponse;
 import tw.bk.appstocks.adapter.dto.FugleQuoteResponse;
 import tw.bk.appstocks.adapter.dto.FugleTickerResponse;
@@ -24,51 +37,61 @@ import tw.bk.appstocks.model.TickerItem;
 import tw.bk.appstocks.model.TickerList;
 import tw.bk.appstocks.model.TickerQuery;
 import tw.bk.appstocks.port.StockMarketClient;
+import tw.bk.appstocks.service.ExternalApiRateLimiter;
+import tw.bk.appstocks.service.StockMetricsRecorder;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-
-/**
- * Fugle API 客戶端（台股）
- * 使用 DTO 避免 Jackson 2 vs 3 衝突
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class FugleClient implements StockMarketClient {
+    private static final String VENDOR = "fugle";
+    private static final String ENDPOINT_QUOTE = "quote";
+    private static final String ENDPOINT_CANDLES = "candles";
+    private static final String ENDPOINT_TICKERS = "tickers";
+    private static final String ENDPOINT_TICKER_DETAIL = "ticker_detail";
+    private static final String HEADER_API_KEY = "X-API-KEY";
+    private static final String HEADER_REQUEST_ID = "X-Request-ID";
 
     private final StockMarketProperties properties;
     private final ObjectMapper objectMapper;
+    private final ExternalApiRateLimiter rateLimiter;
+    private final StockMetricsRecorder metricsRecorder;
     private final RestClient restClient = RestClient.create();
-    private static final String HEADER_API_KEY = "X-API-KEY";
 
     @Override
     public Optional<Quote> getQuote(String ticker) {
+        rateLimiter.acquire(VENDOR, ENDPOINT_QUOTE);
+        long startedAt = System.nanoTime();
         try {
             String url = buildUrl("/intraday/quote", ticker);
 
-            FugleQuoteResponse response = withApiKey(restClient.get().uri(url))
+            ResponseEntity<FugleQuoteResponse> entity = withApiKey(restClient.get().uri(url))
                     .retrieve()
-                    .body(FugleQuoteResponse.class);
+                    .toEntity(FugleQuoteResponse.class);
 
+            String requestId = extractRequestId(entity.getHeaders());
+            int status = entity.getStatusCode().value();
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_QUOTE, status, latencyMs, true);
+            log.info(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={}",
+                    VENDOR,
+                    ENDPOINT_QUOTE,
+                    ticker,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId());
+
+            FugleQuoteResponse response = entity.getBody();
             if (response == null) {
                 log.warn("Fugle quote response is null for ticker: {}", ticker);
                 return Optional.empty();
             }
 
             BigDecimal lastPrice = response.getLastPrice() != null ? response.getLastPrice() : BigDecimal.ZERO;
-            BigDecimal referencePrice = response.getReferencePrice() != null ? response.getReferencePrice()
-                    : BigDecimal.ZERO;
-            BigDecimal change = response.getChange() != null ? response.getChange()
-                    : lastPrice.subtract(referencePrice);
+            BigDecimal referencePrice = response.getReferencePrice() != null ? response.getReferencePrice() : BigDecimal.ZERO;
+            BigDecimal change = response.getChange() != null ? response.getChange() : lastPrice.subtract(referencePrice);
 
             return Optional.of(Quote.builder()
                     .ticker(ticker)
@@ -82,31 +105,56 @@ public class FugleClient implements StockMarketClient {
                     .changePercent(response.getChangePercent())
                     .timestamp(Instant.now())
                     .build());
-
         } catch (RestClientResponseException ex) {
-            if (ex.getStatusCode().value() == 429) {
-                throw rateLimited("Fugle", ticker, ex.getResponseHeaders());
-            }
+            return handleRestClientError(ticker, ENDPOINT_QUOTE, startedAt, ex, true);
+        } catch (Exception ex) {
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_QUOTE, null, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} error={}",
+                    VENDOR,
+                    ENDPOINT_QUOTE,
+                    ticker,
+                    "NA",
+                    latencyMs,
+                    "NA",
+                    TraceIdUtils.getTraceId(),
+                    ex.getMessage());
             log.error("Failed to fetch quote from Fugle for ticker: {}", ticker, ex);
-            return Optional.empty();
-        } catch (Exception e) {
-            log.error("Failed to fetch quote from Fugle for ticker: {}", ticker, e);
             return Optional.empty();
         }
     }
 
     @Override
     public List<Candle> getCandles(String ticker, String interval, LocalDate from, LocalDate to) {
+        rateLimiter.acquire(VENDOR, ENDPOINT_CANDLES);
+        long startedAt = System.nanoTime();
         try {
             String path = shouldUseHistorical(interval, from, to)
                     ? "/historical/candles"
                     : "/intraday/candles";
             String url = buildUrl(path, ticker);
 
-            FugleCandlesResponse response = withApiKey(restClient.get().uri(url))
+            ResponseEntity<FugleCandlesResponse> entity = withApiKey(restClient.get().uri(url))
                     .retrieve()
-                    .body(FugleCandlesResponse.class);
+                    .toEntity(FugleCandlesResponse.class);
 
+            String requestId = extractRequestId(entity.getHeaders());
+            int status = entity.getStatusCode().value();
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_CANDLES, status, latencyMs, true);
+            log.info(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} interval={}",
+                    VENDOR,
+                    ENDPOINT_CANDLES,
+                    ticker,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId(),
+                    interval);
+
+            FugleCandlesResponse response = entity.getBody();
             if (response == null || response.getData() == null) {
                 log.warn("Fugle returned empty candles for ticker: {}", ticker);
                 return List.of();
@@ -134,19 +182,30 @@ public class FugleClient implements StockMarketClient {
             candles.sort(Comparator.comparing(Candle::getTimestamp));
             return candles;
         } catch (RestClientResponseException ex) {
-            if (ex.getStatusCode().value() == 429) {
-                throw rateLimited("Fugle", ticker, ex.getResponseHeaders());
-            }
+            return handleRestClientErrorList(ticker, ENDPOINT_CANDLES, interval, startedAt, ex);
+        } catch (Exception ex) {
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_CANDLES, null, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} interval={} error={}",
+                    VENDOR,
+                    ENDPOINT_CANDLES,
+                    ticker,
+                    "NA",
+                    latencyMs,
+                    "NA",
+                    TraceIdUtils.getTraceId(),
+                    interval,
+                    ex.getMessage());
             log.error("Failed to fetch candles from Fugle for ticker: {}", ticker, ex);
-            return List.of();
-        } catch (Exception e) {
-            log.error("Failed to fetch candles from Fugle for ticker: {}", ticker, e);
             return List.of();
         }
     }
 
     @Override
     public Optional<TickerList> getTickers(TickerQuery query) {
+        rateLimiter.acquire(VENDOR, ENDPOINT_TICKERS);
+        long startedAt = System.nanoTime();
         try {
             String baseUrl = buildUrl("/intraday/tickers");
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(baseUrl);
@@ -163,10 +222,24 @@ public class FugleClient implements StockMarketClient {
             }
 
             String url = builder.build(true).toUriString();
-            String body = withApiKey(restClient.get().uri(url))
+            ResponseEntity<String> entity = withApiKey(restClient.get().uri(url))
                     .retrieve()
-                    .body(String.class);
+                    .toEntity(String.class);
 
+            String requestId = extractRequestId(entity.getHeaders());
+            int status = entity.getStatusCode().value();
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_TICKERS, status, latencyMs, true);
+            log.info(
+                    "external_api_call vendor={} endpoint={} status={} latency_ms={} request_id={} trace_id={}",
+                    VENDOR,
+                    ENDPOINT_TICKERS,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId());
+
+            String body = entity.getBody();
             if (body == null || body.isBlank()) {
                 return Optional.empty();
             }
@@ -175,15 +248,32 @@ public class FugleClient implements StockMarketClient {
             TickerList list = parseTickerList(root, query);
             return Optional.ofNullable(list);
         } catch (RestClientResponseException ex) {
-            if (ex.getStatusCode().value() == 429) {
+            long latencyMs = elapsedMillis(startedAt);
+            int status = ex.getStatusCode().value();
+            String requestId = extractRequestId(ex.getResponseHeaders());
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_TICKERS, status, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} status={} latency_ms={} request_id={} trace_id={} error={}",
+                    VENDOR,
+                    ENDPOINT_TICKERS,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId(),
+                    ex.getMessage());
+            if (status == 429) {
                 throw rateLimited("Fugle", "tickers", ex.getResponseHeaders());
             }
             log.error("Failed to fetch tickers from Fugle", ex);
             return Optional.empty();
         } catch (IOException ex) {
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_TICKERS, null, latencyMs, false);
             log.error("Failed to parse Fugle tickers response", ex);
             return Optional.empty();
         } catch (Exception ex) {
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_TICKERS, null, latencyMs, false);
             log.error("Failed to fetch tickers from Fugle", ex);
             return Optional.empty();
         }
@@ -193,20 +283,54 @@ public class FugleClient implements StockMarketClient {
         if (ticker == null || ticker.isBlank()) {
             return Optional.empty();
         }
+
         String symbol = ticker.trim();
+        rateLimiter.acquire(VENDOR, ENDPOINT_TICKER_DETAIL);
+        long startedAt = System.nanoTime();
         try {
             String url = buildUrl("/intraday/ticker", symbol);
-            FugleTickerResponse response = withApiKey(restClient.get().uri(url))
+            ResponseEntity<FugleTickerResponse> entity = withApiKey(restClient.get().uri(url))
                     .retrieve()
-                    .body(FugleTickerResponse.class);
-            return Optional.ofNullable(response);
+                    .toEntity(FugleTickerResponse.class);
+
+            String requestId = extractRequestId(entity.getHeaders());
+            int status = entity.getStatusCode().value();
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_TICKER_DETAIL, status, latencyMs, true);
+            log.info(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={}",
+                    VENDOR,
+                    ENDPOINT_TICKER_DETAIL,
+                    symbol,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId());
+
+            return Optional.ofNullable(entity.getBody());
         } catch (RestClientResponseException ex) {
-            if (ex.getStatusCode().value() == 429) {
+            long latencyMs = elapsedMillis(startedAt);
+            int status = ex.getStatusCode().value();
+            String requestId = extractRequestId(ex.getResponseHeaders());
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_TICKER_DETAIL, status, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} error={}",
+                    VENDOR,
+                    ENDPOINT_TICKER_DETAIL,
+                    symbol,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId(),
+                    ex.getMessage());
+            if (status == 429) {
                 throw rateLimited("Fugle", symbol, ex.getResponseHeaders());
             }
             log.error("Failed to fetch ticker detail from Fugle: {}", symbol, ex);
             return Optional.empty();
         } catch (Exception ex) {
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_TICKER_DETAIL, null, latencyMs, false);
             log.error("Failed to fetch ticker detail from Fugle: {}", symbol, ex);
             return Optional.empty();
         }
@@ -217,6 +341,63 @@ public class FugleClient implements StockMarketClient {
         return MarketCode.TW;
     }
 
+    private Optional<Quote> handleRestClientError(
+            String ticker,
+            String endpoint,
+            long startedAt,
+            RestClientResponseException ex,
+            boolean quoteFlow) {
+        long latencyMs = elapsedMillis(startedAt);
+        int status = ex.getStatusCode().value();
+        String requestId = extractRequestId(ex.getResponseHeaders());
+        metricsRecorder.recordExternalCall(VENDOR, endpoint, status, latencyMs, false);
+        log.warn(
+                "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} error={}",
+                VENDOR,
+                endpoint,
+                ticker,
+                status,
+                latencyMs,
+                requestId,
+                TraceIdUtils.getTraceId(),
+                ex.getMessage());
+        if (status == 429) {
+            throw rateLimited("Fugle", ticker, ex.getResponseHeaders());
+        }
+        if (quoteFlow) {
+            log.error("Failed to fetch quote from Fugle for ticker: {}", ticker, ex);
+        }
+        return Optional.empty();
+    }
+
+    private List<Candle> handleRestClientErrorList(
+            String ticker,
+            String endpoint,
+            String interval,
+            long startedAt,
+            RestClientResponseException ex) {
+        long latencyMs = elapsedMillis(startedAt);
+        int status = ex.getStatusCode().value();
+        String requestId = extractRequestId(ex.getResponseHeaders());
+        metricsRecorder.recordExternalCall(VENDOR, endpoint, status, latencyMs, false);
+        log.warn(
+                "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} interval={} error={}",
+                VENDOR,
+                endpoint,
+                ticker,
+                status,
+                latencyMs,
+                requestId,
+                TraceIdUtils.getTraceId(),
+                interval,
+                ex.getMessage());
+        if (status == 429) {
+            throw rateLimited("Fugle", ticker, ex.getResponseHeaders());
+        }
+        log.error("Failed to fetch candles from Fugle for ticker: {}", ticker, ex);
+        return List.of();
+    }
+
     private boolean shouldUseHistorical(String interval, LocalDate from, LocalDate to) {
         if (interval != null) {
             String normalized = interval.trim().toLowerCase();
@@ -224,7 +405,7 @@ public class FugleClient implements StockMarketClient {
                 return true;
             }
         }
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
         if (from != null && from.isBefore(today.minusDays(1))) {
             return true;
         }
@@ -244,8 +425,8 @@ public class FugleClient implements StockMarketClient {
             return null;
         }
         try {
-            return LocalDate.parse(dateStr).atStartOfDay();
-        } catch (Exception e) {
+            return LocalDate.parse(dateStr).atStartOfDay(ZoneOffset.UTC).toLocalDateTime();
+        } catch (Exception ex) {
             log.warn("Failed to parse date: {}", dateStr);
             return null;
         }
@@ -340,7 +521,7 @@ public class FugleClient implements StockMarketClient {
     }
 
     private List<JsonNode> toList(JsonNode arrayNode) {
-        List<JsonNode> list = new java.util.ArrayList<>();
+        List<JsonNode> list = new ArrayList<>();
         arrayNode.forEach(list::add);
         return list;
     }
@@ -412,6 +593,21 @@ public class FugleClient implements StockMarketClient {
         }
     }
 
+    private String extractRequestId(HttpHeaders headers) {
+        if (headers == null) {
+            return null;
+        }
+        String requestId = headers.getFirst(HEADER_REQUEST_ID);
+        if (requestId != null && !requestId.isBlank()) {
+            return requestId;
+        }
+        return headers.getFirst("X-Request-Id");
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000L;
+    }
+
     private BusinessException rateLimited(String vendor, String ticker, HttpHeaders headers) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("vendor", vendor);
@@ -421,9 +617,11 @@ public class FugleClient implements StockMarketClient {
             if (retryAfter != null && !retryAfter.isBlank()) {
                 details.put("retryAfter", retryAfter);
             }
+            String requestId = extractRequestId(headers);
+            if (requestId != null && !requestId.isBlank()) {
+                details.put("requestId", requestId);
+            }
         }
-        return new BusinessException(ErrorCode.RATE_LIMITED,
-                "行情供應商限流，請稍後再試。",
-                details);
+        return new BusinessException(ErrorCode.RATE_LIMITED, "External API rate limited", details);
     }
 }

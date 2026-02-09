@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tw.bk.appstocks.model.WarrantProfileView;
 import tw.bk.apppersistence.entity.WarrantProfileEntity;
 import tw.bk.apppersistence.repository.WarrantProfileRepository;
 
@@ -21,6 +22,11 @@ public class WarrantProfileService {
     @Transactional(readOnly = true)
     public Optional<WarrantProfileEntity> findByInstrumentId(Long instrumentId) {
         return warrantProfileRepository.findByInstrumentId(instrumentId);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<WarrantProfileView> findViewByInstrumentId(Long instrumentId) {
+        return findByInstrumentId(instrumentId).map(this::toView);
     }
 
     @Transactional(noRollbackFor = DataIntegrityViolationException.class)
@@ -47,5 +53,11 @@ public class WarrantProfileService {
             }
             return warrantProfileRepository.save(existing);
         }
+    }
+
+    private WarrantProfileView toView(WarrantProfileEntity entity) {
+        return new WarrantProfileView(
+                entity.getUnderlyingSymbol(),
+                entity.getExpiryDate());
     }
 }

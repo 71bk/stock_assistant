@@ -67,7 +67,7 @@ public class WarrantQuoteService {
                 .volume(latest.volume())
                 .change(latest.change())
                 .changePercent(changePercent)
-                .timestamp(latest.date().atStartOfDay().toInstant(ZoneOffset.UTC))
+                .timestamp(latest.date().atStartOfDay(ZoneOffset.UTC).toInstant())
                 .build();
     }
 
@@ -117,7 +117,7 @@ public class WarrantQuoteService {
     }
 
     private LocalDateTime toTimestamp(LocalDate date) {
-        return date.atStartOfDay();
+        return date.atStartOfDay(ZoneOffset.UTC).toLocalDateTime();
     }
 
     private List<TpexWarrantQuote> fetchDailyQuotesCached() {

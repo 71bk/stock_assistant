@@ -20,7 +20,7 @@ import tw.bk.appapi.stocks.vo.WarrantProfileResponse;
 import tw.bk.appcommon.enums.AssetType;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.MarketCode;
-import tw.bk.apppersistence.entity.InstrumentEntity;
+import tw.bk.appstocks.model.InstrumentView;
 import tw.bk.appstocks.service.InstrumentService;
 import tw.bk.appstocks.service.EtfProfileService;
 import tw.bk.appstocks.service.WarrantProfileService;
@@ -49,7 +49,7 @@ public class InstrumentController {
     @PostMapping
     @Operation(summary = "建立商品", description = "手動建立一個新的商品（用於 Fugle 沒有的標的）")
     public Result<InstrumentResponse> createInstrument(@Valid @RequestBody CreateInstrumentRequest request) {
-        InstrumentEntity entity = instrumentService.createInstrument(
+        InstrumentView entity = instrumentService.createInstrumentView(
                 request.getTicker(),
                 request.getNameZh(),
                 request.getNameEn(),
@@ -69,7 +69,7 @@ public class InstrumentController {
             @RequestParam String q,
             @RequestParam(defaultValue = "10") int limit) {
 
-        List<InstrumentEntity> entities = instrumentService.searchInstruments(q, limit);
+        List<InstrumentView> entities = instrumentService.searchInstrumentViews(q, limit);
         List<InstrumentResponse> responses = entities.stream()
                 .map(InstrumentResponse::from)
                 .collect(Collectors.toList());
@@ -84,7 +84,7 @@ public class InstrumentController {
     @Operation(summary = "取得商品詳情", description = "根據 symbol_key 查詢商品詳細資訊，ETF 會額外回傳標的資訊")
     public Result<InstrumentDetailResponse> getInstrument(@PathVariable String symbolKey) {
         validateSymbolKey(symbolKey);
-        InstrumentEntity entity = instrumentService.findBySymbolKey(symbolKey)
+        InstrumentView entity = instrumentService.findViewBySymbolKey(symbolKey)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "商品不存在: " + symbolKey));
 
         InstrumentResponse instrument = InstrumentResponse.from(entity);
@@ -92,13 +92,13 @@ public class InstrumentController {
         // 如果是 ETF，查詢 ETF profile
         EtfProfileResponse etfProfile = null;
         WarrantProfileResponse warrantProfile = null;
-        if (AssetType.ETF.equals(entity.getAssetTypeEnum())) {
-            etfProfile = etfProfileService.findByInstrumentId(entity.getId())
+        if (AssetType.ETF.equals(entity.assetType())) {
+            etfProfile = etfProfileService.findViewByInstrumentId(entity.id())
                     .map(EtfProfileResponse::from)
                     .orElse(null);
         }
-        if (AssetType.WARRANT.equals(entity.getAssetTypeEnum())) {
-            warrantProfile = warrantProfileService.findByInstrumentId(entity.getId())
+        if (AssetType.WARRANT.equals(entity.assetType())) {
+            warrantProfile = warrantProfileService.findViewByInstrumentId(entity.id())
                     .map(WarrantProfileResponse::from)
                     .orElse(null);
         }
@@ -118,7 +118,7 @@ public class InstrumentController {
         int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(safePage, safeSize);
 
-        Page<InstrumentEntity> entities = instrumentService.findAll(pageable);
+        Page<InstrumentView> entities = instrumentService.findAllViews(pageable);
         List<InstrumentResponse> responses = entities.getContent().stream()
                 .map(InstrumentResponse::from)
                 .collect(Collectors.toList());

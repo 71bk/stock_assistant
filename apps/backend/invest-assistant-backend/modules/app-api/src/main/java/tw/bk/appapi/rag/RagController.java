@@ -19,13 +19,13 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appfiles.model.FileView;
 import tw.bk.appfiles.service.FileService;
-import tw.bk.apppersistence.entity.FileEntity;
-import tw.bk.apppersistence.entity.RagDocumentEntity;
-import tw.bk.apppersistence.repository.RagDocumentRepository;
 import tw.bk.apprag.client.AiWorkerIngestResponse;
 import tw.bk.apprag.client.AiWorkerQueryResponse;
 import tw.bk.apprag.client.AiWorkerRagClient;
+import tw.bk.apprag.model.RagDocumentView;
+import tw.bk.apprag.service.RagDocumentService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -39,7 +39,7 @@ public class RagController {
     private final AiWorkerRagClient ragClient;
     private final FileService fileService;
     private final CurrentUserProvider currentUserProvider;
-    private final RagDocumentRepository ragDocumentRepository;
+    private final RagDocumentService ragDocumentService;
 
     @Value("${app.rag.max-file-size-mb:50}")
     private long maxFileSizeMb;
@@ -51,7 +51,7 @@ public class RagController {
             @RequestParam(defaultValue = "20") int size) {
         Long userId = requireUserId();
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by("createdAt").descending());
-        Page<RagDocumentEntity> pageResult = ragDocumentRepository.findByUserId(userId, pageRequest);
+        Page<RagDocumentView> pageResult = ragDocumentService.listByUserId(userId, pageRequest);
 
         return Result.ok(PageResponse.ok(
                 pageResult.getContent().stream().map(RagDocumentResponse::from).toList(),
@@ -64,14 +64,7 @@ public class RagController {
     @Operation(summary = "Delete RAG document")
     public Result<Void> deleteDocument(@PathVariable Long id) {
         Long userId = requireUserId();
-        RagDocumentEntity entity = ragDocumentRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Document not found"));
-
-        if (!entity.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, "Access denied");
-        }
-
-        ragDocumentRepository.delete(entity);
+        ragDocumentService.deleteForUser(userId, id);
         // Note: Ideally we should also call AI Worker or vector DB to delete chunks,
         // but for now we just delete metadata.
         // The cleanup mechanism or cascading delete in DB (if FK exists) would handle
@@ -111,11 +104,11 @@ public class RagController {
         }
 
         Long id = parseId(fileId);
-        FileEntity file = fileService.getFile(userId, id);
-        String contentType = file.getContentType();
+        FileView file = fileService.getFileView(userId, id);
+        String contentType = file.contentType();
         validateFileSize(file);
         FileProvider provider = fileService.resolveProvider(file);
-        String fileName = file.getObjectKey();
+        String fileName = file.objectKey();
         if (title == null || title.isBlank()) {
             title = fileName;
         }
@@ -161,12 +154,12 @@ public class RagController {
         }
     }
 
-    private void validateFileSize(FileEntity file) {
-        if (file == null || file.getSizeBytes() == null) {
+    private void validateFileSize(FileView file) {
+        if (file == null || file.sizeBytes() == null) {
             return;
         }
         long limitBytes = maxFileSizeMb * 1024L * 1024L;
-        if (limitBytes > 0 && file.getSizeBytes() > limitBytes) {
+        if (limitBytes > 0 && file.sizeBytes() > limitBytes) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File size exceeds limit");
         }
     }

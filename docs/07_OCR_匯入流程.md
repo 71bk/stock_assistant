@@ -1,6 +1,6 @@
 # OCR 匯入流程
 
-> 狀態：已實作 (2026-02-06)
+> 狀態：已實作 (2026-02-09)
 
 ## 核心流程 (Pipeline)
 
@@ -24,6 +24,7 @@
 2. **Review (檢視)**:
    - 前端顯示草稿列表，標示 **Warnings** (如：疑似重複交易、交割日早於成交日)。
    - 系統自動計算 `row_hash` 以識別草稿變更。
+   - 草稿驗證採 **Validator Chain**，規則可擴充且不會讓 `saveDrafts` 持續膨脹。
 
 3. **Confirm (確認匯入)**:
    - API: `POST /api/ocr/jobs/{jobId}/confirm`
@@ -50,6 +51,9 @@
 
 - **Job Timeout**: `OcrService` 檢查 `maxRunningMinutes` (預設 30分)，若 Job 卡在 `RUNNING` 過久，視為失敗。
 - **存活檢查**: 若發現舊 Job 為 `FAILED` 或意外卡在 `QUEUED`，再次上傳相同檔案時，會自動重置狀態並重新 Enqueue。
+- **Queue 自我修復**:
+  - Consumer Group 初始化僅在成功（或 `BUSYGROUP` 已存在）時標記 ready。
+  - `readBatch/readPending` 遇到 `NOGROUP` 會重置狀態、重建 Group 並重試一次。
 - **AI Worker 重試**: AI Worker 端針對 LLM Rate Limit 實作了指數退避 (Exponential Backoff) 重試機制。
 
 ## 資料落表設計
@@ -61,4 +65,3 @@
 | 批次 | `app.statements` | 匯入批次，存放原始 LLM JSON |
 | 草稿 | `app.statement_trades` | 待確認的交易，含警告/錯誤資訊 |
 | 正式 | `app.stock_trades` | 確認後的正式交易紀錄 |
-

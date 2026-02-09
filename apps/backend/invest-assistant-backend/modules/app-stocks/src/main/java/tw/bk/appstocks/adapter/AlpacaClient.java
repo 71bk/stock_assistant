@@ -1,5 +1,16 @@
 package tw.bk.appstocks.adapter;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -8,45 +19,38 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.enums.MarketCode;
+import tw.bk.appcommon.exception.BusinessException;
+import tw.bk.appcommon.util.TraceIdUtils;
 import tw.bk.appstocks.adapter.dto.AlpacaBarsResponse;
 import tw.bk.appstocks.adapter.dto.AlpacaQuotesResponse;
 import tw.bk.appstocks.config.StockMarketProperties;
 import tw.bk.appstocks.model.Candle;
 import tw.bk.appstocks.model.Quote;
 import tw.bk.appstocks.port.StockMarketClient;
+import tw.bk.appstocks.service.ExternalApiRateLimiter;
+import tw.bk.appstocks.service.StockMetricsRecorder;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-
-/**
- * Alpaca Markets API 客戶端（美股）
- * 支援 Request ID 追蹤
- * 使用 DTO 避免 Jackson 2 vs 3 衝突
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class AlpacaClient implements StockMarketClient {
-
-    private final StockMarketProperties properties;
-    private final RestClient restClient = RestClient.create();
-
+    private static final String VENDOR = "alpaca";
+    private static final String ENDPOINT_QUOTE = "quote";
+    private static final String ENDPOINT_CANDLES = "candles";
     private static final String HEADER_KEY_ID = "APCA-API-KEY-ID";
     private static final String HEADER_SECRET_KEY = "APCA-API-SECRET-KEY";
     private static final String HEADER_REQUEST_ID = "X-Request-ID";
 
+    private final StockMarketProperties properties;
+    private final ExternalApiRateLimiter rateLimiter;
+    private final StockMetricsRecorder metricsRecorder;
+    private final RestClient restClient = RestClient.create();
+
     @Override
     public Optional<Quote> getQuote(String ticker) {
+        rateLimiter.acquire(VENDOR, ENDPOINT_QUOTE);
+        long startedAt = System.nanoTime();
         try {
             String url = String.format("%s/v2/stocks/quotes/latest?symbols=%s&feed=iex",
                     properties.getAlpaca().getBaseUrl(),
@@ -59,9 +63,19 @@ public class AlpacaClient implements StockMarketClient {
                     .retrieve()
                     .toEntity(AlpacaQuotesResponse.class);
 
-            // 記錄 Request ID
-            String requestId = response.getHeaders().getFirst(HEADER_REQUEST_ID);
-            log.info("Alpaca Quote API - Ticker: {}, Request ID: {}", ticker, requestId);
+            String requestId = extractRequestId(response.getHeaders());
+            int status = response.getStatusCode().value();
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_QUOTE, status, latencyMs, true);
+            log.info(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={}",
+                    VENDOR,
+                    ENDPOINT_QUOTE,
+                    ticker,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId());
 
             AlpacaQuotesResponse body = response.getBody();
             if (body == null || body.getQuotes() == null || !body.getQuotes().containsKey(ticker)) {
@@ -70,7 +84,6 @@ public class AlpacaClient implements StockMarketClient {
             }
 
             AlpacaQuotesResponse.QuoteData quoteData = body.getQuotes().get(ticker);
-
             BigDecimal bidPrice = quoteData.getBp() != null ? quoteData.getBp() : BigDecimal.ZERO;
             BigDecimal askPrice = quoteData.getAp() != null ? quoteData.getAp() : BigDecimal.ZERO;
             BigDecimal midPrice = bidPrice.add(askPrice).divide(BigDecimal.valueOf(2));
@@ -87,21 +100,48 @@ public class AlpacaClient implements StockMarketClient {
                     .changePercent(null)
                     .timestamp(parseTimestamp(quoteData.getT()))
                     .build());
-
         } catch (RestClientResponseException ex) {
-            if (ex.getStatusCode().value() == 429) {
+            long latencyMs = elapsedMillis(startedAt);
+            int status = ex.getStatusCode().value();
+            String requestId = extractRequestId(ex.getResponseHeaders());
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_QUOTE, status, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} error={}",
+                    VENDOR,
+                    ENDPOINT_QUOTE,
+                    ticker,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId(),
+                    ex.getMessage());
+            if (status == 429) {
                 throw rateLimited("Alpaca", ticker, ex.getResponseHeaders());
             }
             log.error("Failed to fetch quote from Alpaca for ticker: {}", ticker, ex);
             return Optional.empty();
-        } catch (Exception e) {
-            log.error("Failed to fetch quote from Alpaca for ticker: {}", ticker, e);
+        } catch (Exception ex) {
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_QUOTE, null, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} error={}",
+                    VENDOR,
+                    ENDPOINT_QUOTE,
+                    ticker,
+                    "NA",
+                    latencyMs,
+                    "NA",
+                    TraceIdUtils.getTraceId(),
+                    ex.getMessage());
+            log.error("Failed to fetch quote from Alpaca for ticker: {}", ticker, ex);
             return Optional.empty();
         }
     }
 
     @Override
     public List<Candle> getCandles(String ticker, String interval, LocalDate from, LocalDate to) {
+        rateLimiter.acquire(VENDOR, ENDPOINT_CANDLES);
+        long startedAt = System.nanoTime();
         try {
             String timeframe = convertInterval(interval);
             String url = buildCandlesUrl(ticker, timeframe, from, to);
@@ -113,9 +153,20 @@ public class AlpacaClient implements StockMarketClient {
                     .retrieve()
                     .toEntity(AlpacaBarsResponse.class);
 
-            String requestId = response.getHeaders().getFirst(HEADER_REQUEST_ID);
-            log.info("Alpaca Bars API - Ticker: {}, Interval: {}, Request ID: {}",
-                    ticker, interval, requestId);
+            String requestId = extractRequestId(response.getHeaders());
+            int status = response.getStatusCode().value();
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_CANDLES, status, latencyMs, true);
+            log.info(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} interval={}",
+                    VENDOR,
+                    ENDPOINT_CANDLES,
+                    ticker,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId(),
+                    interval);
 
             AlpacaBarsResponse body = response.getBody();
             if (body == null || body.getBars() == null || !body.getBars().containsKey(ticker)) {
@@ -132,7 +183,7 @@ public class AlpacaClient implements StockMarketClient {
             for (AlpacaBarsResponse.BarData bar : bars) {
                 Candle candle = Candle.builder()
                         .ticker(ticker)
-                        .timestamp(parseTimestamp(bar.getT()).atZone(ZoneId.systemDefault()).toLocalDateTime())
+                        .timestamp(LocalDateTime.ofInstant(parseTimestamp(bar.getT()), ZoneOffset.UTC))
                         .open(bar.getO() != null ? bar.getO() : BigDecimal.ZERO)
                         .high(bar.getH() != null ? bar.getH() : BigDecimal.ZERO)
                         .low(bar.getL() != null ? bar.getL() : BigDecimal.ZERO)
@@ -144,15 +195,42 @@ public class AlpacaClient implements StockMarketClient {
 
             candles.sort(Comparator.comparing(Candle::getTimestamp));
             return candles;
-
         } catch (RestClientResponseException ex) {
-            if (ex.getStatusCode().value() == 429) {
+            long latencyMs = elapsedMillis(startedAt);
+            int status = ex.getStatusCode().value();
+            String requestId = extractRequestId(ex.getResponseHeaders());
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_CANDLES, status, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} interval={} error={}",
+                    VENDOR,
+                    ENDPOINT_CANDLES,
+                    ticker,
+                    status,
+                    latencyMs,
+                    requestId,
+                    TraceIdUtils.getTraceId(),
+                    interval,
+                    ex.getMessage());
+            if (status == 429) {
                 throw rateLimited("Alpaca", ticker, ex.getResponseHeaders());
             }
             log.error("Failed to fetch candles from Alpaca for ticker: {}", ticker, ex);
             return List.of();
-        } catch (Exception e) {
-            log.error("Failed to fetch candles from Alpaca for ticker: {}", ticker, e);
+        } catch (Exception ex) {
+            long latencyMs = elapsedMillis(startedAt);
+            metricsRecorder.recordExternalCall(VENDOR, ENDPOINT_CANDLES, null, latencyMs, false);
+            log.warn(
+                    "external_api_call vendor={} endpoint={} ticker={} status={} latency_ms={} request_id={} trace_id={} interval={} error={}",
+                    VENDOR,
+                    ENDPOINT_CANDLES,
+                    ticker,
+                    "NA",
+                    latencyMs,
+                    "NA",
+                    TraceIdUtils.getTraceId(),
+                    interval,
+                    ex.getMessage());
+            log.error("Failed to fetch candles from Alpaca for ticker: {}", ticker, ex);
             return List.of();
         }
     }
@@ -170,10 +248,10 @@ public class AlpacaClient implements StockMarketClient {
                 .append("&feed=iex");
 
         if (from != null) {
-            url.append("&start=").append(from.toString());
+            url.append("&start=").append(from);
         }
         if (to != null) {
-            url.append("&end=").append(to.toString());
+            url.append("&end=").append(to);
         }
 
         return url.toString();
@@ -205,6 +283,17 @@ public class AlpacaClient implements StockMarketClient {
         return Instant.parse(timestamp);
     }
 
+    private String extractRequestId(HttpHeaders headers) {
+        if (headers == null) {
+            return null;
+        }
+        return headers.getFirst(HEADER_REQUEST_ID);
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000L;
+    }
+
     private BusinessException rateLimited(String vendor, String ticker, HttpHeaders headers) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("vendor", vendor);
@@ -219,8 +308,6 @@ public class AlpacaClient implements StockMarketClient {
                 details.put("requestId", requestId);
             }
         }
-        return new BusinessException(ErrorCode.RATE_LIMITED,
-                "行情供應商限流，請稍後再試。",
-                details);
+        return new BusinessException(ErrorCode.RATE_LIMITED, "External API rate limited", details);
     }
 }

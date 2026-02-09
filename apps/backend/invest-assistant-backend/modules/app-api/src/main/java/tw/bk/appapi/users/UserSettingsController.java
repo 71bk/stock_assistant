@@ -9,12 +9,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.users.dto.UpdateUserSettingsRequest;
 import tw.bk.appapi.users.vo.UserSettingsResponse;
+import tw.bk.appauth.model.UserSettingsView;
 import tw.bk.appauth.service.UserSettingsService;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
-import tw.bk.apppersistence.entity.UserSettingsEntity;
 
 @RestController
 @RequestMapping("/users")
@@ -34,7 +34,7 @@ public class UserSettingsController {
     public Result<UserSettingsResponse> updateSettings(
             @Valid @RequestBody UpdateUserSettingsRequest request) {
         Long userId = requireUserId();
-        UserSettingsEntity settings = userSettingsService.update(
+        UserSettingsView settings = userSettingsService.update(
                 userId,
                 request.getBaseCurrency(),
                 request.getDisplayTimezone());

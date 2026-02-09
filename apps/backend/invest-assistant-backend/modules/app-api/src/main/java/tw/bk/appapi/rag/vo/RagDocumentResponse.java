@@ -2,7 +2,7 @@ package tw.bk.appapi.rag.vo;
 
 import lombok.Builder;
 import lombok.Data;
-import tw.bk.apppersistence.entity.RagDocumentEntity;
+import tw.bk.apprag.model.RagDocumentView;
 
 import java.time.Instant;
 import java.util.Map;
@@ -17,14 +17,14 @@ public class RagDocumentResponse {
     private Map<String, Object> meta;
     private Instant createdAt;
 
-    public static RagDocumentResponse from(RagDocumentEntity entity) {
+    public static RagDocumentResponse from(RagDocumentView entity) {
         return RagDocumentResponse.builder()
-                .id(entity.getId())
-                .title(entity.getTitle())
-                .sourceType(entity.getSourceType())
-                .sourceId(entity.getSourceId())
-                .meta(entity.getMeta())
-                .createdAt(entity.getCreatedAt())
+                .id(entity.id())
+                .title(entity.title())
+                .sourceType(entity.sourceType())
+                .sourceId(entity.sourceId())
+                .meta(entity.meta())
+                .createdAt(entity.createdAt())
                 .build();
     }
 }

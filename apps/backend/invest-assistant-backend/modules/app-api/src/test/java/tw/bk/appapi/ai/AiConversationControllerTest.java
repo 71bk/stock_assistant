@@ -20,13 +20,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.test.util.ReflectionTestUtils;
 import tw.bk.appai.client.GroqChatClient;
+import tw.bk.appai.model.ConversationMessageView;
 import tw.bk.appai.model.InstrumentCandidate;
 import tw.bk.appai.model.QuoteCandidate;
 import tw.bk.appai.service.AiConversationService;
 import tw.bk.appai.service.AiInstrumentToolService;
 import tw.bk.appai.service.AiQuoteToolService;
+import tw.bk.appcommon.enums.ConversationRole;
 import tw.bk.appcommon.security.CurrentUserProvider;
-import tw.bk.apppersistence.entity.ConversationMessageEntity;
 
 @ExtendWith(MockitoExtension.class)
 class AiConversationControllerTest {
@@ -66,12 +67,12 @@ class AiConversationControllerTest {
     }
 
     @Test
-    void buildInstrumentContext_shouldUseLastMentionedCacheWhenPronounMessageHasNoCandidates() {
+    void buildInstrumentContext_shouldUseLastMentionedCacheWhenQuoteIntentHasNoCandidates() {
         InstrumentCandidate candidate = candidate("TW:XTAI:2330");
         QuoteCandidate quote = quote("TW:XTAI:2330");
         cacheManager.getCache("conversationLastMentioned").put("1:2", "TW:XTAI:2330");
 
-        when(instrumentToolService.searchCandidates("那現在這隻股票價格多少", 10)).thenReturn(List.of());
+        when(instrumentToolService.searchCandidates("show me quote", 10)).thenReturn(List.of());
         when(instrumentToolService.searchCandidates("TW:XTAI:2330", 1)).thenReturn(List.of(candidate));
         when(quoteToolService.getQuote("TW:XTAI:2330")).thenReturn(quote);
 
@@ -81,7 +82,7 @@ class AiConversationControllerTest {
                 1L,
                 2L,
                 3L,
-                "那現在這隻股票價格多少");
+                "show me quote");
 
         assertNotNull(context);
         assertTrue(context.contains("TW:XTAI:2330"));
@@ -92,34 +93,36 @@ class AiConversationControllerTest {
     }
 
     @Test
-    void buildInstrumentContext_shouldLookBackRecentMessagesWhenCacheMiss() {
+    void resolveCandidatesFromConversation_shouldLookBackRecentMessagesWhenCacheMiss() {
         InstrumentCandidate candidate = candidate("TW:XTAI:2330");
-        QuoteCandidate quote = quote("TW:XTAI:2330");
-        ConversationMessageEntity previous = new ConversationMessageEntity();
-        previous.setId(2L);
-        previous.setRole("user");
-        previous.setContent("台積電現在多少");
-        ConversationMessageEntity current = new ConversationMessageEntity();
-        current.setId(3L);
-        current.setRole("user");
-        current.setContent("那現在這隻股票價格多少");
+        ConversationMessageView previous = new ConversationMessageView(
+                2L,
+                ConversationRole.USER,
+                "check 2330",
+                null,
+                null);
+        ConversationMessageView current = new ConversationMessageView(
+                3L,
+                ConversationRole.USER,
+                "what about it",
+                null,
+                null);
 
-        when(instrumentToolService.searchCandidates("那現在這隻股票價格多少", 10)).thenReturn(List.of());
         when(conversationService.getRecentMessages(1L, 2L, 7)).thenReturn(List.of(previous, current));
-        when(instrumentToolService.searchCandidates("台積電現在多少", 10)).thenReturn(List.of(candidate));
-        when(quoteToolService.getQuote("TW:XTAI:2330")).thenReturn(quote);
+        when(instrumentToolService.searchCandidates("check 2330", 10)).thenReturn(List.of(candidate));
 
-        String context = ReflectionTestUtils.invokeMethod(
+        @SuppressWarnings("unchecked")
+        List<InstrumentCandidate> candidates = ReflectionTestUtils.invokeMethod(
                 controller,
-                "buildInstrumentContext",
+                "resolveCandidatesFromConversation",
                 1L,
                 2L,
                 3L,
-                "那現在這隻股票價格多少");
+                10);
 
-        assertNotNull(context);
-        assertTrue(context.contains("TW:XTAI:2330"));
-        assertTrue(context.contains("tool_quote_available: true"));
+        assertNotNull(candidates);
+        assertEquals(1, candidates.size());
+        assertEquals("TW:XTAI:2330", candidates.get(0).symbolKey());
         assertEquals(
                 "TW:XTAI:2330",
                 cacheManager.getCache("conversationLastMentioned").get("1:2", String.class));
@@ -127,34 +130,9 @@ class AiConversationControllerTest {
     }
 
     @Test
-    void buildInstrumentContext_shouldUseCacheOnQuoteIntentWithoutPronoun() {
-        InstrumentCandidate candidate = candidate("TW:XTAI:2330");
-        QuoteCandidate quote = quote("TW:XTAI:2330");
-        cacheManager.getCache("conversationLastMentioned").put("1:2", "TW:XTAI:2330");
-
-        when(instrumentToolService.searchCandidates("現在價格多少", 10)).thenReturn(List.of());
-        when(instrumentToolService.searchCandidates("TW:XTAI:2330", 1)).thenReturn(List.of(candidate));
-        when(quoteToolService.getQuote("TW:XTAI:2330")).thenReturn(quote);
-
-        String context = ReflectionTestUtils.invokeMethod(
-                controller,
-                "buildInstrumentContext",
-                1L,
-                2L,
-                3L,
-                "現在價格多少");
-
-        assertNotNull(context);
-        assertTrue(context.contains("TW:XTAI:2330"));
-        assertTrue(context.contains("quote:"));
-        assertTrue(context.contains("tool_quote_available: true"));
-        verify(conversationService, never()).getRecentMessages(1L, 2L, 7);
-    }
-
-    @Test
     void buildInstrumentContext_shouldExposeQuoteUnavailableSignalOnToolFailure() {
         InstrumentCandidate candidate = candidate("TW:XTAI:2330");
-        when(instrumentToolService.searchCandidates("台積電現在價格多少", 10)).thenReturn(List.of(candidate));
+        when(instrumentToolService.searchCandidates("2330 quote", 10)).thenReturn(List.of(candidate));
         doThrow(new RuntimeException("vendor timeout")).when(quoteToolService).getQuote("TW:XTAI:2330");
 
         String context = ReflectionTestUtils.invokeMethod(
@@ -163,7 +141,7 @@ class AiConversationControllerTest {
                 1L,
                 2L,
                 3L,
-                "台積電現在價格多少");
+                "2330 quote");
 
         assertNotNull(context);
         assertTrue(context.contains("TW:XTAI:2330"));
@@ -179,13 +157,13 @@ class AiConversationControllerTest {
                 1L,
                 2L,
                 3L,
-                "標價多少");
+                "show quote");
 
         assertNull(reply);
     }
 
     private InstrumentCandidate candidate(String symbolKey) {
-        return new InstrumentCandidate(symbolKey, "2330", "台積電", "TW", "XTAI", "STOCK");
+        return new InstrumentCandidate(symbolKey, "2330", "TSMC", "TW", "XTAI", "STOCK");
     }
 
     private QuoteCandidate quote(String symbolKey) {

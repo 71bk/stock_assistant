@@ -7,6 +7,7 @@ import { AddTradeModal } from '../Portfolio/components/AddTradeModal';
 import { PageContainer } from '../../components/layout/PageContainer';
 import { stocksApi } from '../../api/stocks.api';
 import { ErrorState } from '../../components/common/ErrorState';
+import { logger } from '../../utils/logger';
 import type { Trade } from '../../api/portfolios.api';
 import type { Instrument } from '../../api/stocks.api';
 
@@ -38,12 +39,12 @@ const Trades: React.FC = () => {
         Array.from(idsToFetch).map(async (id) => {
           try {
             const res = await stocksApi.getInstrumentById(id);
-            const data = (res as any).data;
+            const data = res;
             if (data) {
               fetchedMap[id] = data;
             }
           } catch (e) {
-            console.error(`Failed to fetch instrument ${id}`, e);
+            logger.error(`Failed to fetch instrument ${id}`, e);
           }
         })
       );
@@ -118,11 +119,11 @@ const Trades: React.FC = () => {
               },
               { title: '數量', dataIndex: 'quantity' },
               { title: '價格', dataIndex: 'price', render: (val) => Number(val).toFixed(2) },
-              { title: '金額', dataIndex: 'netAmount', render: (val, record: any) => formatCurrency(Number(val || (record.price * record.quantity)), record.currency) },
+              { title: '金額', dataIndex: 'netAmount', render: (val, record: Trade) => formatCurrency(Number(val || (Number(record.price) * Number(record.quantity))), record.currency) },
               {
                 title: '操作',
                 key: 'actions',
-                render: (_: any, record: Trade) => (
+                render: (_: unknown, record: Trade) => (
                   <Space>
                     <Button type="text" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
                     <Popconfirm title="確定刪除?" onConfirm={() => deleteTrade(record.tradeId)}>

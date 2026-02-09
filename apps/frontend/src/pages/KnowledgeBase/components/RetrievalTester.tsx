@@ -3,6 +3,7 @@ import { Card, Input, Button, List, Tag, Typography, Slider, Space, Empty, Spin 
 import { SearchOutlined } from '@ant-design/icons';
 import { ragApi, type RagChunk } from '@/api/rag.api';
 import { useAuthStore } from '@/stores/auth.store';
+import { logger } from '@/utils/logger';
 
 const { Paragraph, Text } = Typography;
 
@@ -24,7 +25,7 @@ const RetrievalTester: React.FC = () => {
       const response = await ragApi.query(userId, query, topK);
       setResults(response.chunks || []);
     } catch (error) {
-      console.error(error);
+      logger.error('Retrieval query failed', error);
     } finally {
       setLoading(false);
     }

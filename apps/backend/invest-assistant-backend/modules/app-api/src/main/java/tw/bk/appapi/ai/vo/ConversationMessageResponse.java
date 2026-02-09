@@ -5,9 +5,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import tw.bk.appai.model.ConversationMessageView;
 import tw.bk.appcommon.enums.ConversationMessageStatus;
 import tw.bk.appcommon.enums.ConversationRole;
-import tw.bk.apppersistence.entity.ConversationMessageEntity;
 
 @Data
 @Builder
@@ -20,13 +20,13 @@ public class ConversationMessageResponse {
     private ConversationMessageStatus status;
     private OffsetDateTime createdAt;
 
-    public static ConversationMessageResponse from(ConversationMessageEntity entity) {
+    public static ConversationMessageResponse from(ConversationMessageView entity) {
         return ConversationMessageResponse.builder()
-                .messageId(entity.getId() != null ? entity.getId().toString() : null)
-                .role(entity.getRoleEnum())
-                .content(entity.getContent())
-                .status(entity.getStatusEnum())
-                .createdAt(entity.getCreatedAt())
+                .messageId(entity.id() != null ? entity.id().toString() : null)
+                .role(entity.role())
+                .content(entity.content())
+                .status(entity.status())
+                .createdAt(entity.createdAt())
                 .build();
     }
 }

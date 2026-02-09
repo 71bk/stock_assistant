@@ -2,7 +2,7 @@ package tw.bk.appapi.stocks.vo;
 
 import lombok.Builder;
 import lombok.Data;
-import tw.bk.apppersistence.entity.EtfProfileEntity;
+import tw.bk.appstocks.model.EtfProfileView;
 
 /**
  * ETF Profile Response DTO
@@ -17,15 +17,15 @@ public class EtfProfileResponse {
 
     private String asOfDate;
 
-    public static EtfProfileResponse from(EtfProfileEntity entity) {
+    public static EtfProfileResponse from(EtfProfileView entity) {
         if (entity == null) {
             return null;
         }
 
         return EtfProfileResponse.builder()
-                .underlyingType(entity.getUnderlyingType())
-                .underlyingName(entity.getUnderlyingName())
-                .asOfDate(entity.getAsOfDate() != null ? entity.getAsOfDate().toString() : null)
+                .underlyingType(entity.underlyingType())
+                .underlyingName(entity.underlyingName())
+                .asOfDate(entity.asOfDate() != null ? entity.asOfDate().toString() : null)
                 .build();
     }
 }

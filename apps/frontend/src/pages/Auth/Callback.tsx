@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Spin, Typography } from 'antd';
 import { useAuthStore } from '../../stores/auth.store';
+import { logger } from '../../utils/logger';
 
 const { Text } = Typography;
 
@@ -15,7 +16,7 @@ const AuthCallback: React.FC = () => {
       // 1. Check for errors in URL (e.g. ?error=access_denied)
       const error = searchParams.get('error');
       if (error) {
-        console.error('Auth error:', error);
+        logger.error('Auth error:', error);
         navigate('/auth/login?error=' + error, { replace: true });
         return;
       }

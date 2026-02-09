@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.auth.vo.MeResponse;
+import tw.bk.appauth.model.UserSettingsView;
+import tw.bk.appauth.model.UserView;
 import tw.bk.appauth.config.AuthProperties;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
@@ -24,8 +26,6 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
 import tw.bk.appapi.security.SimpleRateLimiter;
-import tw.bk.apppersistence.entity.UserSettingsEntity;
-import tw.bk.apppersistence.entity.UserEntity;
 
 @RestController
 @RequestMapping("/auth")
@@ -96,10 +96,10 @@ public class AuthController {
     public Result<MeResponse> me() {
         Long userId = currentUserProvider.getUserId()
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
-        Optional<UserEntity> userOpt = userService.findById(userId);
-        UserEntity user = userOpt.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
-        UserSettingsEntity settings = userSettingsService.getOrCreate(userId);
-        MeResponse response = MeResponse.from(user, settings.getBaseCurrency(), settings.getDisplayTimezone());
+        Optional<UserView> userOpt = userService.findById(userId);
+        UserView user = userOpt.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
+        UserSettingsView settings = userSettingsService.getOrCreate(userId);
+        MeResponse response = MeResponse.from(user, settings.baseCurrency(), settings.displayTimezone());
         return Result.ok(response);
     }
 

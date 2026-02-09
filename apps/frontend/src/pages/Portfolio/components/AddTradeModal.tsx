@@ -6,6 +6,7 @@ import type { Instrument } from '../../../api/stocks.api';
 import type { Trade } from '../../../api/portfolios.api';
 import { usePortfolioStore } from '../../../stores/portfolio.store';
 import dayjs from 'dayjs';
+import { logger } from '../../../utils/logger';
 import type { ApiResponse } from '../../../types/api';
 
 const { Text } = Typography;
@@ -92,7 +93,7 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ open, onCancel, on
       setSelectedInstrument(null);
       onSuccess();
     } catch (error) {
-      console.error(error);
+      logger.error(trade ? 'Update trade failed' : 'Add trade failed', error);
       message.error(trade ? '更新交易失敗' : '新增交易失敗');
     }
   };

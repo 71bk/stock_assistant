@@ -1,6 +1,6 @@
 ﻿# API 合約
 
-> 狀態：v0 草稿（可落地）  
+> 狀態：v1.5 持續更新（2026-02-09）  
 > 範圍：MVP + v1（以標註說明）
 
 ---
@@ -107,6 +107,7 @@
 | POST | `/api/admin/instruments/sync` | 從 Fugle 同步 Instrument | 見下方 |
 | POST | `/api/admin/instruments/sync-warrants` | 同步權證（TPEx + TWSE fallback） | 見下方 |
 | POST | `/api/admin/rag/portfolio-snapshots` | 手動觸發投資組合快照向量化 | 見下方 |
+| POST | `/api/admin/portfolios/positions-rebuild` | 手動重算持倉快照（資料修復） | 見下方 |
 
 #### 認證方式
 - 若 **未設定** `APP_ADMIN_API_KEY` → 只要登入即可
@@ -183,6 +184,41 @@ Response：
 備註：
 - 不帶 request body → 觸發所有投資組合快照
 - 快照寫入 RAG（`source_type=portfolio`）
+
+#### 手動重算持倉（`POST /api/admin/portfolios/positions-rebuild`）
+Headers：
+```
+X-Admin-Key: your-secret-key
+```
+
+Request：
+```json
+{
+  "portfolioId": 456,
+  "instrumentId": 1001
+}
+```
+
+Request 欄位：
+- `portfolioId`：必填，目標投資組合 ID
+- `instrumentId`：選填，只重算單一標的；未帶則重算該投資組合全部標的
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "portfolioId": 456,
+    "userId": 123,
+    "targetInstrumentCount": 12,
+    "rebuiltInstrumentCount": 11,
+    "failedInstrumentCount": 1,
+    "failedInstrumentIds": [1001]
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
 
 ---
 

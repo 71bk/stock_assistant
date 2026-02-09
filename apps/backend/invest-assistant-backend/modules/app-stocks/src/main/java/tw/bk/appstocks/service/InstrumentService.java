@@ -10,6 +10,7 @@ import tw.bk.appcommon.enums.AssetType;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.InstrumentStatus;
 import tw.bk.appcommon.exception.BusinessException;
+import tw.bk.appstocks.model.InstrumentView;
 import tw.bk.apppersistence.entity.ExchangeEntity;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.entity.MarketEntity;
@@ -77,11 +78,22 @@ public class InstrumentService {
         return instrumentRepository.save(entity);
     }
 
+    @Transactional
+    public InstrumentView createInstrumentView(String ticker, String nameZh, String nameEn,
+            String marketCode, String exchangeCode,
+            String currency, String assetType) {
+        return toView(createInstrument(ticker, nameZh, nameEn, marketCode, exchangeCode, currency, assetType));
+    }
+
     /**
      * Find by symbol_key.
      */
     public Optional<InstrumentEntity> findBySymbolKey(String symbolKey) {
         return instrumentRepository.findBySymbolKeyWithRelations(symbolKey);
+    }
+
+    public Optional<InstrumentView> findViewBySymbolKey(String symbolKey) {
+        return findBySymbolKey(symbolKey).map(this::toView);
     }
 
     /**
@@ -91,11 +103,19 @@ public class InstrumentService {
         return instrumentRepository.findById(id);
     }
 
+    public Optional<InstrumentView> findViewById(Long id) {
+        return findById(id).map(this::toView);
+    }
+
     /**
      * Find by id with market/exchange relations loaded.
      */
     public Optional<InstrumentEntity> findByIdWithRelations(Long id) {
         return instrumentRepository.findByIdWithRelations(id);
+    }
+
+    public Optional<InstrumentView> findViewByIdWithRelations(Long id) {
+        return findByIdWithRelations(id).map(this::toView);
     }
 
     /**
@@ -109,11 +129,21 @@ public class InstrumentService {
         return instrumentRepository.searchInstrumentsWithRelations(query, pageable);
     }
 
+    public List<InstrumentView> searchInstrumentViews(String query, int limit) {
+        return searchInstruments(query, limit).stream()
+                .map(this::toView)
+                .toList();
+    }
+
     /**
      * Search instruments by ticker or name with pagination.
      */
     public Page<InstrumentEntity> searchInstrumentsPage(String query, Pageable pageable) {
         return instrumentRepository.searchInstrumentsPage(query, pageable);
+    }
+
+    public Page<InstrumentView> searchInstrumentViewsPage(String query, Pageable pageable) {
+        return searchInstrumentsPage(query, pageable).map(this::toView);
     }
 
     /**
@@ -123,10 +153,33 @@ public class InstrumentService {
         return instrumentRepository.findAllWithRelations();
     }
 
+    public List<InstrumentView> findAllViews() {
+        return findAll().stream()
+                .map(this::toView)
+                .toList();
+    }
+
     /**
      * Find all instruments (paged).
      */
     public Page<InstrumentEntity> findAll(Pageable pageable) {
         return instrumentRepository.findAllWithRelations(pageable);
+    }
+
+    public Page<InstrumentView> findAllViews(Pageable pageable) {
+        return findAll(pageable).map(this::toView);
+    }
+
+    private InstrumentView toView(InstrumentEntity entity) {
+        return new InstrumentView(
+                entity.getId(),
+                entity.getSymbolKey(),
+                entity.getTicker(),
+                entity.getNameZh(),
+                entity.getNameEn(),
+                entity.getMarket() != null ? entity.getMarket().getCode() : null,
+                entity.getExchange() != null ? entity.getExchange().getCode() : null,
+                entity.getCurrency(),
+                entity.getAssetTypeEnum());
     }
 }

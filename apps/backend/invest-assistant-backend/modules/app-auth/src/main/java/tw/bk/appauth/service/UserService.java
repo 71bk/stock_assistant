@@ -3,6 +3,7 @@ package tw.bk.appauth.service;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tw.bk.appauth.model.UserView;
 import tw.bk.apppersistence.entity.UserEntity;
 import tw.bk.apppersistence.repository.UserRepository;
 
@@ -29,7 +30,15 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    public Optional<UserEntity> findById(Long userId) {
-        return userRepository.findById(userId);
+    public Optional<UserView> findById(Long userId) {
+        return userRepository.findById(userId).map(this::toView);
+    }
+
+    private UserView toView(UserEntity entity) {
+        return new UserView(
+                entity.getId(),
+                entity.getEmail(),
+                entity.getDisplayName(),
+                entity.getPictureUrl());
     }
 }

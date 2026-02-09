@@ -40,6 +40,7 @@ public class StockQuoteService {
     private final StockCacheService cacheService;
     private final StockMarketProperties properties;
     private final WarrantQuoteService warrantQuoteService;
+    private final StockMetricsRecorder metricsRecorder;
     private Map<MarketCode, StockMarketClient> clientMap = Collections.emptyMap();
     private final ConcurrentHashMap<String, CompletableFuture<Object>> inflight = new ConcurrentHashMap<>();
 
@@ -65,12 +66,15 @@ public class StockQuoteService {
         String cacheKey = "quote:" + symbolKey;
         Optional<Quote> cached = cacheService.get(cacheKey, Quote.class);
         if (cached.isPresent()) {
+            metricsRecorder.recordCacheHit("quote");
             return cached.get();
         }
+        metricsRecorder.recordCacheMiss("quote");
 
-        return singleFlight(cacheKey, () -> {
+        return singleFlight(cacheKey, "quote", () -> {
             Optional<Quote> cachedAgain = cacheService.get(cacheKey, Quote.class);
             if (cachedAgain.isPresent()) {
+                metricsRecorder.recordCacheHit("quote");
                 return cachedAgain.get();
             }
 
@@ -108,12 +112,15 @@ public class StockQuoteService {
                 symbolKey, interval, from, to);
         Optional<List<Candle>> cached = cacheService.getList(cacheKey, Candle.class);
         if (cached.isPresent()) {
+            metricsRecorder.recordCacheHit("candles");
             return cached.get();
         }
+        metricsRecorder.recordCacheMiss("candles");
 
-        return singleFlight(cacheKey, () -> {
+        return singleFlight(cacheKey, "candles", () -> {
             Optional<List<Candle>> cachedAgain = cacheService.getList(cacheKey, Candle.class);
             if (cachedAgain.isPresent()) {
+                metricsRecorder.recordCacheHit("candles");
                 return cachedAgain.get();
             }
 
@@ -144,7 +151,7 @@ public class StockQuoteService {
         });
     }
 
-    private <T> T singleFlight(String key, Supplier<T> supplier) {
+    private <T> T singleFlight(String key, String type, Supplier<T> supplier) {
         CompletableFuture<Object> future = new CompletableFuture<>();
         CompletableFuture<Object> existing = inflight.putIfAbsent(key, future);
         if (existing == null) {
@@ -160,6 +167,7 @@ public class StockQuoteService {
             }
         }
 
+        metricsRecorder.recordSingleFlightJoined(type);
         try {
             @SuppressWarnings("unchecked")
             T value = (T) existing.join();

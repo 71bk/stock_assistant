@@ -6,7 +6,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import tw.bk.appfiles.model.PresignResult;
-import tw.bk.apppersistence.entity.FileEntity;
 
 @Data
 @Builder
@@ -24,10 +23,9 @@ public class PresignResponse {
     private Map<String, String> headers;
 
     public static PresignResponse from(PresignResult result) {
-        FileEntity entity = result.file();
         return PresignResponse.builder()
-                .fileId(entity.getId() != null ? entity.getId().toString() : null)
-                .objectKey(entity.getObjectKey())
+                .fileId(result.fileId() != null ? result.fileId().toString() : null)
+                .objectKey(result.objectKey())
                 .uploadUrl(result.uploadUrl())
                 .method(result.method())
                 .headers(result.headers())
