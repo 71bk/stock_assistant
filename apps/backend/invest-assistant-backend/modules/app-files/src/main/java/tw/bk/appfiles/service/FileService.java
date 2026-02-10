@@ -225,6 +225,7 @@ public class FileService {
         String normalizedContentType = isBlank(contentType) ? DEFAULT_CONTENT_TYPE : contentType.trim();
 
         Optional<FileEntity> existing = fileRepository.findByUserIdAndSha256(userId, sha256);
+        boolean alreadyExists = existing.isPresent();
         FileEntity entity = existing.orElseGet(FileEntity::new);
         boolean needsSave = entity.getId() == null;
         if (entity.getId() == null) {
@@ -261,7 +262,8 @@ public class FileService {
                 entity.getObjectKey(),
                 presign.uploadUrl(),
                 presign.method(),
-                presign.headers());
+                presign.headers(),
+                alreadyExists);
     }
 
     @Transactional(readOnly = true)
@@ -408,7 +410,8 @@ public class FileService {
             PresignedPutObjectRequest presigned = presigner.presignPutObject(presignRequest);
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", entity.getContentType());
-            return new PresignResult(entity.getId(), entity.getObjectKey(), presigned.url().toString(), "PUT", headers);
+            return new PresignResult(entity.getId(), entity.getObjectKey(), presigned.url().toString(), "PUT", headers,
+                    false);
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign S3 upload");
         }
@@ -443,7 +446,7 @@ public class FileService {
 
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", entity.getContentType());
-            return new PresignResult(entity.getId(), entity.getObjectKey(), url, "PUT", headers);
+            return new PresignResult(entity.getId(), entity.getObjectKey(), url, "PUT", headers, false);
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign MinIO upload");
         }

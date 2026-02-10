@@ -55,7 +55,7 @@ const Trades: React.FC = () => {
     if (trades.length > 0) {
       fetchInstruments();
     }
-  }, [trades]);
+  }, [trades, instruments]);
 
   const handleEdit = (trade: Trade) => {
     setEditingTrade(trade);

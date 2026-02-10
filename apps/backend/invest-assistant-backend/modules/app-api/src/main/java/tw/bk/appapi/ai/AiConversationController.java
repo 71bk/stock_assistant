@@ -158,13 +158,15 @@ public class AiConversationController {
             try {
                 ConversationMessageView userMessage = conversationService.appendUserMessage(
                         userId, id, content, clientMessageId);
-                sendMeta(emitter, requestId, id, userMessage.id());
+                ConversationMessageView assistantMessage = conversationService.appendAssistantMessage(
+                        userId, id, "", ConversationMessageStatus.PENDING);
+                sendMeta(emitter, requestId, id, userMessage.id(), assistantMessage.id());
 
                 String directQuoteReply = buildDirectQuoteReply(userId, id, userMessage.id(), content);
                 if (directQuoteReply != null) {
                     sendDelta(emitter, directQuoteReply);
-                    ConversationMessageView assistant = conversationService.appendAssistantMessage(
-                            userId, id, directQuoteReply, ConversationMessageStatus.COMPLETED);
+                    ConversationMessageView assistant = conversationService.updateAssistantMessage(
+                            userId, id, assistantMessage.id(), directQuoteReply, ConversationMessageStatus.COMPLETED);
                     sendDone(emitter, assistant.id());
                     return;
                 }
@@ -188,6 +190,16 @@ public class AiConversationController {
                         })
                         .doOnError(ex -> {
                             failed.set(true);
+                            try {
+                                conversationService.updateAssistantMessage(
+                                        userId,
+                                        id,
+                                        assistantMessage.id(),
+                                        buffer.toString(),
+                                        ConversationMessageStatus.FAILED);
+                            } catch (Exception saveEx) {
+                                log.error("Failed to mark assistant message as FAILED", saveEx);
+                            }
                             if (ex instanceof BusinessException be) {
                                 sendError(emitter, be.getErrorCode(), be.getMessage());
                             } else {
@@ -201,8 +213,12 @@ public class AiConversationController {
                                 return;
                             }
                             try {
-                                ConversationMessageView assistant = conversationService.appendAssistantMessage(
-                                        userId, id, buffer.toString(), ConversationMessageStatus.COMPLETED);
+                                ConversationMessageView assistant = conversationService.updateAssistantMessage(
+                                        userId,
+                                        id,
+                                        assistantMessage.id(),
+                                        buffer.toString(),
+                                        ConversationMessageStatus.COMPLETED);
                                 sendDone(emitter, assistant.id());
                             } catch (Exception ex) {
                                 log.error("Failed to save assistant message", ex);
@@ -222,12 +238,18 @@ public class AiConversationController {
         return emitter;
     }
 
-    private void sendMeta(SseEmitter emitter, String requestId, Long conversationId, Long userMessageId)
+    private void sendMeta(
+            SseEmitter emitter,
+            String requestId,
+            Long conversationId,
+            Long userMessageId,
+            Long assistantMessageId)
             throws Exception {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("requestId", requestId);
         meta.put("conversationId", conversationId != null ? conversationId.toString() : null);
         meta.put("userMessageId", userMessageId != null ? userMessageId.toString() : null);
+        meta.put("assistantMessageId", assistantMessageId != null ? assistantMessageId.toString() : null);
         emitter.send(SseEmitter.event().name("meta").data(meta));
     }
 

@@ -108,6 +108,7 @@
 | POST | `/api/admin/instruments/sync-warrants` | 同步權證（TPEx + TWSE fallback） | 見下方 |
 | POST | `/api/admin/rag/portfolio-snapshots` | 手動觸發投資組合快照向量化 | 見下方 |
 | POST | `/api/admin/portfolios/positions-rebuild` | 手動重算持倉快照（資料修復） | 見下方 |
+| POST | `/api/admin/portfolios/valuations-snapshot` | 手動重算估值快照（寫入 portfolio_valuations） | 見下方 |
 
 #### 認證方式
 - 若 **未設定** `APP_ADMIN_API_KEY` → 只要登入即可
@@ -131,6 +132,7 @@ Response：
   "traceId": "..."
 }
 ```
+
 > 從 Fugle `/intraday/tickers` 匯入 TWSE/TPEx 的 EQUITY（含 ETF）。只新增不存在的 ticker。
 
 #### 同步權證（`POST /api/admin/instruments/sync-warrants`）
@@ -220,6 +222,42 @@ Response：
 }
 ```
 
+#### 手動重算估值快照（`POST /api/admin/portfolios/valuations-snapshot`）
+Headers：
+```
+X-Admin-Key: your-secret-key
+```
+
+Request（可選）：
+```json
+{
+  "userId": 123,
+  "portfolioId": 456,
+  "asOfDate": "2026-02-09"
+}
+```
+
+Request 欄位：
+- `userId`：選填，只重算該使用者的投資組合
+- `portfolioId`：選填，只重算單一投資組合（可搭配 userId）
+- `asOfDate`：選填，估值日期（`YYYY-MM-DD`，未帶則使用系統日期）
+
+Response：
+```json
+{
+  "success": true,
+  "data": {
+    "asOfDate": "2026-02-09",
+    "total": 10,
+    "succeeded": 9,
+    "failed": 1,
+    "failedPortfolioIds": [456]
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
 ---
 
 ## Auth
@@ -230,13 +268,13 @@ Response：
 | GET | `/api/oauth2/authorization/{provider}` | OAuth2 授權端點（Spring Security 處理） | 否 |
 | GET | `/api/login/oauth2/code/google` | OAuth 回調（Spring Security 處理，設置 Cookie 並重導） | 否 |
 | GET | `/api/auth/me` | 取得登入使用者資訊 | 是 |
-| POST | `/api/auth/refresh` | 旋轉 refresh、刷新 access | 是（refresh cookie） |
-| POST | `/api/auth/logout` | 登出並撤銷 refresh session | 是 |
+| POST | `/api/auth/refresh` | 旋轉 refresh、刷新 access | 否（需 refresh cookie） |
+| POST | `/api/auth/logout` | 登出並撤銷 refresh session | 否（可帶 refresh cookie） |
 
 #### 認證/參數說明
 - `GET /api/auth/me`：需要有效 `access_token` Cookie
 - `POST /api/auth/refresh`：需要 `refresh_token` Cookie（無 request body）
-- `POST /api/auth/logout`：需要 `refresh_token` Cookie（無 request body）
+- `POST /api/auth/logout`：可帶 `refresh_token` Cookie（無 request body；若缺少則只清除瀏覽器 cookie）
 
 ### User Profile（`GET /api/auth/me`）
 ```json
@@ -722,6 +760,16 @@ Query Parameters：
 - `to`：結束日期（YYYY-MM-DD，可選，預設今天）
 
 實作規則（已落地）：
+- 本 API 讀取 `app.portfolio_valuations` 快照資料，不做即時計算。
+- 快照來源：
+  - 排程：`app.portfolio.valuation.enabled=true` 時依 `app.portfolio.valuation.cron` 自動寫入。
+  - 手動：`POST /api/admin/portfolios/valuations-snapshot`。
+- 快照計算規則（目前版本）：
+  - `positionsValue`：以 `stock_trades.trade_date <= asOfDate` 逐檔回放重建持倉（數量/均價），再依日期取價：
+    - `asOfDate < today`：取日 K（`1d`）在 `asOfDate` 當天或最近一個交易日（回看 14 天）收盤價。
+    - `asOfDate == today`：取即時報價。
+    - 若取價失敗：回退該檔均價。
+  - `cashValue`：`sum(stock_trades.net_amount)`，條件為 `coalesce(settlement_date, trade_date) <= asOfDate`（買為負、賣為正）。
 - 若 `to` 未提供：使用伺服器當下 UTC 日期（`today`）
 - 若 `from` 未提供：使用 `to - 30 days`
 - 若 `from > to`：回傳 `400 VALIDATION_ERROR`（message: `from must be <= to`）
@@ -837,6 +885,7 @@ Response（節錄）
 | GET | `/api/files/{fileId}` | 取得檔案 metadata | 是 |
 | POST | `/api/files/presign` | 取得預簽 URL | 是 |
 | GET | `/api/files/{fileId}/url` | 取得檔案下載/預覽連結 | 是 |
+| GET | `/api/files/{fileId}/content` | 取得檔案內容串流（local provider） | 是 |
 
 #### 上傳檔案（`POST /api/files`）
 Request（`multipart/form-data`）：
@@ -885,6 +934,9 @@ Response：
 }
 ```
 
+欄位說明：
+- `alreadyExists=true`：同一使用者下已存在相同 `sha256`，前端可略過重複上傳。
+
 #### 取得檔案下載/預覽連結（`GET /api/files/{fileId}/url`）
 Response：
 ```json
@@ -915,6 +967,7 @@ Response：
 | POST | `/api/ocr/jobs` | 建立 OCR Job（以 fileId） | 是 |
 | GET | `/api/ocr/jobs/{jobId}` | 查詢 Job 狀態 | 是 |
 | GET | `/api/ocr/jobs/{jobId}/drafts` | 取得草稿交易 | 是 |
+| PUT | `/api/ocr/drafts/{draftId}` | 更新草稿交易（與 PATCH 行為一致） | 是 |
 | PATCH | `/api/ocr/drafts/{draftId}` | 更新草稿交易 | 是 |
 | DELETE | `/api/ocr/drafts/{draftId}` | 刪除草稿交易 | 是 |
 | POST | `/api/ocr/jobs/{jobId}/confirm` | 確認匯入（支援部分匯入） | 是 |
@@ -1050,7 +1103,7 @@ Query Parameters：
 |------|------|
 | SETTLEMENT_BEFORE_TRADE | 交割日早於成交日 |
 
-#### 更新草稿交易（`PATCH /api/ocr/drafts/{draftId}`）
+#### 更新草稿交易（`PUT/PATCH /api/ocr/drafts/{draftId}`）
 所有欄位皆為 **可選**（僅更新有提供的欄位）。
 ```json
 {
@@ -1288,14 +1341,14 @@ Request 欄位：
   "clientMessageId": "c-20260204-0001"
 }
 ```
-> **Note**: `clientMessageId` 為可選，重送相同 `clientMessageId` 會回 409 / SSE error。
+> **Note**: `clientMessageId` 為可選，重送相同 `clientMessageId` 會回 SSE `error` event（`code=CONFLICT`）。
 > **Note**: 若要提高即時報價命中率，建議在同一輪帶明確標的（例：`台積電現在多少`、`TW:XTAI:2330 現價`）。
 > **Note**: 對話中使用代詞（例：`那現在這隻股票價格多少`）會觸發上述 fallback 規則。
 
 #### SSE Response（`text/event-stream`）
 ```
 event: meta
-data: {"requestId":"c-123","conversationId":"9001","userMessageId":"9101"}
+data: {"requestId":"c-123","conversationId":"9001","userMessageId":"9101","assistantMessageId":"9102"}
 
 event: delta
 data: {"text":"今日市場重點..."}

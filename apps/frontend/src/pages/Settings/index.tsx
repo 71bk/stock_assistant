@@ -21,14 +21,14 @@ const Settings: React.FC = () => {
     }
   }, [user, form]);
 
-  const onFinish = async (values: any) => {
+  const onFinish = async (values: { currency: string }) => {
     try {
       await usersApi.updateSettings({
         baseCurrency: values.currency,
       });
       message.success('設定已更新');
       checkAuth();
-    } catch (e) {
+    } catch {
       message.error('更新失敗');
     }
   };
@@ -39,7 +39,7 @@ const Settings: React.FC = () => {
       const res = await adminApi.syncInstruments(adminKey);
       const { added, skipped } = res;
       message.success(`標的同步成功！新增：${added} 筆，略過：${skipped} 筆`);
-    } catch (e) {
+    } catch {
       message.error('同步失敗，請檢查 Admin Key 是否正確');
     } finally {
       setIsSyncing(false);
@@ -52,8 +52,21 @@ const Settings: React.FC = () => {
       const res = await adminApi.syncWarrants(adminKey);
       const { added, skipped } = res;
       message.success(`權證同步成功！新增：${added} 筆，略過：${skipped} 筆`);
-    } catch (e) {
+    } catch {
       message.error('權證同步失敗，請檢查 Admin Key 是否正確');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSnapshotValuations = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await adminApi.snapshotValuations(undefined, undefined, undefined, adminKey);
+      const { asOfDate, succeeded, failed } = res;
+      message.success(`估值快照已重算 (${asOfDate})！成功：${succeeded}，失敗：${failed}`);
+    } catch {
+      message.error('重算失敗，請檢查 Admin Key 是否正確');
     } finally {
       setIsSyncing(false);
     }
@@ -121,6 +134,13 @@ const Settings: React.FC = () => {
               danger
             >
               同步權證資料
+            </Button>
+            <Button
+              onClick={handleSnapshotValuations}
+              loading={isSyncing}
+              danger
+            >
+              重算估值快照
             </Button>
           </div>
         </div>

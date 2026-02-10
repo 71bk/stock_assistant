@@ -8,9 +8,11 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -29,6 +31,7 @@ import tw.bk.appportfolio.model.PortfolioSummary;
 import tw.bk.appportfolio.model.PortfolioRefView;
 import tw.bk.appportfolio.model.PortfolioPositionsRebuildResult;
 import tw.bk.appportfolio.model.PortfolioValuationView;
+import tw.bk.appportfolio.model.PortfolioValuationSnapshotResult;
 import tw.bk.appportfolio.model.PortfolioView;
 import tw.bk.appportfolio.model.PositionWithQuote;
 import tw.bk.appportfolio.model.TradeCommand;
@@ -36,6 +39,7 @@ import tw.bk.appportfolio.model.TradeView;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.entity.PortfolioEntity;
 import tw.bk.apppersistence.entity.PortfolioValuationEntity;
+import tw.bk.apppersistence.entity.PortfolioValuationId;
 import tw.bk.apppersistence.entity.StockTradeEntity;
 import tw.bk.apppersistence.entity.UserPositionEntity;
 import tw.bk.apppersistence.repository.InstrumentRepository;
@@ -137,9 +141,151 @@ public class PortfolioService {
                 .toList();
     }
 
+    @Transactional
+    public PortfolioValuationSnapshotResult snapshotValuations(
+            Long userId,
+            Long portfolioId,
+            LocalDate asOfDate,
+            QuoteProvider quoteProvider) {
+        LocalDate snapshotDate = asOfDate != null ? asOfDate : clockProvider.nowUtc().toLocalDate();
+        List<PortfolioEntity> targets = resolveValuationTargets(userId, portfolioId);
+
+        int succeeded = 0;
+        List<Long> failedPortfolioIds = new ArrayList<>();
+        for (PortfolioEntity portfolio : targets) {
+            Long targetPortfolioId = portfolio.getId();
+            try {
+                upsertValuationSnapshot(portfolio, snapshotDate, quoteProvider);
+                succeeded++;
+            } catch (RuntimeException ex) {
+                failedPortfolioIds.add(targetPortfolioId);
+                log.warn("Portfolio valuation snapshot failed: portfolioId={}, userId={}, asOfDate={}, error={}",
+                        targetPortfolioId, portfolio.getUserId(), snapshotDate, ex.getMessage(), ex);
+            }
+        }
+
+        return new PortfolioValuationSnapshotResult(
+                snapshotDate,
+                targets.size(),
+                succeeded,
+                failedPortfolioIds.size(),
+                failedPortfolioIds);
+    }
+
+    @Transactional
+    public PortfolioValuationSnapshotResult snapshotValuations(LocalDate asOfDate, QuoteProvider quoteProvider) {
+        return snapshotValuations(null, null, asOfDate, quoteProvider);
+    }
+
     private PortfolioEntity lockPortfolio(Long userId, Long portfolioId) {
         return portfolioRepository.findByIdAndUserIdForUpdate(portfolioId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
+    }
+
+    private List<PortfolioEntity> resolveValuationTargets(Long userId, Long portfolioId) {
+        if (portfolioId != null) {
+            Optional<PortfolioEntity> target = userId != null
+                    ? portfolioRepository.findByIdAndUserId(portfolioId, userId)
+                    : portfolioRepository.findById(portfolioId);
+            return target.map(List::of).orElseGet(List::of);
+        }
+        if (userId != null) {
+            return portfolioRepository.findByUserId(userId);
+        }
+        return portfolioRepository.findAll();
+    }
+
+    private void upsertValuationSnapshot(PortfolioEntity portfolio, LocalDate asOfDate, QuoteProvider quoteProvider) {
+        BigDecimal positionsValue = calculatePositionsValue(portfolio.getId(), asOfDate, quoteProvider);
+        BigDecimal cashValue = calculateCashValue(portfolio.getId(), asOfDate);
+        BigDecimal totalValue = positionsValue.add(cashValue).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+
+        PortfolioValuationId id = new PortfolioValuationId(portfolio.getId(), asOfDate);
+        PortfolioValuationEntity entity = portfolioValuationRepository.findById(id)
+                .orElseGet(PortfolioValuationEntity::new);
+
+        entity.setPortfolioId(portfolio.getId());
+        entity.setAsOfDate(asOfDate);
+        entity.setBaseCurrency(normalizeBaseCurrency(portfolio.getBaseCurrency()));
+        entity.setTotalValue(totalValue);
+        entity.setCashValue(cashValue);
+        entity.setPositionsValue(positionsValue);
+        portfolioValuationRepository.save(entity);
+    }
+
+    private BigDecimal calculateCashValue(Long portfolioId, LocalDate asOfDate) {
+        BigDecimal netAmount = tradeRepository.sumNetAmountByPortfolioIdAsOfDate(portfolioId, asOfDate);
+        if (netAmount == null) {
+            return BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+        }
+        return netAmount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calculatePositionsValue(Long portfolioId, LocalDate asOfDate, QuoteProvider quoteProvider) {
+        List<Long> instrumentIds = tradeRepository.findDistinctInstrumentIdsByPortfolioIdAndTradeDateLessThanEqual(
+                portfolioId,
+                asOfDate);
+        if (instrumentIds.isEmpty()) {
+            return BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+        }
+
+        Map<Long, InstrumentEntity> instrumentById = loadInstrumentsById(instrumentIds);
+        LocalDate today = clockProvider.nowUtc().toLocalDate();
+        BigDecimal total = BigDecimal.ZERO;
+
+        for (Long instrumentId : instrumentIds) {
+            List<StockTradeEntity> trades = tradeRepository
+                    .findByPortfolioIdAndInstrumentIdAndTradeDateLessThanEqualOrderByTradeDateAscIdAsc(
+                            portfolioId,
+                            instrumentId,
+                            asOfDate);
+            PositionState state = calculatePositionState(trades);
+            if (state.totalQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            BigDecimal currentPrice = state.avgCostNative();
+            InstrumentEntity instrument = instrumentById.get(instrumentId);
+            String symbolKey = instrument != null ? instrument.getSymbolKey() : null;
+            if (quoteProvider != null && symbolKey != null && !symbolKey.isBlank()) {
+                try {
+                    currentPrice = quoteProvider.getPrice(symbolKey, asOfDate, today).orElse(currentPrice);
+                } catch (RuntimeException ex) {
+                    log.warn(
+                            "Quote lookup failed during valuation snapshot: portfolioId={}, instrumentId={}, symbolKey={}, error={}",
+                            portfolioId,
+                            instrumentId,
+                            symbolKey,
+                            ex.getMessage());
+                }
+            }
+
+            BigDecimal marketValue = currentPrice.multiply(state.totalQuantity())
+                    .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+            total = total.add(marketValue);
+        }
+
+        return total.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private Map<Long, InstrumentEntity> loadInstrumentsById(List<Long> instrumentIds) {
+        if (instrumentIds == null || instrumentIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<Long> dedupIds = new LinkedHashSet<>(instrumentIds);
+        Map<Long, InstrumentEntity> result = new HashMap<>();
+        for (InstrumentEntity instrument : instrumentRepository.findAllById(dedupIds)) {
+            result.put(instrument.getId(), instrument);
+        }
+        return result;
+    }
+
+    private String normalizeBaseCurrency(String baseCurrency) {
+        if (isBlank(baseCurrency)) {
+            return DEFAULT_BASE_CURRENCY;
+        }
+        return baseCurrency.trim().toUpperCase(Locale.ROOT);
     }
 
     /**
@@ -451,6 +597,34 @@ public class PortfolioService {
             return;
         }
 
+        PositionState state = calculatePositionState(trades);
+
+        if (state.totalQuantity().compareTo(BigDecimal.ZERO) == 0) {
+            positionRepository.deleteByPortfolioIdAndInstrumentId(portfolioId, instrumentId);
+            return;
+        }
+
+        UserPositionEntity position = positionRepository
+                .findByPortfolioIdAndInstrumentId(portfolioId, instrumentId)
+                .orElseGet(UserPositionEntity::new);
+        position.setPortfolioId(portfolioId);
+        position.setInstrumentId(instrumentId);
+        position.setTotalQuantity(state.totalQuantity());
+        position.setAvgCostNative(state.avgCostNative().setScale(AVG_COST_SCALE, RoundingMode.HALF_UP));
+        String currency = state.currency() == null ? DEFAULT_BASE_CURRENCY : state.currency();
+        position.setCurrency(currency.toUpperCase(Locale.ROOT));
+        position.setUpdatedAt(OffsetDateTime.ofInstant(clockProvider.now(), java.time.ZoneOffset.UTC));
+        positionRepository.save(position);
+    }
+
+    private PositionState calculatePositionState(List<StockTradeEntity> trades) {
+        if (trades == null || trades.isEmpty()) {
+            return new PositionState(
+                    BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP),
+                    BigDecimal.ZERO.setScale(AVG_COST_SCALE, RoundingMode.HALF_UP),
+                    null);
+        }
+
         BigDecimal totalQuantity = BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
         BigDecimal avgCost = BigDecimal.ZERO.setScale(AVG_COST_SCALE, RoundingMode.HALF_UP);
         String currency = null;
@@ -471,7 +645,8 @@ public class PortfolioService {
                     throw new BusinessException(ErrorCode.CONFLICT, "Invalid buy quantity");
                 }
                 BigDecimal tradeCost = trade.getPrice().multiply(trade.getQuantity())
-                        .add(fee).add(tax);
+                        .add(fee)
+                        .add(tax);
                 BigDecimal totalCost = avgCost.multiply(totalQuantity).add(tradeCost);
                 avgCost = totalCost.divide(newQty, AVG_COST_SCALE, RoundingMode.HALF_UP);
                 totalQuantity = newQty.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
@@ -487,21 +662,7 @@ public class PortfolioService {
             }
         }
 
-        if (totalQuantity.compareTo(BigDecimal.ZERO) == 0) {
-            positionRepository.deleteByPortfolioIdAndInstrumentId(portfolioId, instrumentId);
-            return;
-        }
-
-        UserPositionEntity position = positionRepository
-                .findByPortfolioIdAndInstrumentId(portfolioId, instrumentId)
-                .orElseGet(UserPositionEntity::new);
-        position.setPortfolioId(portfolioId);
-        position.setInstrumentId(instrumentId);
-        position.setTotalQuantity(totalQuantity);
-        position.setAvgCostNative(avgCost.setScale(AVG_COST_SCALE, RoundingMode.HALF_UP));
-        position.setCurrency(currency == null ? DEFAULT_BASE_CURRENCY : currency.toUpperCase(Locale.ROOT));
-        position.setUpdatedAt(OffsetDateTime.ofInstant(clockProvider.now(), java.time.ZoneOffset.UTC));
-        positionRepository.save(position);
+        return new PositionState(totalQuantity, avgCost, currency);
     }
 
     private InstrumentEntity requireInstrument(Long instrumentId) {
@@ -611,6 +772,12 @@ public class PortfolioService {
                 entity.getNetAmount(),
                 entity.getSourceEnum(),
                 entity.getAccountId());
+    }
+
+    private record PositionState(
+            BigDecimal totalQuantity,
+            BigDecimal avgCostNative,
+            String currency) {
     }
 
     private boolean isBlank(String value) {

@@ -1,9 +1,12 @@
 package tw.bk.appai.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -19,6 +22,8 @@ import tw.bk.apppersistence.entity.ConversationEntity;
 import tw.bk.apppersistence.entity.ConversationMessageEntity;
 import tw.bk.apppersistence.repository.ConversationMessageRepository;
 import tw.bk.apppersistence.repository.ConversationRepository;
+import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.exception.BusinessException;
 
 @ExtendWith(MockitoExtension.class)
 class AiConversationServiceTest {
@@ -69,5 +74,64 @@ class AiConversationServiceTest {
         assertTrue(enhancedSystem.contains("--- Tool Policy ---"));
         assertTrue(enhancedSystem.contains("do not claim you cannot provide real-time/latest price"));
         assertTrue(enhancedSystem.contains("tool_quote_available: true"));
+    }
+
+    @Test
+    void appendUserMessage_shouldRejectDuplicateClientMessageId() {
+        ConversationMessageEntity existing = new ConversationMessageEntity();
+        existing.setId(99L);
+        existing.setConversationId(2L);
+        existing.setRole("user");
+        existing.setContent("hello");
+
+        when(messageRepository.findByConversationIdAndClientMessageId(2L, "client-1"))
+                .thenReturn(Optional.of(existing));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.appendUserMessage(1L, 2L, "new message", "client-1"));
+
+        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        verify(messageRepository, never()).save(any(ConversationMessageEntity.class));
+    }
+
+    @Test
+    void buildContextMessages_shouldKeepNewestMessagesWithinTokenBudget() {
+        ReflectionTestUtils.setField(service, "tokenBudget", 8);
+
+        ConversationMessageEntity system = new ConversationMessageEntity();
+        system.setRole("system");
+        system.setContent("system prompt");
+
+        ConversationMessageEntity latest = new ConversationMessageEntity();
+        latest.setId(30L);
+        latest.setConversationId(2L);
+        latest.setRole("assistant");
+        latest.setContent("CCCCCCCCCCCC");
+
+        ConversationMessageEntity middle = new ConversationMessageEntity();
+        middle.setId(20L);
+        middle.setConversationId(2L);
+        middle.setRole("user");
+        middle.setContent("BBBBBBBBBBBB");
+
+        ConversationMessageEntity oldest = new ConversationMessageEntity();
+        oldest.setId(10L);
+        oldest.setConversationId(2L);
+        oldest.setRole("assistant");
+        oldest.setContent("AAAAAAAAAAAA");
+
+        when(messageRepository.findFirstByConversationIdAndRoleOrderByIdAsc(2L, "system"))
+                .thenReturn(Optional.of(system));
+        when(messageRepository.findByConversationIdAndRoleNotOrderByIdDesc(eq(2L), eq("system"), any()))
+                .thenReturn(List.of(latest, middle, oldest));
+
+        List<Map<String, String>> messages = service.buildContextMessages(1L, 2L, "DDDDDDDD", null);
+
+        assertEquals(4, messages.size());
+        assertEquals("system", messages.get(0).get("role"));
+        assertEquals("BBBBBBBBBBBB", messages.get(1).get("content"));
+        assertEquals("CCCCCCCCCCCC", messages.get(2).get("content"));
+        assertEquals("DDDDDDDD", messages.get(3).get("content"));
     }
 }

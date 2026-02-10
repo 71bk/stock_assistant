@@ -58,7 +58,7 @@ const Dashboard: React.FC = () => {
     },
     // Add tooltip formatting
     tooltip: {
-      formatter: (datum: any) => {
+      formatter: (datum: { value: number }) => {
         return { name: '總資產', value: formatCurrency(datum.value, baseCurrency) };
       },
     },

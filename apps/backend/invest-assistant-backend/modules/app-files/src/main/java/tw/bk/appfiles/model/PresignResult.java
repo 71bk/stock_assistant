@@ -7,5 +7,6 @@ public record PresignResult(
                 String objectKey,
                 String uploadUrl,
                 String method,
-                Map<String, String> headers) {
+                Map<String, String> headers,
+                boolean alreadyExists) {
 }

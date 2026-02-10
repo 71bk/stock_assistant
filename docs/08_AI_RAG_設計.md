@@ -20,7 +20,8 @@
 
 ### v1（MVP）
 - 對話列表 + 訊息列表為核心，不做摘要；上下文採「最近 N 則 + token budget」。
-- SSE 串流只在完成時一次寫入 assistant 訊息（避免每 chunk 更新 DB）。
+- SSE 串流會先建立 assistant placeholder（`status=PENDING`），完成後更新同一筆為 `COMPLETED`，失敗更新為 `FAILED`（避免每 chunk 更新 DB）。
+- SSE `meta` 事件包含 `requestId/conversationId/userMessageId/assistantMessageId`，前端可在首包即綁定訊息 ID。
 - system prompt 可視為一則 role=system 訊息（每對話固定），方便追溯與調整。
 - 資料表：conversations / conversation_messages（role=user/assistant/system，status 可選）。
 - API：/api/ai/conversations、/api/ai/conversations/{id}、/messages（SSE）。
@@ -90,7 +91,7 @@
 - UNIQUE (conversation_id, client_message_id)
 
 行為約定：
-- SSE 串流：先插入 user 訊息，assistant 訊息在串流結束時一次寫入（或先寫 PENDING，結束時更新）。
+- SSE 串流：先插入 user 訊息，再建立 assistant `PENDING` placeholder；串流結束更新同一筆為 `COMPLETED`，失敗則更新為 `FAILED`。
 - 查詢上下文：取最近 N 則 + token budget，避免超過模型上限。
 - client_message_id：前端可用 UUID 做冪等（避免重送造成重複訊息）。
 

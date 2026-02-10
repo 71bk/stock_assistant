@@ -1,6 +1,7 @@
 package tw.bk.appportfolio.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Optional;
 
 /**
@@ -15,4 +16,12 @@ public interface QuoteProvider {
      * @return 現價，查詢失敗時回傳 empty
      */
     Optional<BigDecimal> getCurrentPrice(String symbolKey);
+
+    /**
+     * Resolve price for valuation on a specific date.
+     * Default behavior keeps current behavior: use real-time quote.
+     */
+    default Optional<BigDecimal> getPrice(String symbolKey, LocalDate asOfDate, LocalDate today) {
+        return getCurrentPrice(symbolKey);
+    }
 }

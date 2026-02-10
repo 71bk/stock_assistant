@@ -131,6 +131,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const clientMessageId = newClientMessageId();
     const tempUserId = `tmp-user-${clientMessageId}`;
     const tempAssistantId = `tmp-assistant-${clientMessageId}`;
+    let currentUserMessageId = tempUserId;
+    let currentAssistantMessageId = tempAssistantId;
 
     set((state) => ({
       isStreaming: true,
@@ -148,20 +150,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
         url: `/api/ai/conversations/${conversationId}/messages`,
         body: { content: trimmed, clientMessageId },
         signal: currentChatAbortController.signal,
+        onMeta: (payload) => {
+          const userMessageId = typeof payload?.userMessageId === 'string'
+            ? payload.userMessageId
+            : null;
+          const assistantMessageId = typeof payload?.assistantMessageId === 'string'
+            ? payload.assistantMessageId
+            : null;
+          if (!userMessageId && !assistantMessageId) {
+            return;
+          }
+          const previousUserMessageId = currentUserMessageId;
+          const previousAssistantMessageId = currentAssistantMessageId;
+          if (userMessageId) {
+            currentUserMessageId = userMessageId;
+          }
+          if (assistantMessageId) {
+            currentAssistantMessageId = assistantMessageId;
+          }
+          set((state) => ({
+            messages: state.messages.map((msg) => {
+              if (userMessageId && msg.messageId === previousUserMessageId) {
+                return { ...msg, messageId: userMessageId };
+              }
+              if (assistantMessageId && msg.messageId === previousAssistantMessageId) {
+                return { ...msg, messageId: assistantMessageId };
+              }
+              return msg;
+            }),
+          }));
+        },
         onDelta: (text) => {
+          const targetAssistantMessageId = currentAssistantMessageId;
           set((state) => ({
             messages: state.messages.map((msg) =>
-              msg.messageId === tempAssistantId ? { ...msg, content: (msg.content || '') + text } : msg
+              msg.messageId === targetAssistantMessageId ? { ...msg, content: (msg.content || '') + text } : msg
             ),
           }));
         },
         onDone: (payload) => {
+          const targetAssistantMessageId = currentAssistantMessageId;
+          const nextAssistantMessageId = typeof payload?.assistantMessageId === 'string'
+            ? payload.assistantMessageId
+            : null;
+          if (nextAssistantMessageId) {
+            currentAssistantMessageId = nextAssistantMessageId;
+          }
           set((state) => ({
             isStreaming: false,
             streamingConversationId: null,
             messages: state.messages.map((msg) =>
-              msg.messageId === tempAssistantId && payload?.assistantMessageId
-                ? { ...msg, messageId: payload.assistantMessageId as string }
+              msg.messageId === targetAssistantMessageId && nextAssistantMessageId
+                ? { ...msg, messageId: nextAssistantMessageId }
                 : msg
             ),
           }));

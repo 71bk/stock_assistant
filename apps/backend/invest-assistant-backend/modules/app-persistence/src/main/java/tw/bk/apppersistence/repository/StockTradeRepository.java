@@ -31,11 +31,36 @@ public interface StockTradeRepository extends JpaRepository<StockTradeEntity, Lo
     @Query("""
             select distinct t.instrumentId
             from StockTradeEntity t
+            where t.portfolioId = :portfolioId
+              and t.tradeDate <= :asOfDate
+            """)
+    List<Long> findDistinctInstrumentIdsByPortfolioIdAndTradeDateLessThanEqual(
+            @Param("portfolioId") Long portfolioId,
+            @Param("asOfDate") LocalDate asOfDate);
+
+    List<StockTradeEntity> findByPortfolioIdAndInstrumentIdAndTradeDateLessThanEqualOrderByTradeDateAscIdAsc(
+            Long portfolioId,
+            Long instrumentId,
+            LocalDate asOfDate);
+
+    @Query("""
+            select distinct t.instrumentId
+            from StockTradeEntity t
             where t.userId = :userId and t.portfolioId = :portfolioId
             """)
     List<Long> findDistinctInstrumentIdsByUserIdAndPortfolioId(
             @Param("userId") Long userId,
             @Param("portfolioId") Long portfolioId);
+
+    @Query("""
+            select coalesce(sum(coalesce(t.netAmount, 0)), 0)
+            from StockTradeEntity t
+            where t.portfolioId = :portfolioId
+              and coalesce(t.settlementDate, t.tradeDate) <= :asOfDate
+            """)
+    BigDecimal sumNetAmountByPortfolioIdAsOfDate(
+            @Param("portfolioId") Long portfolioId,
+            @Param("asOfDate") LocalDate asOfDate);
 
     // Cache duplicate check in OCR import flow.
     boolean existsByPortfolioIdAndInstrumentIdAndTradeDateAndSideAndQuantityAndPrice(

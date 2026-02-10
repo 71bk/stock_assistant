@@ -15,6 +15,8 @@ import tw.bk.appai.model.ConversationView;
 public class ConversationDetailResponse {
     private String conversationId;
     private String title;
+    private String promptVersion;
+    private String promptSnapshot;
     private String summary;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
@@ -24,6 +26,8 @@ public class ConversationDetailResponse {
         return ConversationDetailResponse.builder()
                 .conversationId(entity.id() != null ? entity.id().toString() : null)
                 .title(entity.title())
+                .promptVersion(entity.promptVersion())
+                .promptSnapshot(entity.promptSnapshot())
                 .summary(entity.summary())
                 .createdAt(entity.createdAt())
                 .updatedAt(entity.updatedAt())

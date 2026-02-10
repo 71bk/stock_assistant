@@ -7,6 +7,7 @@ export interface SseOptions {
   method?: 'GET' | 'POST';
   body?: Record<string, unknown>;
   headers?: Record<string, string>;
+  onMeta?: (payload?: Record<string, unknown>) => void;
   onDelta?: (text: string) => void;
   onDone?: (payload?: Record<string, unknown>) => void;
   onError?: (error: Error) => void;
@@ -24,6 +25,7 @@ export async function fetchSseWithRetry(options: SseOptions): Promise<void> {
     method = 'POST',
     body,
     headers = {},
+    onMeta,
     onDelta,
     onDone,
     onError,
@@ -90,6 +92,15 @@ export async function fetchSseWithRetry(options: SseOptions): Promise<void> {
             if (payload.text) onDelta?.(payload.text);
           } catch {
             if (dataStr) onDelta?.(dataStr);
+          }
+        }
+
+        if (eventType === 'meta') {
+          try {
+            const payload = JSON.parse(dataStr || '{}');
+            onMeta?.(payload);
+          } catch {
+            onMeta?.();
           }
         }
 

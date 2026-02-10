@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Input, Button, List, Tag, Typography, Slider, Space, Empty, Spin } from 'antd';
+import { Card, Input, Button, List, Tag, Typography, Slider, Flex, Empty, Spin, Space } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { ragApi, type RagChunk } from '@/api/rag.api';
 import { useAuthStore } from '@/stores/auth.store';
@@ -34,7 +34,7 @@ const RetrievalTester: React.FC = () => {
   return (
     <div className="space-y-6">
       <Card title="RAG 檢索測試">
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Flex vertical style={{ width: '100%' }} gap="large">
           <div>
             <Text strong>查詢語句 (Query)</Text>
             <div className="flex gap-2 mt-2">
@@ -68,7 +68,7 @@ const RetrievalTester: React.FC = () => {
               onChange={setTopK} 
             />
           </div>
-        </Space>
+        </Flex>
       </Card>
 
       {searched && (

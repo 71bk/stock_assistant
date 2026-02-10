@@ -1,5 +1,6 @@
 """FastAPI Application Entry Point."""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -42,10 +43,19 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+def configure_stdlib_logging(level_name: str) -> None:
+    """Configure standard logging so structlog INFO logs are visible."""
+    level = getattr(logging, (level_name or "INFO").upper(), logging.INFO)
+    logging.basicConfig(level=level, format="%(message)s", force=True)
+    logging.getLogger("uvicorn.error").setLevel(level)
+    logging.getLogger("uvicorn.access").setLevel(level)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events."""
     settings = get_settings()
+    configure_stdlib_logging(settings.log_level)
     logger.info(
         "Starting AI Worker",
         service=settings.service_name,

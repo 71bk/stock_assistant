@@ -45,6 +45,9 @@ public class AiConversationService {
     @Value("${app.ai.chat.token-budget:6000}")
     private int tokenBudget;
 
+    @Value("${app.ai.chat.prompt-version:v1}")
+    private String promptVersion;
+
     @Transactional
     public ConversationView createConversation(Long userId, String title) {
         if (userId == null) {
@@ -54,6 +57,8 @@ public class AiConversationService {
         ConversationEntity conversation = new ConversationEntity();
         conversation.setUserId(userId);
         conversation.setTitle(normalizeTitle(title));
+        conversation.setPromptVersion(resolvePromptVersion());
+        conversation.setPromptSnapshot(DEFAULT_SYSTEM_PROMPT);
         ConversationEntity saved = conversationRepository.save(conversation);
 
         ConversationMessageEntity systemMessage = new ConversationMessageEntity();
@@ -153,6 +158,26 @@ public class AiConversationService {
     }
 
     @Transactional
+    public ConversationMessageView updateAssistantMessage(Long userId, Long conversationId, Long messageId,
+            String content, ConversationMessageStatus status) {
+        getConversationEntity(userId, conversationId);
+        ConversationMessageEntity message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Message not found"));
+        if (!conversationId.equals(message.getConversationId())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Message not found");
+        }
+        ConversationRole role = message.getRoleEnum();
+        if (role != ConversationRole.ASSISTANT) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Message is not assistant");
+        }
+        message.setContent(content == null ? "" : content);
+        message.setStatus(status == null ? null : status.name());
+        ConversationMessageEntity saved = messageRepository.save(message);
+        conversationRepository.touchById(conversationId);
+        return toConversationMessageView(saved);
+    }
+
+    @Transactional
     public ConversationView updateTitle(Long userId, Long conversationId, String title) {
         ConversationEntity conversation = getConversationEntity(userId, conversationId);
         if (title == null || title.isBlank()) {
@@ -235,9 +260,18 @@ public class AiConversationService {
         return new ConversationView(
                 entity.getId(),
                 entity.getTitle(),
+                entity.getPromptVersion(),
+                entity.getPromptSnapshot(),
                 entity.getSummary(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt());
+    }
+
+    private String resolvePromptVersion() {
+        if (promptVersion == null || promptVersion.isBlank()) {
+            return "v1";
+        }
+        return promptVersion.trim();
     }
 
     private ConversationMessageView toConversationMessageView(ConversationMessageEntity entity) {

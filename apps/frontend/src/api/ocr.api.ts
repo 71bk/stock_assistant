@@ -98,6 +98,10 @@ export const ocrApi = {
   updateDraft: (draftId: string, updates: Partial<DraftTrade>) =>
     http.patch<DraftTrade>(`/ocr/drafts/${draftId}`, updates),
 
+  // PUT method for full update or if preferred over PATCH
+  updateDraftPut: (draftId: string, updates: Partial<DraftTrade>) =>
+    http.put<DraftTrade>(`/ocr/drafts/${draftId}`, updates),
+
   confirmImport: (jobId: string, draftIds?: string[]) =>
     http.post<ConfirmImportResponse>(`/ocr/jobs/${jobId}/confirm`, draftIds?.length ? { draftIds } : {}),
 

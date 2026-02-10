@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Form, Upload, Button, Input, message, Tabs, Alert, Table, Tag, Popconfirm } from 'antd';
 import { InboxOutlined, FileTextOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined } from '@ant-design/icons';
 import { ragApi } from '@/api/rag.api';
+import { filesApi } from '@/api/files.api';
 import type { RagDocument } from '@/api/rag.api';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useAuthStore } from '@/stores/auth.store';
@@ -45,9 +46,16 @@ const DocumentManager: React.FC = () => {
     const file = fileList[0];
     
     try {
-      const userId = user?.id || '1';
+      // 1. Upload to File Service
+      // If file comes from beforeUpload (RcFile), it is the file itself.
+      // If it comes from onChange (UploadFile), it has originFileObj.
+      const fileToUpload = (file.originFileObj || file) as File;
+      const uploadRes = await filesApi.uploadFile(fileToUpload);
+      const fileId = uploadRes.fileId;
+
+      // 2. Trigger RAG Ingestion
+      await ragApi.ingestDocument(fileId, file.name, 'UPLOAD');
       
-      await ragApi.ingestDocument(file.originFileObj as File, userId, file.name);
       message.success('文件上傳並處理成功！');
       setFileList([]);
       fetchDocuments(); // Refresh list
@@ -131,7 +139,7 @@ const DocumentManager: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: RagDocument) => (
+      render: (_: unknown, record: RagDocument) => (
         <Popconfirm title="確定刪除此文件？" onConfirm={() => handleDeleteDocument(record.id)}>
           <Button type="text" danger icon={<DeleteOutlined />} />
         </Popconfirm>

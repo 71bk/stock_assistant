@@ -37,6 +37,6 @@ public class PortfolioValuationEntity {
     @Column(name = "positions_value", nullable = false)
     private BigDecimal positionsValue;
 
-    @Column(name = "created_at")
+    @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 }

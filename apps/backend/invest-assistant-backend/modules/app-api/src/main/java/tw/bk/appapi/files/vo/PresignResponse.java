@@ -14,7 +14,7 @@ import tw.bk.appfiles.model.PresignResult;
 public class PresignResponse {
     private String fileId;
 
-    private String objectKey;
+    private boolean alreadyExists;
 
     private String uploadUrl;
 
@@ -25,7 +25,7 @@ public class PresignResponse {
     public static PresignResponse from(PresignResult result) {
         return PresignResponse.builder()
                 .fileId(result.fileId() != null ? result.fileId().toString() : null)
-                .objectKey(result.objectKey())
+                .alreadyExists(result.alreadyExists())
                 .uploadUrl(result.uploadUrl())
                 .method(result.method())
                 .headers(result.headers())

@@ -4,6 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -11,6 +15,8 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +25,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
 import tw.bk.appai.client.GroqChatClient;
 import tw.bk.appai.model.ConversationMessageView;
 import tw.bk.appai.model.InstrumentCandidate;
@@ -26,6 +34,8 @@ import tw.bk.appai.model.QuoteCandidate;
 import tw.bk.appai.service.AiConversationService;
 import tw.bk.appai.service.AiInstrumentToolService;
 import tw.bk.appai.service.AiQuoteToolService;
+import tw.bk.appapi.ai.dto.ChatMessageRequest;
+import tw.bk.appcommon.enums.ConversationMessageStatus;
 import tw.bk.appcommon.enums.ConversationRole;
 import tw.bk.appcommon.security.CurrentUserProvider;
 
@@ -160,6 +170,143 @@ class AiConversationControllerTest {
                 "show quote");
 
         assertNull(reply);
+    }
+
+    @Test
+    void sendMessage_shouldMarkAssistantCompletedOnStreamSuccess() {
+        when(currentUserProvider.getUserId()).thenReturn(Optional.of(1L));
+        doAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(0);
+            runnable.run();
+            return null;
+        }).when(aiExecutor).execute(any(Runnable.class));
+
+        ConversationMessageView userMessage = new ConversationMessageView(
+                11L,
+                ConversationRole.USER,
+                "hello",
+                null,
+                null);
+        ConversationMessageView pendingAssistant = new ConversationMessageView(
+                22L,
+                ConversationRole.ASSISTANT,
+                "",
+                ConversationMessageStatus.PENDING,
+                null);
+        ConversationMessageView completedAssistant = new ConversationMessageView(
+                22L,
+                ConversationRole.ASSISTANT,
+                "hello world",
+                ConversationMessageStatus.COMPLETED,
+                null);
+        List<Map<String, String>> contextMessages = List.of(
+                Map.of("role", "user", "content", "hello"));
+
+        when(conversationService.appendUserMessage(1L, 2L, "hello", "cid-1")).thenReturn(userMessage);
+        when(conversationService.appendAssistantMessage(
+                1L,
+                2L,
+                "",
+                ConversationMessageStatus.PENDING)).thenReturn(pendingAssistant);
+        when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
+        when(groqChatClient.streamChat(contextMessages, 1L)).thenReturn(Flux.just("hello", " world"));
+        when(conversationService.updateAssistantMessage(
+                1L,
+                2L,
+                22L,
+                "hello world",
+                ConversationMessageStatus.COMPLETED)).thenReturn(completedAssistant);
+
+        SseEmitter emitter = controller.sendMessage(
+                "2",
+                ChatMessageRequest.builder()
+                        .content("hello")
+                        .clientMessageId("cid-1")
+                        .build());
+
+        assertNotNull(emitter);
+        verify(conversationService).appendAssistantMessage(1L, 2L, "", ConversationMessageStatus.PENDING);
+        verify(conversationService).updateAssistantMessage(
+                1L,
+                2L,
+                22L,
+                "hello world",
+                ConversationMessageStatus.COMPLETED);
+        verify(conversationService, never()).updateAssistantMessage(
+                eq(1L),
+                eq(2L),
+                eq(22L),
+                anyString(),
+                eq(ConversationMessageStatus.FAILED));
+    }
+
+    @Test
+    void sendMessage_shouldMarkAssistantFailedOnStreamError() {
+        when(currentUserProvider.getUserId()).thenReturn(Optional.of(1L));
+        doAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(0);
+            runnable.run();
+            return null;
+        }).when(aiExecutor).execute(any(Runnable.class));
+
+        ConversationMessageView userMessage = new ConversationMessageView(
+                11L,
+                ConversationRole.USER,
+                "hello",
+                null,
+                null);
+        ConversationMessageView pendingAssistant = new ConversationMessageView(
+                22L,
+                ConversationRole.ASSISTANT,
+                "",
+                ConversationMessageStatus.PENDING,
+                null);
+        ConversationMessageView failedAssistant = new ConversationMessageView(
+                22L,
+                ConversationRole.ASSISTANT,
+                "partial",
+                ConversationMessageStatus.FAILED,
+                null);
+        List<Map<String, String>> contextMessages = List.of(
+                Map.of("role", "user", "content", "hello"));
+
+        when(conversationService.appendUserMessage(1L, 2L, "hello", "cid-2")).thenReturn(userMessage);
+        when(conversationService.appendAssistantMessage(
+                1L,
+                2L,
+                "",
+                ConversationMessageStatus.PENDING)).thenReturn(pendingAssistant);
+        when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
+        when(groqChatClient.streamChat(contextMessages, 1L))
+                .thenReturn(Flux.just("partial").concatWith(Flux.error(new RuntimeException("boom"))));
+        when(conversationService.updateAssistantMessage(
+                1L,
+                2L,
+                22L,
+                "partial",
+                ConversationMessageStatus.FAILED)).thenReturn(failedAssistant);
+
+        SseEmitter emitter = controller.sendMessage(
+                "2",
+                ChatMessageRequest.builder()
+                        .content("hello")
+                        .clientMessageId("cid-2")
+                        .build());
+
+        assertNotNull(emitter);
+        verify(conversationService).appendAssistantMessage(1L, 2L, "", ConversationMessageStatus.PENDING);
+        verify(conversationService).updateAssistantMessage(
+                1L,
+                2L,
+                22L,
+                "partial",
+                ConversationMessageStatus.FAILED);
+        verify(conversationService, never()).updateAssistantMessage(
+                eq(1L),
+                eq(2L),
+                eq(22L),
+                anyString(),
+                eq(ConversationMessageStatus.COMPLETED));
     }
 
     private InstrumentCandidate candidate(String symbolKey) {

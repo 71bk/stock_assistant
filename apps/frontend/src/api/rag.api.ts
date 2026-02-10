@@ -16,7 +16,7 @@ export interface RagDocument {
   title: string;
   sourceType: string;
   sourceId: string;
-  meta: Record<string, any>;
+  meta: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -48,23 +48,12 @@ export const ragApi = {
   deleteDocument: (id: string) =>
     http.delete<void>(`/rag/documents/${id}`),
 
-  ingestDocument: (file: File, userId: string, title?: string, tags?: string) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('user_id', userId);
-    formData.append('source_type', 'upload');
-    if (title) formData.append('title', title);
-    if (tags) formData.append('tags', tags);
-
-    // Note: We use a custom axios instance or just use 'http' but with the new base URL.
-    // Since 'http' instance has baseURL set to '/api', we need to override it or use a relative path that goes out of /api.
-    // But standard axios baseURL is usually prepended.
-    // If http has baseURL='/api', then calling '/rag-api/ingest' results in '/api/rag-api/ingest' which is wrong.
-    // 使用 Java Backend Proxy (/api/rag/documents)
-    return http.post<IngestResponse>('/rag/documents', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+  ingestDocument: (fileId: string, title?: string, sourceType?: string, tags?: string[]) => {
+    return http.post<IngestResponse>('/rag/documents', {
+      fileId,
+      title,
+      sourceType: sourceType || 'UPLOAD',
+      tags,
     });
   },
 
@@ -81,16 +70,16 @@ export const ragApi = {
     formData.append('sourceType', data.source_type || 'NOTE'); // Enum 大寫
     
     // 注意：v1 合約中 POST /api/rag/documents
-    // 若後端接收 JSON: { title, content, sourceType }
+    // 若後端接收 JSON: { title, rawText, sourceType }
     return http.post<IngestResponse>('/rag/documents', {
       title: data.title,
-      content: data.text,
+      rawText: data.text,
       sourceType: data.source_type?.toUpperCase() || 'NOTE',
       tags: data.tags
     });
   },
 
-  query: (userId: string, query: string, topK: number = 5, sourceType?: string) => {
+  query: (_userId: string, query: string, topK: number = 5, sourceType?: string) => {
     // 使用 Java Backend Proxy (/api/rag/query)
     return http.post<RagQueryResponse>('/rag/query', {
       // user_id 通常由後端從 Session/Token 取，不需要前端傳

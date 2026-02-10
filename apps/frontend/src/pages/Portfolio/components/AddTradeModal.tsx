@@ -66,7 +66,7 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ open, onCancel, on
     setCurrentStep(1);
   };
 
-  const handleFinish = async (values: any) => {
+  const handleFinish = async (values: { side: 'BUY' | 'SELL'; quantity: string; price: string; date: dayjs.Dayjs; fee?: string }) => {
     if (!selectedInstrument) return;
 
     const payload = {

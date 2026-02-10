@@ -5,10 +5,24 @@ export interface FileDownloadUrlResponse {
   expiresAt?: string;
 }
 
+export interface FileUploadResponse {
+  fileId: string;
+  sha256: string;
+  sizeBytes: number;
+  contentType: string;
+}
+
 export const filesApi = {
   getDownloadUrl: (fileId: string) =>
     http.get<FileDownloadUrlResponse>(`/files/${fileId}/url`),
-    
-  // Helper to construct the preview element based on content type
-  // This is not an API call but a helper, or we can handle it in the component
+
+  uploadFile: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return http.post<FileUploadResponse>('/files', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
 };

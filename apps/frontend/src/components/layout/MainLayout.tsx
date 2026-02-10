@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Layout, Menu, Button, Dropdown, Avatar, theme, Breadcrumb, Drawer, Grid } from 'antd';
+import { Layout, Menu, Button, Dropdown, Avatar, theme, Breadcrumb, Drawer, Grid, Flex } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   PieChartOutlined,
@@ -39,6 +39,7 @@ export const MainLayout: React.FC = () => {
   // Close drawer when route changes
   useEffect(() => {
     setDrawerOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
   const handleMenuClick = ({ key }: { key: string }) => {
@@ -170,8 +171,10 @@ export const MainLayout: React.FC = () => {
           placement="left"
           onClose={() => setDrawerOpen(false)}
           open={drawerOpen}
-          styles={{ body: { padding: 0 } }}
-          width="240px"
+          styles={{
+            body: { padding: 0 },
+            wrapper: { width: 240 }
+          }}
         >
           {MenuContent}
         </Drawer>
@@ -179,7 +182,7 @@ export const MainLayout: React.FC = () => {
 
       <Layout>
         <Header style={{ padding: '0 16px', background: colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0' }}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Flex align="center">
             <Button
               type="text"
               icon={isMobile ? <MenuUnfoldOutlined /> : (siderCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />)}
@@ -191,7 +194,7 @@ export const MainLayout: React.FC = () => {
               }}
             />
             <Breadcrumb items={[{ title: '首頁' }, ...breadcrumbItems]} style={{ marginLeft: 16 }} />
-          </div>
+          </Flex>
           <Dropdown menu={userMenu} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', borderRadius: 6, transition: 'background 0.3s' }} className="user-dropdown-trigger">
                <Avatar src={user?.pictureUrl} icon={<UserOutlined />} style={{ backgroundColor: '#1677ff' }} />

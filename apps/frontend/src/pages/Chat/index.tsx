@@ -9,13 +9,10 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
 import { useChatStore } from '../../stores/chat.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { preprocessMarkdown } from '../../utils/format';
+import { AiReportViewer } from '../../components/ai/AiReportViewer';
 import dayjs from 'dayjs';
 
 const { Sider, Content } = Layout;
@@ -210,16 +207,13 @@ const ChatPage: React.FC = () => {
                       boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
                     }}>
                       <div
-                        className={msg.role === 'assistant' ? "markdown-content" : ""}
+                        className={msg.role === 'assistant' ? "assistant-content" : ""}
                         style={msg.role === 'assistant' ? { fontSize: '16px', lineHeight: '1.8' } : {}}
                       >
                         {msg.role === 'assistant' ? (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeRaw, rehypeSanitize]}
-                          >
-                            {preprocessMarkdown(msg.content || (isStreaming && msg.messageId.startsWith('tmp-') ? '...' : ''))}
-                          </ReactMarkdown>
+                          <AiReportViewer
+                            content={preprocessMarkdown(msg.content || (isStreaming && msg.messageId.startsWith('tmp-') ? '...' : ''))}
+                          />
                         ) : (
                           <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
                         )}

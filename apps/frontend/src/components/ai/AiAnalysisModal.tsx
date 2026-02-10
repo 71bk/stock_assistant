@@ -1,12 +1,8 @@
 import React from 'react';
 import { Modal, Divider, Spin, Empty, Button } from 'antd';
 import { RobotOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { useAiStore } from '../../stores/ai.store';
-import { preprocessMarkdown } from '../../utils/format';
+import { AiReportViewer } from './AiReportViewer';
 
 interface AiAnalysisModalProps {
   open: boolean;
@@ -16,16 +12,6 @@ interface AiAnalysisModalProps {
 
 export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ open, onClose, title = "AI 投資分析" }) => {
   const { analysisStream, isAnalyzing } = useAiStore();
-
-  // Custom sanitize schema to allow style attributes (for colors)
-  const sanitizeSchema = {
-    ...defaultSchema,
-    attributes: {
-      ...defaultSchema.attributes,
-      span: [...(defaultSchema.attributes?.span || []), 'style'],
-      div: [...(defaultSchema.attributes?.div || []), 'style'],
-    },
-  };
 
   return (
     <Modal
@@ -53,16 +39,11 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ open, onClose,
         )}
         
         {analysisStream ? (
-          <div className="markdown-content">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
-            >
-              {preprocessMarkdown(analysisStream)}
-            </ReactMarkdown>
+          <div className="report-container">
+            <AiReportViewer content={analysisStream} />
             {isAnalyzing && (
-              <div style={{ marginTop: 8 }}>
-                <Spin size="small" />
+              <div style={{ marginTop: 8, textAlign: 'center' }}>
+                <Spin size="small" tip="正在產生報告內容..." />
               </div>
             )}
           </div>

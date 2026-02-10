@@ -23,13 +23,19 @@ export const FloatingAiAssistant: React.FC = () => {
   } = useChatStore();
 
   const [inputValue, setInputValue] = useState('');
+  const [isListExpanded, setIsListExpanded] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll to bottom when messages change or chat becomes visible
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current && chatVisible) {
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, 100); // Small delay to ensure rendering
     }
-  }, [messages]);
+  }, [messages, chatVisible]);
 
   useEffect(() => {
     if (chatVisible) {
@@ -81,36 +87,50 @@ export const FloatingAiAssistant: React.FC = () => {
       >
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', background: '#fff' }}>
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Typography.Text strong>對話列表</Typography.Text>
+            <div
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+              onClick={() => setIsListExpanded(!isListExpanded)}
+            >
+              <Typography.Text strong>對話列表</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {isListExpanded ? '收合' : '展開'}
+              </Typography.Text>
+            </div>
             <Button size="small" onClick={() => createConversation()}>
               新對話
             </Button>
           </Space>
-          <div style={{ maxHeight: 140, overflowY: 'auto', marginTop: 8 }}>
-            {isLoadingList ? (
-              <Spin size="small" />
-            ) : (
-              <List
-                size="small"
-                dataSource={conversations}
-                renderItem={(item) => (
-                  <List.Item
-                    style={{
-                      cursor: 'pointer',
-                      borderBottom: 'none',
-                      padding: '4px 0',
-                      color: item.conversationId === currentConversationId ? '#1677ff' : undefined,
-                    }}
-                    onClick={() => selectConversation(item.conversationId)}
-                  >
-                    <Typography.Text ellipsis style={{ width: '100%' }}>
-                      {item.title || 'New Chat'}
-                    </Typography.Text>
-                  </List.Item>
-                )}
-              />
-            )}
-          </div>
+          
+          {isListExpanded && (
+            <div style={{ maxHeight: 140, overflowY: 'auto', marginTop: 8 }}>
+              {isLoadingList ? (
+                <Spin size="small" />
+              ) : (
+                <List
+                  size="small"
+                  dataSource={conversations}
+                  renderItem={(item) => (
+                    <List.Item
+                      style={{
+                        cursor: 'pointer',
+                        borderBottom: 'none',
+                        padding: '4px 0',
+                        color: item.conversationId === currentConversationId ? '#1677ff' : undefined,
+                      }}
+                      onClick={() => {
+                        selectConversation(item.conversationId);
+                        // Optional: auto-collapse on selection if desired, but user didn't specify
+                      }}
+                    >
+                      <Typography.Text ellipsis style={{ width: '100%' }}>
+                        {item.title || 'New Chat'}
+                      </Typography.Text>
+                    </List.Item>
+                  )}
+                />
+              )}
+            </div>
+          )}
         </div>
 
         <div

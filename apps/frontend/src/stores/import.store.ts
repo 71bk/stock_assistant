@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { ocrApi } from '../api/ocr.api';
-import { stocksApi } from '../api/stocks.api';
 import type { DraftTrade, OcrJob } from '../api/ocr.api';
 import { msg, mdl } from '../utils/antd-globals';
 
@@ -9,6 +8,7 @@ interface ImportState {
   activeJobId: string | null;
   fileId: string | null;
   jobStatus: OcrJob['status'] | null;
+  errorMessage: string | null;
   progress: number;
   draftTrades: DraftTrade[];
   statementId: string | null;
@@ -33,6 +33,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
   activeJobId: null,
   fileId: null,
   jobStatus: null,
+  errorMessage: null,
   progress: 0,
   draftTrades: [],
   statementId: null,
@@ -49,6 +50,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
       activeJobId: null,
       fileId: null,
       jobStatus: null,
+      errorMessage: null,
       progress: 0,
       draftTrades: [],
       statementId: null,
@@ -147,9 +149,9 @@ export const useImportStore = create<ImportState>((set, get) => ({
     const interval = setInterval(async () => {
       try {
         const job = await ocrApi.getJob(jobId);
-
-        set({ jobStatus: job.status, progress: job.progress });
-
+  
+        set({ jobStatus: job.status, progress: job.progress, errorMessage: job.errorMessage });
+  
         if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') {
           clearInterval(interval);
           set({ isPolling: false, pollingIntervalId: null, activePollingJobId: null });
@@ -216,7 +218,6 @@ export const useImportStore = create<ImportState>((set, get) => ({
   confirmTrades: async (selectedIds) => {
     if (get().isLoading) return;
     const { activeJobId, statementId, draftTrades } = get();
-    const tradesToImport = draftTrades.filter((t) => selectedIds.includes(t.draftId));
 
     if (!statementId || !activeJobId) return;
 

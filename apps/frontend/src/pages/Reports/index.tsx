@@ -4,6 +4,7 @@ import { FileSearchOutlined, RobotOutlined } from '@ant-design/icons';
 import { useAiStore } from '../../stores/ai.store';
 import { ErrorState } from '../../components/common/ErrorState';
 import { formatDateTime } from '../../utils/format';
+import { AiReportViewer } from '../../components/ai/AiReportViewer';
 import type { AiReport } from '../../api/ai.api';
 
 const { Title } = Typography;
@@ -121,9 +122,7 @@ const Reports: React.FC = () => {
                 {selectedReport.reportType === 'PORTFOLIO' ? '組合分析' : '個股分析'}
               </Tag>
             </div>
-            <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8', fontSize: '15px' }}>
-              {selectedReport.outputText}
-            </div>
+            <AiReportViewer content={selectedReport.outputText} />
           </div>
         ) : (
           <Skeleton active />

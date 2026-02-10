@@ -27,4 +27,33 @@ export const adminApi = {
       timeout: 120000,
     });
   },
+
+  rebuildPositions: (portfolioId: string, instrumentId?: string, adminKey?: string) => {
+    const headers: Record<string, string> = {};
+    if (adminKey) {
+      headers['X-Admin-Key'] = adminKey;
+    }
+    return http.post<{
+      portfolioId: number;
+      userId: number;
+      targetInstrumentCount: number;
+      rebuiltInstrumentCount: number;
+      failedInstrumentCount: number;
+      failedInstrumentIds: number[];
+    }>('/admin/portfolios/positions-rebuild', { portfolioId, instrumentId }, { headers });
+  },
+
+  snapshotValuations: (portfolioId?: string, userId?: string, asOfDate?: string, adminKey?: string) => {
+    const headers: Record<string, string> = {};
+    if (adminKey) {
+      headers['X-Admin-Key'] = adminKey;
+    }
+    return http.post<{
+      asOfDate: string;
+      total: number;
+      succeeded: number;
+      failed: number;
+      failedPortfolioIds: number[];
+    }>('/admin/portfolios/valuations-snapshot', { portfolioId, userId, asOfDate }, { headers });
+  },
 };

@@ -25,6 +25,12 @@ public class ConversationEntity {
     @Column(name = "title")
     private String title;
 
+    @Column(name = "prompt_version")
+    private String promptVersion;
+
+    @Column(name = "prompt_snapshot")
+    private String promptSnapshot;
+
     @Column(name = "summary")
     private String summary;
 

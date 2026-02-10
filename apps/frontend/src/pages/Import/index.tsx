@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Steps, Card, Upload, Typography, Button, Progress, Table,
   Tag, Tooltip, Space, Popconfirm, InputNumber, DatePicker, Select,
-  Alert, Result, message, Input, Row, Col, Image, Empty, Spin
+  Alert, Result, message, Input, Row, Col, Image, Empty, Spin, Flex
 } from 'antd';
 import {
   InboxOutlined, CheckCircleOutlined,
@@ -72,31 +72,31 @@ return (
     />
     <div style={{ marginTop: 20 }}>
       {isFailedOrCancelled ? (
-        <Space direction="vertical" size="middle">
+        <Flex vertical gap="middle" align="center">
           <Text type={jobStatus === 'FAILED' ? "danger" : "secondary"}>
             {jobStatus === 'FAILED' ? (errorMessage || 'OCR 解析失敗，請嘗試其他影像或重試。') : '您已取消此任務。'}
           </Text>
-          <Space>
+          <Flex gap="small">
             <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
               重新嘗試
             </Button>
             <Button type="primary" icon={<UploadOutlined />} onClick={reset}>
               重新上傳
             </Button>
-          </Space>
-        </Space>
+          </Flex>
+        </Flex>
       ) : (
-        <Space direction="vertical" size="middle">
+        <Flex vertical gap="middle" align="center">
           <Text type="secondary">正在辨識日期、代號與金額...</Text>
-          <Space>
+          <Flex gap="small">
             <Button icon={<ReloadOutlined />} onClick={reprocessJob} size="small">
               重新解析
             </Button>
             <Button danger onClick={() => cancelJob()} size="small">
               取消任務
             </Button>
-          </Space>
-        </Space>
+          </Flex>
+        </Flex>
       )}
     </div>
   </Card>
