@@ -76,12 +76,6 @@ export const ocrApi = {
   getPresignedUrl: (data: PresignRequest) =>
     http.post<PresignResponse>('/files/presign', data),
 
-  // Deprecated: Use uploadFileOnly + createOcrJob
-  upload: async (file: File, portfolioId: string = 'default') => {
-    const fileId = await ocrApi.uploadFileOnly(file);
-    return ocrApi.createOcrJob(fileId, portfolioId);
-  },
-
   createOcrJob: (fileId: string, portfolioId: string, force = false) =>
     http.post<CreateOcrJobResponse>('/ocr/jobs', {
       fileId,

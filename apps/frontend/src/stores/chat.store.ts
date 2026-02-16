@@ -13,6 +13,7 @@ interface ChatState {
   isStreaming: boolean;
   streamingConversationId: string | null;
   hasStreamingConflict: boolean;
+  abortController: AbortController | null;
 
   loadConversations: () => Promise<void>;
   createConversation: () => Promise<string | null>;
@@ -32,8 +33,6 @@ const newClientMessageId = () => {
 const toUiMessages = (messages: ConversationMessage[]) =>
   messages.filter((m) => m.role !== 'system');
 
-let currentChatAbortController: AbortController | null = null;
-
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   currentConversationId: null,
@@ -43,8 +42,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   streamingConversationId: null,
   hasStreamingConflict: false,
+  abortController: null,
 
-  resetChat: () => set({ messages: [], currentConversationId: null }),
+  resetChat: () => {
+    // Abort any ongoing stream when resetting
+    const { abortController } = get();
+    if (abortController) {
+      abortController.abort();
+    }
+    set({ messages: [], currentConversationId: null, abortController: null });
+  },
 
   loadConversations: async () => {
     set({ isLoadingList: true });
@@ -117,10 +124,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const trimmed = content.trim();
     if (!trimmed) return;
 
-    if (currentChatAbortController) {
-      currentChatAbortController.abort();
+    // Abort previous controller if exists
+    const prevController = get().abortController;
+    if (prevController) {
+      prevController.abort();
     }
-    currentChatAbortController = new AbortController();
+
+    const abortController = new AbortController();
+    set({ abortController });
 
     let conversationId = get().currentConversationId;
     if (!conversationId) {
@@ -149,7 +160,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await fetchSseWithRetry({
         url: `/api/ai/conversations/${conversationId}/messages`,
         body: { content: trimmed, clientMessageId },
-        signal: currentChatAbortController.signal,
+        signal: abortController.signal,
         onMeta: (payload) => {
           const userMessageId = typeof payload?.userMessageId === 'string'
             ? payload.userMessageId
@@ -220,7 +231,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       set({ isStreaming: false, streamingConversationId: null });
     } finally {
-      currentChatAbortController = null;
+      set({ abortController: null });
     }
   },
 }));

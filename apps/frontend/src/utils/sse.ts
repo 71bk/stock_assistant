@@ -35,16 +35,26 @@ export async function fetchSseWithRetry(options: SseOptions): Promise<void> {
   } = options;
 
   let retries = 0;
+  let lastEventId: string | null = null;
 
   async function connect(): Promise<void> {
     try {
+      const requestHeaders: Record<string, string> = {
+        Accept: 'text/event-stream',
+        ...headers,
+      };
+
+      if (body) {
+        requestHeaders['Content-Type'] = requestHeaders['Content-Type'] ?? 'application/json';
+      }
+      if (lastEventId) {
+        requestHeaders['Last-Event-ID'] = lastEventId;
+      }
+
       const response = await fetch(url, {
         method,
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
+        headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
         signal,
       });
@@ -64,14 +74,20 @@ export async function fetchSseWithRetry(options: SseOptions): Promise<void> {
       const processEvent = (rawEvent: string) => {
         const lines = rawEvent.split('\n');
         let eventType = 'message';
+        let eventId: string | null = null;
         const dataLines: string[] = [];
 
         for (const line of lines) {
           if (line.startsWith('event:')) {
             eventType = line.slice(6).trim();
+          } else if (line.startsWith('id:')) {
+            eventId = line.slice(3).trim();
           } else if (line.startsWith('data:')) {
             dataLines.push(line.slice(5).trim());
           }
+        }
+        if (eventId) {
+          lastEventId = eventId;
         }
 
         const dataStr = dataLines.join('\n');
@@ -82,8 +98,12 @@ export async function fetchSseWithRetry(options: SseOptions): Promise<void> {
         }
 
         if (eventType === 'error') {
-          const err = JSON.parse(dataStr);
-          throw new Error(err.message || 'Stream error');
+          try {
+            const err = JSON.parse(dataStr);
+            throw new Error(err.message || 'Stream error');
+          } catch {
+            throw new Error(dataStr || 'Stream error');
+          }
         }
 
         if (eventType === 'delta' || eventType === 'message') {
@@ -113,7 +133,7 @@ export async function fetchSseWithRetry(options: SseOptions): Promise<void> {
 
       while (!streamDone) {
         const { value, done: readerDone } = await reader.read();
-        
+
         if (value) {
           buffer += decoder.decode(value, { stream: true });
         }

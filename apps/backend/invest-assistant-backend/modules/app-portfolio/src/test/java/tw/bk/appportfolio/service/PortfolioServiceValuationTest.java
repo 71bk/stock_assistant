@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +66,7 @@ class PortfolioServiceValuationTest {
         portfolio.setUserId(10L);
 
         when(portfolioRepository.findByIdAndUserId(20L, 10L)).thenReturn(Optional.of(portfolio));
-        when(clockProvider.nowUtc()).thenReturn(OffsetDateTime.parse("2026-02-09T00:00:00Z"));
+        when(clockProvider.now()).thenReturn(Instant.parse("2026-02-09T00:00:00Z"));
         when(portfolioValuationRepository.findByPortfolioIdAndAsOfDateBetweenOrderByAsOfDateAsc(
                 20L,
                 LocalDate.parse("2026-01-10"),

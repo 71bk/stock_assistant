@@ -1,5 +1,6 @@
 package tw.bk.appapi.auth;
 
+import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
@@ -11,12 +12,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tw.bk.appapi.auth.dto.AdminLoginRequest;
 import tw.bk.appapi.auth.vo.MeResponse;
 import tw.bk.appauth.model.UserSettingsView;
 import tw.bk.appauth.model.UserView;
 import tw.bk.appauth.config.AuthProperties;
+import tw.bk.appauth.service.AdminAuthService;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
 import tw.bk.appauth.service.UserService;
@@ -32,6 +36,7 @@ import tw.bk.appapi.security.SimpleRateLimiter;
 public class AuthController {
     private final AuthService authService;
     private final AuthCookieService cookieService;
+    private final AdminAuthService adminAuthService;
     private final UserService userService;
     private final UserSettingsService userSettingsService;
     private final CurrentUserProvider currentUserProvider;
@@ -44,8 +49,15 @@ public class AuthController {
     @Value("${app.auth.refresh.rate-window:60s}")
     private Duration refreshRateWindow;
 
+    @Value("${app.auth.admin-login.rate-limit:10}")
+    private int adminLoginRateLimit;
+
+    @Value("${app.auth.admin-login.rate-window:60s}")
+    private Duration adminLoginRateWindow;
+
     public AuthController(AuthService authService,
             AuthCookieService cookieService,
+            AdminAuthService adminAuthService,
             UserService userService,
             UserSettingsService userSettingsService,
             CurrentUserProvider currentUserProvider,
@@ -53,6 +65,7 @@ public class AuthController {
             SimpleRateLimiter rateLimiter) {
         this.authService = authService;
         this.cookieService = cookieService;
+        this.adminAuthService = adminAuthService;
         this.userService = userService;
         this.userSettingsService = userSettingsService;
         this.currentUserProvider = currentUserProvider;
@@ -76,6 +89,28 @@ public class AuthController {
         }
 
         AuthService.AuthTokens tokens = authService.refreshTokens(refreshToken);
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                cookieService.createAccessCookie(tokens.accessToken(), authService.accessTokenTtl()).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                cookieService.createRefreshCookie(tokens.refreshToken(), authService.refreshTokenTtl()).toString());
+        return ResponseEntity.ok(Result.ok());
+    }
+
+    @PostMapping("/admin/login")
+    public ResponseEntity<Result<Void>> adminLogin(
+            @Valid @RequestBody AdminLoginRequest requestBody,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        enforceAdminLoginRateLimit(request);
+        String ip = getClientKey(request);
+        String userAgent = request.getHeader("User-Agent");
+
+        AuthService.AuthTokens tokens = adminAuthService.login(
+                requestBody.getEmail(),
+                requestBody.getPassword(),
+                ip,
+                userAgent);
+
         response.addHeader(HttpHeaders.SET_COOKIE,
                 cookieService.createAccessCookie(tokens.accessToken(), authService.accessTokenTtl()).toString());
         response.addHeader(HttpHeaders.SET_COOKIE,
@@ -119,6 +154,13 @@ public class AuthController {
         String key = "auth:refresh:" + getClientKey(request);
         if (!rateLimiter.tryAcquire(key, refreshRateLimit, refreshRateWindow)) {
             throw new BusinessException(ErrorCode.RATE_LIMITED, "Too many refresh attempts");
+        }
+    }
+
+    private void enforceAdminLoginRateLimit(HttpServletRequest request) {
+        String key = "auth:admin:login:" + getClientKey(request);
+        if (!rateLimiter.tryAcquire(key, adminLoginRateLimit, adminLoginRateWindow)) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "Too many login attempts");
         }
     }
 

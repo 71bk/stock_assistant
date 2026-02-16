@@ -1,6 +1,6 @@
 # Auth 與安全設計
 
-> 狀態：已實作 (2026-02-09)
+> 狀態：已實作 (2026-02-12)
 
 ## Cookie/JWT 策略
 
@@ -9,13 +9,37 @@
 - **Access Token**:
   - 存放位置：`HttpOnly Cookie` (名稱: `access_token`)
   - 時效：短效期 (如 15 分鐘)
-  - 內容：包含使用者 ID (sub)、角色 (roles) 等基本資訊
+  - 內容：包含使用者 ID (sub)、`role` 等基本資訊
   - 驗證：由 `JwtAuthenticationFilter` 攔截請求並驗證簽章
 
 - **Refresh Token**:
   - 存放位置：`HttpOnly Cookie` (名稱: `refresh_token`, path: `/api/auth/refresh`)
   - 時效：長效期 (如 7 天)
   - 用途：當 Access Token 過期時，用於換取新的 Access Token
+
+## Admin 本地登入（Argon2id）
+
+- Endpoint：`POST /api/auth/admin/login`（`email` + `password`）
+- 只允許 `role=ADMIN` 且 `status=ACTIVE` 的帳號登入
+- 成功後與 Google OAuth 相同，回寫 `access_token` / `refresh_token` Cookie
+- `/api/admin/**` 由 Spring Security 採 RBAC 控制（需 `ROLE_ADMIN`）
+
+## 密碼雜湊策略
+
+- 演算法：`Argon2id`（PasswordEncoder）
+- 預設參數（可由設定覆寫）：
+  - `salt-length=16`
+  - `hash-length=32`
+  - `parallelism=1`
+  - `memory-kib=19456`（19 MiB）
+  - `iterations=2`
+- 設定鍵：
+  - `app.auth.password.argon2.salt-length`
+  - `app.auth.password.argon2.hash-length`
+  - `app.auth.password.argon2.parallelism`
+  - `app.auth.password.argon2.memory-kib`
+  - `app.auth.password.argon2.iterations`
+- 相容策略：若資料庫中仍有舊版 BCrypt hash，登入成功後會自動升級重算為 Argon2id
 
 ## Refresh Rotation + Redis Session
 
@@ -53,6 +77,18 @@
 - 主要設定：
   - `app.auth.refresh.rate-limit`（預設 30）
   - `app.auth.refresh.rate-window`（預設 60s）
+
+## Admin Login Rate Limit / Lockout / Audit
+
+- `/api/auth/admin/login` 已加上 IP 限流（`SimpleRateLimiter`）
+  - `app.auth.admin-login.rate-limit`（預設 10）
+  - `app.auth.admin-login.rate-window`（預設 60s）
+- 帳號層級失敗鎖定（Redis）
+  - `app.auth.admin-login.max-failures`（預設 5）
+  - `app.auth.admin-login.fail-window`（預設 15m）
+  - `app.auth.admin-login.lock-duration`（預設 15m）
+- 稽核表：`app.admin_login_audits`
+  - 記錄 `email/user_id/success/ip/user_agent/reason/created_at`
 
 ## Exception Handling (Security)
 

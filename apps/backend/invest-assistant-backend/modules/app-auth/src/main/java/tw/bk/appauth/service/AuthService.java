@@ -9,17 +9,23 @@ import tw.bk.appauth.redis.RefreshTokenStore;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.entity.UserEntity;
+import tw.bk.apppersistence.repository.UserRepository;
 
 @Service
 public class AuthService {
     private final JwtTokenService tokenService;
     private final RefreshTokenStore refreshTokenStore;
     private final AuthProperties properties;
+    private final UserRepository userRepository;
 
-    public AuthService(JwtTokenService tokenService, RefreshTokenStore refreshTokenStore, AuthProperties properties) {
+    public AuthService(JwtTokenService tokenService,
+            RefreshTokenStore refreshTokenStore,
+            AuthProperties properties,
+            UserRepository userRepository) {
         this.tokenService = tokenService;
         this.refreshTokenStore = refreshTokenStore;
         this.properties = properties;
+        this.userRepository = userRepository;
     }
 
     public AuthTokens issueTokens(UserEntity user) {
@@ -48,15 +54,18 @@ public class AuthService {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Refresh token mismatch");
         }
 
+        UserEntity user = userRepository.findById(storedUserId)
+                .orElseThrow(() -> {
+                    refreshTokenStore.revoke(claims.jti());
+                    return new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "User not found");
+                });
+        if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
+            refreshTokenStore.revoke(claims.jti());
+            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "User inactive");
+        }
+
         refreshTokenStore.revoke(claims.jti());
-        String refreshJti = UUID.randomUUID().toString();
-        String accessJti = UUID.randomUUID().toString();
-        String accessToken = tokenService.buildAccessToken(claims.userId(), claims.email(), accessJti,
-                properties.getAccessTokenTtl());
-        String newRefreshToken = tokenService.buildRefreshToken(claims.userId(), claims.email(), refreshJti,
-                properties.getRefreshTokenTtl());
-        refreshTokenStore.store(refreshJti, claims.userId(), properties.getRefreshTokenTtl());
-        return new AuthTokens(accessToken, newRefreshToken);
+        return issueTokens(user);
     }
 
     public void logout(String refreshToken) {

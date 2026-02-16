@@ -8,8 +8,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -101,7 +101,7 @@ class PortfolioServiceSnapshotTest {
         when(portfolioValuationRepository.findById(any())).thenReturn(Optional.empty());
         when(portfolioValuationRepository.save(any(PortfolioValuationEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(clockProvider.nowUtc()).thenReturn(OffsetDateTime.parse("2026-02-09T00:00:00Z"));
+        when(clockProvider.now()).thenReturn(Instant.parse("2026-02-09T00:00:00Z"));
 
         PortfolioValuationSnapshotResult result = service.snapshotValuations(
                 LocalDate.parse("2026-02-09"),
@@ -159,7 +159,7 @@ class PortfolioServiceSnapshotTest {
         when(portfolioValuationRepository.findById(any())).thenReturn(Optional.empty());
         when(portfolioValuationRepository.save(any(PortfolioValuationEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(clockProvider.nowUtc()).thenReturn(OffsetDateTime.parse("2026-02-09T00:00:00Z"));
+        when(clockProvider.now()).thenReturn(Instant.parse("2026-02-09T00:00:00Z"));
 
         PortfolioValuationSnapshotResult result = service.snapshotValuations(
                 LocalDate.parse("2026-01-05"),
@@ -211,7 +211,7 @@ class PortfolioServiceSnapshotTest {
         when(portfolioValuationRepository.findById(any())).thenReturn(Optional.empty());
         when(portfolioValuationRepository.save(any(PortfolioValuationEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(clockProvider.nowUtc()).thenReturn(OffsetDateTime.parse("2026-02-09T00:00:00Z"));
+        when(clockProvider.now()).thenReturn(Instant.parse("2026-02-09T00:00:00Z"));
 
         AtomicBoolean asOfResolverCalled = new AtomicBoolean(false);
         QuoteProvider quoteProvider = new QuoteProvider() {

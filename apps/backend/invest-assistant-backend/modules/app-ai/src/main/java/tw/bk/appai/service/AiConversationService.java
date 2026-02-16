@@ -33,6 +33,9 @@ public class AiConversationService {
             - If Tool Results contains a `quote:` section, you must use that quote data in your answer.
             - When `tool_quote_available: true`, do not claim you cannot provide real-time/latest price.
             - If `tool_quote_available: false`, explain quote is currently unavailable and include `tool_quote_error` if present.
+            - If Tool Results contains `portfolio_context:`, use those holdings and valuation numbers directly.
+            - When using portfolio numbers, include `as_of_date` and `valuation_source` to indicate freshness.
+            - If Tool Results contains `rag_context:`, ground your answer on those snippets and avoid fabricating citations.
             """;
     private static final int MAX_TITLE_LENGTH = 30;
 
@@ -113,12 +116,13 @@ public class AiConversationService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Message content is required");
         }
 
-        if (clientMessageId != null && !clientMessageId.isBlank()) {
+        String normalizedClientMessageId = normalizeClientMessageId(clientMessageId);
+        if (normalizedClientMessageId != null) {
             ConversationMessageEntity existing = messageRepository
-                    .findByConversationIdAndClientMessageId(conversationId, clientMessageId)
+                    .findByConversationIdAndClientMessageId(conversationId, normalizedClientMessageId)
                     .orElse(null);
             if (existing != null) {
-                throw new BusinessException(ErrorCode.CONFLICT, "Duplicate message");
+                return toConversationMessageView(existing);
             }
         }
 
@@ -126,11 +130,19 @@ public class AiConversationService {
         message.setConversationId(conversationId);
         message.setRole(ConversationRole.USER.value());
         message.setContent(content.trim());
-        message.setClientMessageId(clientMessageId);
+        message.setClientMessageId(normalizedClientMessageId);
         ConversationMessageEntity saved;
         try {
             saved = messageRepository.save(message);
         } catch (DataIntegrityViolationException ex) {
+            if (normalizedClientMessageId != null) {
+                ConversationMessageEntity existing = messageRepository
+                        .findByConversationIdAndClientMessageId(conversationId, normalizedClientMessageId)
+                        .orElse(null);
+                if (existing != null) {
+                    return toConversationMessageView(existing);
+                }
+            }
             throw new BusinessException(ErrorCode.CONFLICT, "Duplicate message");
         }
 
@@ -146,13 +158,43 @@ public class AiConversationService {
     @Transactional
     public ConversationMessageView appendAssistantMessage(Long userId, Long conversationId, String content,
             ConversationMessageStatus status) {
+        return appendOrGetAssistantMessage(userId, conversationId, content, status, null);
+    }
+
+    @Transactional
+    public ConversationMessageView appendOrGetAssistantMessage(Long userId, Long conversationId, String content,
+            ConversationMessageStatus status, String clientMessageId) {
         getConversationEntity(userId, conversationId);
+        String normalizedClientMessageId = normalizeClientMessageId(clientMessageId);
+        if (normalizedClientMessageId != null) {
+            ConversationMessageEntity existing = messageRepository
+                    .findByConversationIdAndClientMessageId(conversationId, normalizedClientMessageId)
+                    .orElse(null);
+            if (existing != null) {
+                return toConversationMessageView(existing);
+            }
+        }
+
         ConversationMessageEntity message = new ConversationMessageEntity();
         message.setConversationId(conversationId);
         message.setRole(ConversationRole.ASSISTANT.value());
         message.setContent(content == null ? "" : content);
         message.setStatus(status == null ? null : status.name());
-        ConversationMessageEntity saved = messageRepository.save(message);
+        message.setClientMessageId(normalizedClientMessageId);
+        ConversationMessageEntity saved;
+        try {
+            saved = messageRepository.save(message);
+        } catch (DataIntegrityViolationException ex) {
+            if (normalizedClientMessageId != null) {
+                ConversationMessageEntity existing = messageRepository
+                        .findByConversationIdAndClientMessageId(conversationId, normalizedClientMessageId)
+                        .orElse(null);
+                if (existing != null) {
+                    return toConversationMessageView(existing);
+                }
+            }
+            throw new BusinessException(ErrorCode.CONFLICT, "Duplicate message");
+        }
         conversationRepository.touchById(conversationId);
         return toConversationMessageView(saved);
     }
@@ -309,5 +351,12 @@ public class AiConversationService {
             return trimmed.substring(0, MAX_TITLE_LENGTH);
         }
         return trimmed;
+    }
+
+    private String normalizeClientMessageId(String clientMessageId) {
+        if (clientMessageId == null || clientMessageId.isBlank()) {
+            return null;
+        }
+        return clientMessageId.trim();
     }
 }

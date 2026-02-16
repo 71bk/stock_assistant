@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import type { User } from '../types/domain';
-import { authApi } from '../api/auth.api';
+import { authApi, type LoginRequest } from '../api/auth.api';
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   isLoading: boolean;
   login: () => void; // Triggered after successful OAuth callback
+  loginAdmin: (data: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -14,6 +16,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
+  isAdmin: false,
   isLoading: true, // Start loading to check session
 
   login: () => {
@@ -24,6 +27,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  loginAdmin: async (data: LoginRequest) => {
+    set({ isLoading: true });
+    try {
+      await authApi.loginAdmin(data);
+      // Login successful, fetch user data to update state
+      await get().checkAuth();
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
   logout: async () => {
     try {
       await authApi.logout();
@@ -31,7 +45,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       console.error('Logout failed', e);
     } finally {
       // Always clean up state even if API fails
-      set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false, isAdmin: false });
       window.location.href = '/auth/login';
     }
   },
@@ -41,11 +55,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       // Call /auth/me to validate session and get user info
       const userData = await authApi.getMe();
-      set({ user: userData, isAuthenticated: true });
+      set({
+        user: userData,
+        isAuthenticated: true,
+        isAdmin: userData.role === 'ADMIN'
+      });
     } catch (error) {
       console.error(error);
       // If 401/403, we are not authenticated
-      set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false, isAdmin: false });
     } finally {
       set({ isLoading: false });
     }

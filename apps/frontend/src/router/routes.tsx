@@ -16,6 +16,8 @@ const ImportPage = lazy(() => import("@/pages/Import"));
 const ChatPage = lazy(() => import("@/pages/Chat"));
 const KnowledgeBasePage = lazy(() => import("@/pages/KnowledgeBase"));
 const Login = lazy(() => import("@/pages/Auth").then(module => ({ default: module.Login })));
+const AdminLogin = lazy(() => import("@/pages/Auth/AdminLogin").then(module => ({ default: module.AdminLogin })));
+const AdminDashboard = lazy(() => import("@/pages/Admin/Dashboard"));
 const OAuthCallback = lazy(() => import("@/pages/Auth/Callback"));
 
 import { LazyWrapper } from "@/components/common/LazyWrapper";
@@ -116,6 +118,14 @@ export const routeConfig: RouteObject[] = [
               </LazyWrapper>
             ),
           },
+          {
+            path: "admin/dashboard",
+            element: (
+              <LazyWrapper>
+                <AdminDashboard />
+              </LazyWrapper>
+            ),
+          },
         ],
       },
       {
@@ -131,6 +141,14 @@ export const routeConfig: RouteObject[] = [
             element: (
               <LazyWrapper>
                 <Login />
+              </LazyWrapper>
+            ),
+          },
+          {
+            path: "admin/login",
+            element: (
+              <LazyWrapper>
+                <AdminLogin />
               </LazyWrapper>
             ),
           },

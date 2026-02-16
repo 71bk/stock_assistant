@@ -18,6 +18,7 @@ import tw.bk.apppersistence.entity.UserEntity;
 public class JwtTokenService {
     private static final String CLAIM_TYPE = "typ";
     private static final String CLAIM_EMAIL = "email";
+    private static final String CLAIM_ROLE = "role";
     private static final String TYPE_ACCESS = "access";
     private static final String TYPE_REFRESH = "refresh";
 
@@ -30,19 +31,21 @@ public class JwtTokenService {
     }
 
     public String buildAccessToken(UserEntity user, String jti, Duration ttl) {
-        return buildToken(user.getId(), user.getEmail(), jti, TYPE_ACCESS, ttl);
+        String role = user.getRole() == null ? null : user.getRole().name();
+        return buildToken(user.getId(), user.getEmail(), role, jti, TYPE_ACCESS, ttl);
     }
 
     public String buildRefreshToken(UserEntity user, String jti, Duration ttl) {
-        return buildToken(user.getId(), user.getEmail(), jti, TYPE_REFRESH, ttl);
+        // Refresh token does not carry role; role is resolved from DB on refresh.
+        return buildToken(user.getId(), user.getEmail(), null, jti, TYPE_REFRESH, ttl);
     }
 
-    public String buildAccessToken(Long userId, String email, String jti, Duration ttl) {
-        return buildToken(userId, email, jti, TYPE_ACCESS, ttl);
+    public String buildAccessToken(Long userId, String email, String role, String jti, Duration ttl) {
+        return buildToken(userId, email, role, jti, TYPE_ACCESS, ttl);
     }
 
     public String buildRefreshToken(Long userId, String email, String jti, Duration ttl) {
-        return buildToken(userId, email, jti, TYPE_REFRESH, ttl);
+        return buildToken(userId, email, null, jti, TYPE_REFRESH, ttl);
     }
 
     public TokenClaims parseToken(String token) {
@@ -50,23 +53,29 @@ public class JwtTokenService {
                 .parseSignedClaims(token).getPayload();
         Long userId = Long.valueOf(claims.getSubject());
         String email = claims.get(CLAIM_EMAIL, String.class);
+        String role = claims.get(CLAIM_ROLE, String.class);
         String type = claims.get(CLAIM_TYPE, String.class);
         String jti = claims.getId();
-        return new TokenClaims(userId, email, type, jti);
+        return new TokenClaims(userId, email, role, type, jti);
     }
 
-    private String buildToken(Long userId, String email, String jti, String type, Duration ttl) {
+    private String buildToken(Long userId, String email, String role, String jti, String type, Duration ttl) {
         Instant now = Instant.now();
         Instant expiresAt = now.plus(ttl);
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .issuer(properties.getIssuer())
                 .subject(String.valueOf(userId))
                 .id(jti)
                 .claim(CLAIM_EMAIL, email)
                 .claim(CLAIM_TYPE, type)
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(expiresAt))
-                .signWith(secretKey, SignatureAlgorithm.HS256)
+                .expiration(Date.from(expiresAt));
+
+        if (role != null && !role.isBlank()) {
+            builder.claim(CLAIM_ROLE, role);
+        }
+
+        return builder.signWith(secretKey, SignatureAlgorithm.HS256)
                 .compact();
     }
 
@@ -86,6 +95,6 @@ public class JwtTokenService {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public record TokenClaims(Long userId, String email, String type, String jti) {
+    public record TokenClaims(Long userId, String email, String role, String type, String jti) {
     }
 }

@@ -5,9 +5,12 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -17,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,6 +34,7 @@ import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appportfolio.model.PortfolioSummary;
 import tw.bk.appportfolio.model.PortfolioRefView;
 import tw.bk.appportfolio.model.PortfolioPositionsRebuildResult;
+import tw.bk.appportfolio.model.PortfolioChatContext;
 import tw.bk.appportfolio.model.PortfolioValuationView;
 import tw.bk.appportfolio.model.PortfolioValuationSnapshotResult;
 import tw.bk.appportfolio.model.PortfolioView;
@@ -64,6 +69,9 @@ public class PortfolioService {
     private final UserPositionRepository positionRepository;
     private final InstrumentRepository instrumentRepository;
     private final ClockProvider clockProvider;
+
+    @Value("${app.portfolio.valuation.zone:Asia/Taipei}")
+    private String valuationZone = "Asia/Taipei";
 
     public PortfolioService(PortfolioRepository portfolioRepository,
             PortfolioValuationRepository portfolioValuationRepository,
@@ -117,6 +125,55 @@ public class PortfolioService {
         return toPortfolioView(requirePortfolioEntity(userId, portfolioId));
     }
 
+    @Transactional(readOnly = true)
+    public List<PortfolioChatContext> listChatContexts(Long userId, QuoteProvider quoteProvider) {
+        List<PortfolioEntity> portfolios = portfolioRepository.findByUserId(userId).stream()
+                .sorted(Comparator.comparing(PortfolioEntity::getId))
+                .toList();
+        if (portfolios.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDate today = nowValuationDate();
+        List<PortfolioChatContext> contexts = new ArrayList<>(portfolios.size());
+        for (PortfolioEntity portfolio : portfolios) {
+            Long portfolioId = portfolio.getId();
+            long holdingsCount = positionRepository.countByPortfolioId(portfolioId);
+            Optional<PortfolioValuationEntity> latest = portfolioValuationRepository
+                    .findTopByPortfolioIdOrderByAsOfDateDesc(portfolioId);
+
+            if (latest.isPresent()) {
+                PortfolioValuationEntity valuation = latest.get();
+                contexts.add(new PortfolioChatContext(
+                        portfolioId,
+                        portfolio.getName(),
+                        valuation.getBaseCurrency(),
+                        holdingsCount,
+                        valuation.getTotalValue(),
+                        valuation.getCashValue(),
+                        valuation.getPositionsValue(),
+                        valuation.getAsOfDate(),
+                        true));
+                continue;
+            }
+
+            BigDecimal positionsValue = calculatePositionsValue(portfolioId, today, quoteProvider);
+            BigDecimal cashValue = calculateCashValue(portfolioId, today);
+            BigDecimal totalValue = positionsValue.add(cashValue).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+            contexts.add(new PortfolioChatContext(
+                    portfolioId,
+                    portfolio.getName(),
+                    normalizeBaseCurrency(portfolio.getBaseCurrency()),
+                    holdingsCount,
+                    totalValue,
+                    cashValue,
+                    positionsValue,
+                    today,
+                    false));
+        }
+        return List.copyOf(contexts);
+    }
+
     private PortfolioEntity requirePortfolioEntity(Long userId, Long portfolioId) {
         return portfolioRepository.findByIdAndUserId(portfolioId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
@@ -126,7 +183,7 @@ public class PortfolioService {
     public List<PortfolioValuationView> listValuations(Long userId, Long portfolioId, LocalDate from, LocalDate to) {
         requirePortfolioEntity(userId, portfolioId);
 
-        LocalDate safeTo = to != null ? to : clockProvider.nowUtc().toLocalDate();
+        LocalDate safeTo = to != null ? to : nowValuationDate();
         LocalDate safeFrom = from != null ? from : safeTo.minusDays(30);
         if (safeFrom.isAfter(safeTo)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "from must be <= to");
@@ -147,7 +204,7 @@ public class PortfolioService {
             Long portfolioId,
             LocalDate asOfDate,
             QuoteProvider quoteProvider) {
-        LocalDate snapshotDate = asOfDate != null ? asOfDate : clockProvider.nowUtc().toLocalDate();
+        LocalDate snapshotDate = asOfDate != null ? asOfDate : nowValuationDate();
         List<PortfolioEntity> targets = resolveValuationTargets(userId, portfolioId);
 
         int succeeded = 0;
@@ -230,7 +287,7 @@ public class PortfolioService {
         }
 
         Map<Long, InstrumentEntity> instrumentById = loadInstrumentsById(instrumentIds);
-        LocalDate today = clockProvider.nowUtc().toLocalDate();
+        LocalDate today = nowValuationDate();
         BigDecimal total = BigDecimal.ZERO;
 
         for (Long instrumentId : instrumentIds) {
@@ -266,6 +323,16 @@ public class PortfolioService {
         }
 
         return total.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private LocalDate nowValuationDate() {
+        try {
+            String zoneName = isBlank(valuationZone) ? "UTC" : valuationZone.trim();
+            return clockProvider.now().atZone(ZoneId.of(zoneName)).toLocalDate();
+        } catch (DateTimeException ex) {
+            log.warn("Invalid valuation zone '{}', fallback to UTC", valuationZone);
+            return clockProvider.nowUtc().toLocalDate();
+        }
     }
 
     private Map<Long, InstrumentEntity> loadInstrumentsById(List<Long> instrumentIds) {

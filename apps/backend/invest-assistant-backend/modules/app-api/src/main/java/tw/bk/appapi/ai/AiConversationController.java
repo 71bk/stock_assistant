@@ -2,12 +2,19 @@ package tw.bk.appapi.ai;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -16,11 +23,15 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,17 +44,31 @@ import tw.bk.appai.model.QuoteCandidate;
 import tw.bk.appai.service.AiConversationService;
 import tw.bk.appai.service.AiInstrumentToolService;
 import tw.bk.appai.service.AiQuoteToolService;
+import tw.bk.appai.skill.ChatSkillBatchResult;
+import tw.bk.appai.skill.ChatSkillContext;
+import tw.bk.appai.skill.ChatSkillExecutor;
 import tw.bk.appapi.ai.dto.ChatMessageRequest;
 import tw.bk.appapi.ai.dto.CreateConversationRequest;
 import tw.bk.appapi.ai.dto.UpdateConversationRequest;
 import tw.bk.appapi.ai.vo.ConversationDetailResponse;
 import tw.bk.appapi.ai.vo.ConversationMessageResponse;
 import tw.bk.appapi.ai.vo.ConversationSummaryResponse;
+import tw.bk.appapi.sse.BufferedSseSession;
+import tw.bk.appapi.sse.BufferedSseSessionStore;
 import tw.bk.appcommon.enums.ConversationMessageStatus;
 import tw.bk.appcommon.enums.ErrorCode;
+import tw.bk.appcommon.enums.UserRole;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appportfolio.model.PortfolioChatContext;
+import tw.bk.appportfolio.service.PortfolioService;
+import tw.bk.appportfolio.service.QuoteProvider;
+import tw.bk.apprag.client.AiWorkerChunk;
+import tw.bk.apprag.client.AiWorkerQueryResponse;
+import tw.bk.apprag.client.AiWorkerRagClient;
+import tw.bk.appstocks.model.Quote;
+import tw.bk.appstocks.service.StockQuoteService;
 
 @RestController
 @RequestMapping("/ai/conversations")
@@ -66,6 +91,12 @@ public class AiConversationController {
     private final AiInstrumentToolService instrumentToolService;
     private final AiQuoteToolService quoteToolService;
     private final CacheManager cacheManager;
+    private final PortfolioService portfolioService;
+    private final StockQuoteService stockQuoteService;
+    private final AiWorkerRagClient ragClient;
+    private final MeterRegistry meterRegistry;
+    private final BufferedSseSessionStore bufferedSseSessionStore;
+    private final ChatSkillExecutor chatSkillExecutor;
 
     @org.springframework.beans.factory.annotation.Value("${app.ai.chat.instrument-search.enabled:true}")
     private boolean instrumentSearchEnabled;
@@ -85,13 +116,43 @@ public class AiConversationController {
     @org.springframework.beans.factory.annotation.Value("${app.ai.chat.pronoun-lookback.limit:5}")
     private int pronounLookbackLimit;
 
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.portfolio-context.enabled:true}")
+    private boolean portfolioContextEnabled;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.portfolio-context.max-portfolios:3}")
+    private int portfolioContextMaxPortfolios;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.rag.enabled:false}")
+    private boolean ragEnabled;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.rag.top-k:3}")
+    private int ragTopK;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.rag.source-type:}")
+    private String ragSourceType;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.rag.max-content-chars:500}")
+    private int ragMaxContentChars;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.rag.timeout-ms:1200}")
+    private long ragTimeoutMs;
+
+    @org.springframework.beans.factory.annotation.Value("${app.ai.chat.rag.metrics.enabled:true}")
+    private boolean ragMetricsEnabled;
+
     public AiConversationController(AiConversationService conversationService,
             GroqChatClient groqChatClient,
             CurrentUserProvider currentUserProvider,
             @Qualifier("aiExecutor") Executor aiExecutor,
             AiInstrumentToolService instrumentToolService,
             AiQuoteToolService quoteToolService,
-            CacheManager cacheManager) {
+            CacheManager cacheManager,
+            PortfolioService portfolioService,
+            StockQuoteService stockQuoteService,
+            AiWorkerRagClient ragClient,
+            MeterRegistry meterRegistry,
+            BufferedSseSessionStore bufferedSseSessionStore,
+            ChatSkillExecutor chatSkillExecutor) {
         this.conversationService = conversationService;
         this.groqChatClient = groqChatClient;
         this.currentUserProvider = currentUserProvider;
@@ -99,6 +160,12 @@ public class AiConversationController {
         this.instrumentToolService = instrumentToolService;
         this.quoteToolService = quoteToolService;
         this.cacheManager = cacheManager;
+        this.portfolioService = portfolioService;
+        this.stockQuoteService = stockQuoteService;
+        this.ragClient = ragClient;
+        this.meterRegistry = meterRegistry;
+        this.bufferedSseSessionStore = bufferedSseSessionStore;
+        this.chatSkillExecutor = chatSkillExecutor;
     }
 
     @PostMapping
@@ -146,32 +213,59 @@ public class AiConversationController {
 
     @PostMapping(value = "/{conversationId}/messages", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Send chat message (SSE)")
-    public SseEmitter sendMessage(@PathVariable String conversationId, @RequestBody ChatMessageRequest request) {
+    public SseEmitter sendMessage(@PathVariable String conversationId,
+            @RequestBody ChatMessageRequest request,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
         SseEmitter emitter = new SseEmitter(0L);
         Long userId = requireUserId();
         Long id = parseId(conversationId);
         String content = request != null ? request.getContent() : null;
         String clientMessageId = request != null ? request.getClientMessageId() : null;
         String requestId = "c-" + UUID.randomUUID();
+        String effectiveClientMessageId = resolveClientMessageId(clientMessageId, requestId);
+        String assistantClientMessageId = "assistant:" + effectiveClientMessageId;
+        String sessionKey = buildSessionKey(userId, id, effectiveClientMessageId);
+        BufferedSseSession session = bufferedSseSessionStore.getOrCreate(sessionKey);
+        session.attachEmitter(emitter, lastEventId);
 
-        CompletableFuture.runAsync(() -> {
+        session.startIfNeeded(() -> CompletableFuture.runAsync(() -> {
             try {
                 ConversationMessageView userMessage = conversationService.appendUserMessage(
-                        userId, id, content, clientMessageId);
-                ConversationMessageView assistantMessage = conversationService.appendAssistantMessage(
-                        userId, id, "", ConversationMessageStatus.PENDING);
-                sendMeta(emitter, requestId, id, userMessage.id(), assistantMessage.id());
+                        userId, id, content, effectiveClientMessageId);
+                ConversationMessageView assistantMessage = conversationService.appendOrGetAssistantMessage(
+                        userId, id, "", ConversationMessageStatus.PENDING, assistantClientMessageId);
+                sendMeta(session, requestId, id, userMessage.id(), assistantMessage.id());
 
-                String directQuoteReply = buildDirectQuoteReply(userId, id, userMessage.id(), content);
-                if (directQuoteReply != null) {
-                    sendDelta(emitter, directQuoteReply);
-                    ConversationMessageView assistant = conversationService.updateAssistantMessage(
-                            userId, id, assistantMessage.id(), directQuoteReply, ConversationMessageStatus.COMPLETED);
-                    sendDone(emitter, assistant.id());
+                if (assistantMessage.status() == ConversationMessageStatus.COMPLETED
+                        && assistantMessage.content() != null
+                        && !assistantMessage.content().isBlank()) {
+                    sendDelta(session, assistantMessage.content());
+                    sendDone(session, assistantMessage.id());
+                    return;
+                }
+                if (assistantMessage.status() == ConversationMessageStatus.FAILED) {
+                    sendError(session, ErrorCode.INTERNAL_ERROR, "Assistant message failed");
                     return;
                 }
 
-                String toolContext = buildInstrumentContext(userId, id, userMessage.id(), content);
+                String directQuoteReply = buildDirectQuoteReply(userId, id, userMessage.id(), content);
+                if (directQuoteReply != null) {
+                    sendDelta(session, directQuoteReply);
+                    ConversationMessageView assistant = conversationService.updateAssistantMessage(
+                            userId, id, assistantMessage.id(), directQuoteReply, ConversationMessageStatus.COMPLETED);
+                    sendDone(session, assistant.id());
+                    return;
+                }
+
+                ChatSkillContext skillContext = new ChatSkillContext(
+                        userId,
+                        id,
+                        userMessage.id(),
+                        content,
+                        resolveCurrentUserRole());
+                ChatSkillBatchResult skillBatchResult = chatSkillExecutor.executeAll(skillContext);
+                logSkillBatch(skillBatchResult);
+                String toolContext = skillBatchResult.mergedContext();
                 List<Map<String, String>> messages = toolContext == null
                         ? conversationService.buildContextMessages(userId, id, content, userMessage.id())
                         : conversationService.buildContextMessagesWithTool(userId, id, content, userMessage.id(),
@@ -182,11 +276,7 @@ public class AiConversationController {
                 groqChatClient.streamChat(messages, userId)
                         .doOnNext(delta -> {
                             buffer.append(delta);
-                            try {
-                                sendDelta(emitter, delta);
-                            } catch (Exception ex) {
-                                throw new RuntimeException(ex);
-                            }
+                            sendDelta(session, delta);
                         })
                         .doOnError(ex -> {
                             failed.set(true);
@@ -201,9 +291,9 @@ public class AiConversationController {
                                 log.error("Failed to mark assistant message as FAILED", saveEx);
                             }
                             if (ex instanceof BusinessException be) {
-                                sendError(emitter, be.getErrorCode(), be.getMessage());
+                                sendError(session, be.getErrorCode(), be.getMessage());
                             } else {
-                                sendError(emitter, ErrorCode.INTERNAL_ERROR,
+                                sendError(session, ErrorCode.INTERNAL_ERROR,
                                         "Groq streaming failed: " + ex.getMessage());
                             }
                         })
@@ -219,66 +309,234 @@ public class AiConversationController {
                                         assistantMessage.id(),
                                         buffer.toString(),
                                         ConversationMessageStatus.COMPLETED);
-                                sendDone(emitter, assistant.id());
+                                sendDone(session, assistant.id());
                             } catch (Exception ex) {
                                 log.error("Failed to save assistant message", ex);
-                            } finally {
-                                emitter.complete();
                             }
                         })
                         .blockLast();
             } catch (BusinessException ex) {
-                sendError(emitter, ex.getErrorCode(), ex.getMessage());
+                sendError(session, ex.getErrorCode(), ex.getMessage());
             } catch (Exception ex) {
                 log.error("Chat streaming failed", ex);
-                sendError(emitter, ErrorCode.INTERNAL_ERROR, "Chat streaming failed");
+                sendError(session, ErrorCode.INTERNAL_ERROR, "Chat streaming failed");
             }
-        }, aiExecutor);
+        }, aiExecutor));
 
         return emitter;
     }
 
     private void sendMeta(
-            SseEmitter emitter,
+            BufferedSseSession session,
             String requestId,
             Long conversationId,
             Long userMessageId,
-            Long assistantMessageId)
-            throws Exception {
+            Long assistantMessageId) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("requestId", requestId);
         meta.put("conversationId", conversationId != null ? conversationId.toString() : null);
         meta.put("userMessageId", userMessageId != null ? userMessageId.toString() : null);
         meta.put("assistantMessageId", assistantMessageId != null ? assistantMessageId.toString() : null);
-        emitter.send(SseEmitter.event().name("meta").data(meta));
+        session.sendEvent("meta", meta);
     }
 
-    private void sendDelta(SseEmitter emitter, String text) throws Exception {
-        emitter.send(SseEmitter.event().name("delta").data(Map.of("text", text)));
+    private void sendDelta(BufferedSseSession session, String text) {
+        session.sendEvent("delta", Map.of("text", text));
     }
 
-    private void sendDone(SseEmitter emitter, Long assistantMessageId) {
+    private void sendDone(BufferedSseSession session, Long assistantMessageId) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("assistantMessageId", assistantMessageId != null ? assistantMessageId.toString() : null);
+        session.sendEvent("done", payload);
+        session.complete();
+    }
+
+    private void sendError(BufferedSseSession session, ErrorCode code, String message) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("code", code.getCode());
+        payload.put("message", message);
+        session.sendEvent("error", payload);
+        session.complete();
+    }
+
+    private String mergeToolContext(String... sections) {
+        if (sections == null || sections.length == 0) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String section : sections) {
+            if (section == null || section.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(section.trim());
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private String buildPortfolioContext(Long userId) {
+        if (!portfolioContextEnabled) {
+            return null;
+        }
+
+        int limit = Math.min(Math.max(portfolioContextMaxPortfolios, 1), 10);
         try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("assistantMessageId", assistantMessageId != null ? assistantMessageId.toString() : null);
-            emitter.send(SseEmitter.event().name("done").data(payload));
+            List<PortfolioChatContext> contexts = portfolioService.listChatContexts(userId, createQuoteProvider());
+            if (contexts == null || contexts.isEmpty()) {
+                return null;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("portfolio_context:\n");
+            int appended = 0;
+            for (PortfolioChatContext context : contexts) {
+                if (context == null || context.portfolioId() == null) {
+                    continue;
+                }
+                if (appended >= limit) {
+                    break;
+                }
+                appended++;
+                sb.append("- portfolio_id: ").append(context.portfolioId()).append('\n');
+                if (context.portfolioName() != null && !context.portfolioName().isBlank()) {
+                    sb.append("  name: ").append(sanitizeToolValue(context.portfolioName())).append('\n');
+                }
+                if (context.baseCurrency() != null && !context.baseCurrency().isBlank()) {
+                    sb.append("  base_currency: ").append(context.baseCurrency()).append('\n');
+                }
+                sb.append("  holdings_count: ").append(context.holdingsCount()).append('\n');
+                if (context.totalValue() != null) {
+                    sb.append("  total_value: ").append(context.totalValue().toPlainString()).append('\n');
+                }
+                if (context.cashValue() != null) {
+                    sb.append("  cash_value: ").append(context.cashValue().toPlainString()).append('\n');
+                }
+                if (context.positionsValue() != null) {
+                    sb.append("  positions_value: ").append(context.positionsValue().toPlainString()).append('\n');
+                }
+                if (context.asOfDate() != null) {
+                    sb.append("  as_of_date: ").append(context.asOfDate()).append('\n');
+                }
+                sb.append("  valuation_source: ").append(context.snapshotBacked() ? "snapshot" : "realtime")
+                        .append('\n');
+            }
+
+            if (appended == 0) {
+                return null;
+            }
+            sb.append("portfolio_context_total_portfolios: ").append(contexts.size()).append('\n');
+            if (contexts.size() > appended) {
+                sb.append("portfolio_context_truncated: true\n");
+            }
+            return sb.toString().trim();
         } catch (Exception ex) {
-            log.debug("Failed to send done event: {}", ex.getMessage());
-        } finally {
-            emitter.complete();
+            log.warn("Failed to build portfolio context: userId={}, reason={}", userId, ex.getMessage());
+            return null;
         }
     }
 
-    private void sendError(SseEmitter emitter, ErrorCode code, String message) {
+    private String buildRagContext(Long userId, String content) {
+        if (!ragEnabled) {
+            return null;
+        }
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+
+        long startedNanos = System.nanoTime();
+        String outcome = "miss";
+        int chunkCount = 0;
+        int topK = Math.min(Math.max(ragTopK, 1), 8);
+        int maxContentChars = Math.max(ragMaxContentChars, 100);
+        String sourceType = (ragSourceType == null || ragSourceType.isBlank()) ? null : ragSourceType.trim();
         try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("code", code.getCode());
-            payload.put("message", message);
-            emitter.send(SseEmitter.event().name("error").data(payload));
-        } catch (Exception ignored) {
-            // ignore
+            Duration timeout = resolveRagTimeout();
+            AiWorkerQueryResponse response = ragClient.query(userId, content, topK, sourceType, timeout);
+            List<AiWorkerChunk> chunks = response != null ? response.getChunks() : null;
+            if (chunks == null || chunks.isEmpty()) {
+                return null;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("rag_context:\n");
+            int appended = 0;
+            for (AiWorkerChunk chunk : chunks) {
+                if (chunk == null) {
+                    continue;
+                }
+                String chunkContent = sanitizeRagContent(chunk.getContent(), maxContentChars);
+                if (chunkContent.isBlank()) {
+                    continue;
+                }
+                appended++;
+                sb.append("- content: ").append(chunkContent).append('\n');
+                if (chunk.getTitle() != null && !chunk.getTitle().isBlank()) {
+                    sb.append("  title: ").append(sanitizeToolValue(chunk.getTitle())).append('\n');
+                }
+                if (chunk.getSourceType() != null && !chunk.getSourceType().isBlank()) {
+                    sb.append("  source_type: ").append(chunk.getSourceType()).append('\n');
+                }
+                if (chunk.getSourceId() != null && !chunk.getSourceId().isBlank()) {
+                    sb.append("  source_id: ").append(chunk.getSourceId()).append('\n');
+                }
+                if (chunk.getChunkIndex() != null) {
+                    sb.append("  chunk_index: ").append(chunk.getChunkIndex()).append('\n');
+                }
+                if (chunk.getDistance() != null) {
+                    sb.append("  distance: ").append(chunk.getDistance()).append('\n');
+                }
+            }
+
+            if (appended == 0) {
+                return null;
+            }
+            outcome = "hit";
+            chunkCount = appended;
+            sb.append("rag_context_total_chunks: ").append(appended).append('\n');
+            return sb.toString().trim();
+        } catch (Exception ex) {
+            outcome = resolveRagOutcome(ex);
+            log.warn("RAG lookup failed: userId={}, outcome={}, reason={}", userId, outcome, ex.getMessage());
+            return null;
         } finally {
-            emitter.complete();
+            recordRagMetrics(outcome, chunkCount, System.nanoTime() - startedNanos);
+        }
+    }
+
+    private Duration resolveRagTimeout() {
+        long timeout = Math.min(Math.max(ragTimeoutMs, 200), 10000);
+        return Duration.ofMillis(timeout);
+    }
+
+    private String resolveRagOutcome(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            String message = current.getMessage();
+            if (current instanceof java.util.concurrent.TimeoutException
+                    || (message != null && message.toLowerCase().contains("timeout"))) {
+                return "timeout";
+            }
+            current = current.getCause();
+        }
+        return "error";
+    }
+
+    private void recordRagMetrics(String outcome, int chunkCount, long elapsedNanos) {
+        if (!ragMetricsEnabled || meterRegistry == null) {
+            return;
+        }
+        String safeOutcome = (outcome == null || outcome.isBlank()) ? "unknown" : outcome;
+        meterRegistry.counter("app.ai.chat.rag.lookup.total", "outcome", safeOutcome).increment();
+        Timer.builder("app.ai.chat.rag.lookup.latency")
+                .description("RAG lookup latency for chat context injection")
+                .tag("outcome", safeOutcome)
+                .register(meterRegistry)
+                .record(elapsedNanos, TimeUnit.NANOSECONDS);
+        if (chunkCount > 0) {
+            meterRegistry.summary("app.ai.chat.rag.lookup.chunks")
+                    .record(chunkCount);
         }
     }
 
@@ -504,6 +762,17 @@ public class AiConversationController {
         return value.replace('\n', ' ').replace('\r', ' ').trim();
     }
 
+    private String sanitizeRagContent(String value, int maxChars) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.replace('\n', ' ').replace('\r', ' ').trim();
+        if (normalized.length() <= maxChars) {
+            return normalized;
+        }
+        return normalized.substring(0, maxChars).trim() + "...";
+    }
+
     private void appendQuote(StringBuilder sb, QuoteCandidate quote) {
         sb.append("- symbol_key: ").append(quote.symbolKey()).append('\n');
         if (quote.ticker() != null) {
@@ -556,6 +825,57 @@ public class AiConversationController {
             }
         }
         return false;
+    }
+
+    private QuoteProvider createQuoteProvider() {
+        return this::resolveCurrentPrice;
+    }
+
+    private Optional<BigDecimal> resolveCurrentPrice(String symbolKey) {
+        if (symbolKey == null || symbolKey.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            Quote quote = stockQuoteService.getQuote(symbolKey);
+            return quote == null ? Optional.empty() : Optional.ofNullable(quote.getPrice());
+        } catch (Exception ex) {
+            log.debug("Portfolio quote lookup failed: symbolKey={}, reason={}", symbolKey, ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private String resolveClientMessageId(String clientMessageId, String fallbackRequestId) {
+        if (clientMessageId != null && !clientMessageId.isBlank()) {
+            return clientMessageId.trim();
+        }
+        return fallbackRequestId;
+    }
+
+    private String buildSessionKey(Long userId, Long conversationId, String clientMessageId) {
+        return userId + ":" + conversationId + ":" + clientMessageId;
+    }
+
+    private UserRole resolveCurrentUserRole() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getAuthorities() == null) {
+            return UserRole.USER;
+        }
+        for (GrantedAuthority authority : authentication.getAuthorities()) {
+            if (authority != null && "ROLE_ADMIN".equalsIgnoreCase(authority.getAuthority())) {
+                return UserRole.ADMIN;
+            }
+        }
+        return UserRole.USER;
+    }
+
+    private void logSkillBatch(ChatSkillBatchResult batch) {
+        if (batch == null || batch.results() == null || !log.isDebugEnabled()) {
+            return;
+        }
+        String summary = batch.results().stream()
+                .map(result -> result.skillName() + ":" + result.status())
+                .collect(Collectors.joining(", "));
+        log.debug("Chat skills executed: {}", summary);
     }
 
     private Long requireUserId() {

@@ -1,7 +1,6 @@
 package tw.bk.appai.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -18,12 +17,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import tw.bk.appai.model.ConversationMessageView;
 import tw.bk.apppersistence.entity.ConversationEntity;
 import tw.bk.apppersistence.entity.ConversationMessageEntity;
 import tw.bk.apppersistence.repository.ConversationMessageRepository;
 import tw.bk.apppersistence.repository.ConversationRepository;
-import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 
 @ExtendWith(MockitoExtension.class)
 class AiConversationServiceTest {
@@ -77,7 +75,7 @@ class AiConversationServiceTest {
     }
 
     @Test
-    void appendUserMessage_shouldRejectDuplicateClientMessageId() {
+    void appendUserMessage_shouldReturnExistingMessageForDuplicateClientMessageId() {
         ConversationMessageEntity existing = new ConversationMessageEntity();
         existing.setId(99L);
         existing.setConversationId(2L);
@@ -87,11 +85,10 @@ class AiConversationServiceTest {
         when(messageRepository.findByConversationIdAndClientMessageId(2L, "client-1"))
                 .thenReturn(Optional.of(existing));
 
-        BusinessException exception = assertThrows(
-                BusinessException.class,
-                () -> service.appendUserMessage(1L, 2L, "new message", "client-1"));
+        ConversationMessageView view = service.appendUserMessage(1L, 2L, "new message", "client-1");
 
-        assertEquals(ErrorCode.CONFLICT, exception.getErrorCode());
+        assertEquals(99L, view.id());
+        assertEquals("hello", view.content());
         verify(messageRepository, never()).save(any(ConversationMessageEntity.class));
     }
 

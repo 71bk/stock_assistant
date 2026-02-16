@@ -1,5 +1,6 @@
 package tw.bk.apprag.client;
 
+import java.time.Duration;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ByteArrayResource;
@@ -170,6 +171,10 @@ public class AiWorkerRagClient {
     }
 
     public AiWorkerQueryResponse query(Long userId, String query, Integer topK, String sourceType) {
+        return query(userId, query, topK, sourceType, null);
+    }
+
+    public AiWorkerQueryResponse query(Long userId, String query, Integer topK, String sourceType, Duration timeout) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -188,21 +193,41 @@ public class AiWorkerRagClient {
         }
 
         try {
-            AiWorkerQueryResponse response = webClient
+            var responseMono = webClient
                     .post()
                     .uri("/query")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(payload)
                     .retrieve()
-                    .bodyToMono(AiWorkerQueryResponse.class)
-                    .block();
+                    .bodyToMono(AiWorkerQueryResponse.class);
+            AiWorkerQueryResponse response = timeout != null
+                    ? responseMono.block(timeout)
+                    : responseMono.block();
 
             if (response == null) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Empty query response");
             }
             return response;
         } catch (Exception ex) {
+            if (isTimeoutException(ex)) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker query timeout");
+            }
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker query failed: " + ex.getMessage());
         }
+    }
+
+    private boolean isTimeoutException(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof java.util.concurrent.TimeoutException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase().contains("timeout")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

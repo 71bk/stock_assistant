@@ -4,11 +4,14 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tw.bk.appauth.model.UserView;
+import tw.bk.appcommon.enums.UserRole;
 import tw.bk.apppersistence.entity.UserEntity;
 import tw.bk.apppersistence.repository.UserRepository;
 
 @Service
 public class UserService {
+    private static final String STATUS_ACTIVE = "ACTIVE";
+
     private final UserRepository userRepository;
 
     public UserService(UserRepository userRepository) {
@@ -25,7 +28,10 @@ public class UserService {
         user.setPictureUrl(pictureUrl);
         user.setLastLoginAt(java.time.LocalDateTime.now());
         if (user.getStatus() == null) {
-            user.setStatus("ACTIVE");
+            user.setStatus(STATUS_ACTIVE);
+        }
+        if (user.getRole() == null) {
+            user.setRole(UserRole.USER);
         }
         return userRepository.save(user);
     }

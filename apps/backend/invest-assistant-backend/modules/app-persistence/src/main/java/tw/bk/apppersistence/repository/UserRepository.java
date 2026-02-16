@@ -7,5 +7,7 @@ import tw.bk.apppersistence.entity.UserEntity;
 public interface UserRepository extends JpaRepository<UserEntity, Long> {
     Optional<UserEntity> findByEmail(String email);
 
+    Optional<UserEntity> findByEmailIgnoreCase(String email);
+
     Optional<UserEntity> findByGoogleSub(String googleSub);
 }

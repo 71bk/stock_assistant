@@ -13,7 +13,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,9 +38,17 @@ import tw.bk.appai.service.AiConversationService;
 import tw.bk.appai.service.AiInstrumentToolService;
 import tw.bk.appai.service.AiQuoteToolService;
 import tw.bk.appapi.ai.dto.ChatMessageRequest;
+import tw.bk.appapi.sse.BufferedSseSession;
+import tw.bk.appapi.sse.BufferedSseSessionStore;
 import tw.bk.appcommon.enums.ConversationMessageStatus;
 import tw.bk.appcommon.enums.ConversationRole;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appportfolio.model.PortfolioChatContext;
+import tw.bk.appportfolio.service.PortfolioService;
+import tw.bk.apprag.client.AiWorkerChunk;
+import tw.bk.apprag.client.AiWorkerQueryResponse;
+import tw.bk.apprag.client.AiWorkerRagClient;
+import tw.bk.appstocks.service.StockQuoteService;
 
 @ExtendWith(MockitoExtension.class)
 class AiConversationControllerTest {
@@ -54,6 +65,18 @@ class AiConversationControllerTest {
     private AiInstrumentToolService instrumentToolService;
     @Mock
     private AiQuoteToolService quoteToolService;
+    @Mock
+    private PortfolioService portfolioService;
+    @Mock
+    private StockQuoteService stockQuoteService;
+    @Mock
+    private AiWorkerRagClient ragClient;
+    @Mock
+    private MeterRegistry meterRegistry;
+    @Mock
+    private BufferedSseSessionStore bufferedSseSessionStore;
+    @Mock
+    private BufferedSseSession bufferedSseSession;
 
     private ConcurrentMapCacheManager cacheManager;
     private AiConversationController controller;
@@ -68,12 +91,25 @@ class AiConversationControllerTest {
                 aiExecutor,
                 instrumentToolService,
                 quoteToolService,
-                cacheManager);
+                cacheManager,
+                portfolioService,
+                stockQuoteService,
+                ragClient,
+                meterRegistry,
+                bufferedSseSessionStore);
         ReflectionTestUtils.setField(controller, "instrumentSearchEnabled", true);
         ReflectionTestUtils.setField(controller, "instrumentSearchLimit", 10);
         ReflectionTestUtils.setField(controller, "quoteSearchEnabled", true);
         ReflectionTestUtils.setField(controller, "quoteSearchKeywordsEn", "quote,price");
         ReflectionTestUtils.setField(controller, "pronounLookbackLimit", 5);
+        ReflectionTestUtils.setField(controller, "portfolioContextEnabled", true);
+        ReflectionTestUtils.setField(controller, "portfolioContextMaxPortfolios", 3);
+        ReflectionTestUtils.setField(controller, "ragEnabled", false);
+        ReflectionTestUtils.setField(controller, "ragTopK", 3);
+        ReflectionTestUtils.setField(controller, "ragSourceType", "");
+        ReflectionTestUtils.setField(controller, "ragMaxContentChars", 500);
+        ReflectionTestUtils.setField(controller, "ragTimeoutMs", 1200L);
+        ReflectionTestUtils.setField(controller, "ragMetricsEnabled", false);
     }
 
     @Test
@@ -160,6 +196,56 @@ class AiConversationControllerTest {
     }
 
     @Test
+    void buildPortfolioContext_shouldIncludeSnapshotValues() {
+        when(portfolioService.listChatContexts(eq(1L), any())).thenReturn(List.of(
+                new PortfolioChatContext(
+                        10L,
+                        "Main",
+                        "TWD",
+                        2L,
+                        new java.math.BigDecimal("200.50"),
+                        new java.math.BigDecimal("-10.25"),
+                        new java.math.BigDecimal("210.75"),
+                        LocalDate.of(2026, 2, 10),
+                        true)));
+
+        String context = ReflectionTestUtils.invokeMethod(controller, "buildPortfolioContext", 1L);
+
+        assertNotNull(context);
+        assertTrue(context.contains("portfolio_context:"));
+        assertTrue(context.contains("portfolio_id: 10"));
+        assertTrue(context.contains("holdings_count: 2"));
+        assertTrue(context.contains("total_value: 200.50"));
+        assertTrue(context.contains("valuation_source: snapshot"));
+    }
+
+    @Test
+    void buildRagContext_shouldIncludeChunksWhenEnabled() {
+        ReflectionTestUtils.setField(controller, "ragEnabled", true);
+
+        AiWorkerChunk chunk = new AiWorkerChunk();
+        chunk.setContent("TSMC capex guidance remains positive for next year.");
+        chunk.setTitle("Research Note");
+        chunk.setSourceType("note");
+        chunk.setSourceId("doc-1");
+        chunk.setChunkIndex(0);
+        chunk.setDistance(0.12);
+
+        AiWorkerQueryResponse response = new AiWorkerQueryResponse();
+        response.setChunks(List.of(chunk));
+        when(ragClient.query(eq(1L), eq("TSMC outlook"), eq(3), eq(null), any(Duration.class)))
+                .thenReturn(response);
+
+        String context = ReflectionTestUtils.invokeMethod(controller, "buildRagContext", 1L, "TSMC outlook");
+
+        assertNotNull(context);
+        assertTrue(context.contains("rag_context:"));
+        assertTrue(context.contains("content: TSMC capex guidance remains positive for next year."));
+        assertTrue(context.contains("title: Research Note"));
+        assertTrue(context.contains("rag_context_total_chunks: 1"));
+    }
+
+    @Test
     void buildDirectQuoteReply_shouldReturnNullWhenDirectReplyDisabled() {
         String reply = ReflectionTestUtils.invokeMethod(
                 controller,
@@ -174,6 +260,12 @@ class AiConversationControllerTest {
 
     @Test
     void sendMessage_shouldMarkAssistantCompletedOnStreamSuccess() {
+        when(bufferedSseSessionStore.getOrCreate(anyString())).thenReturn(bufferedSseSession);
+        doAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(0);
+            runnable.run();
+            return null;
+        }).when(bufferedSseSession).startIfNeeded(any(Runnable.class));
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(1L));
         doAnswer(invocation -> {
             Runnable runnable = invocation.getArgument(0);
@@ -203,11 +295,12 @@ class AiConversationControllerTest {
                 Map.of("role", "user", "content", "hello"));
 
         when(conversationService.appendUserMessage(1L, 2L, "hello", "cid-1")).thenReturn(userMessage);
-        when(conversationService.appendAssistantMessage(
+        when(conversationService.appendOrGetAssistantMessage(
                 1L,
                 2L,
                 "",
-                ConversationMessageStatus.PENDING)).thenReturn(pendingAssistant);
+                ConversationMessageStatus.PENDING,
+                "assistant:cid-1")).thenReturn(pendingAssistant);
         when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
         when(groqChatClient.streamChat(contextMessages, 1L)).thenReturn(Flux.just("hello", " world"));
         when(conversationService.updateAssistantMessage(
@@ -222,10 +315,16 @@ class AiConversationControllerTest {
                 ChatMessageRequest.builder()
                         .content("hello")
                         .clientMessageId("cid-1")
-                        .build());
+                        .build(),
+                null);
 
         assertNotNull(emitter);
-        verify(conversationService).appendAssistantMessage(1L, 2L, "", ConversationMessageStatus.PENDING);
+        verify(conversationService).appendOrGetAssistantMessage(
+                1L,
+                2L,
+                "",
+                ConversationMessageStatus.PENDING,
+                "assistant:cid-1");
         verify(conversationService).updateAssistantMessage(
                 1L,
                 2L,
@@ -242,6 +341,12 @@ class AiConversationControllerTest {
 
     @Test
     void sendMessage_shouldMarkAssistantFailedOnStreamError() {
+        when(bufferedSseSessionStore.getOrCreate(anyString())).thenReturn(bufferedSseSession);
+        doAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(0);
+            runnable.run();
+            return null;
+        }).when(bufferedSseSession).startIfNeeded(any(Runnable.class));
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(1L));
         doAnswer(invocation -> {
             Runnable runnable = invocation.getArgument(0);
@@ -271,11 +376,12 @@ class AiConversationControllerTest {
                 Map.of("role", "user", "content", "hello"));
 
         when(conversationService.appendUserMessage(1L, 2L, "hello", "cid-2")).thenReturn(userMessage);
-        when(conversationService.appendAssistantMessage(
+        when(conversationService.appendOrGetAssistantMessage(
                 1L,
                 2L,
                 "",
-                ConversationMessageStatus.PENDING)).thenReturn(pendingAssistant);
+                ConversationMessageStatus.PENDING,
+                "assistant:cid-2")).thenReturn(pendingAssistant);
         when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
         when(groqChatClient.streamChat(contextMessages, 1L))
                 .thenReturn(Flux.just("partial").concatWith(Flux.error(new RuntimeException("boom"))));
@@ -291,10 +397,16 @@ class AiConversationControllerTest {
                 ChatMessageRequest.builder()
                         .content("hello")
                         .clientMessageId("cid-2")
-                        .build());
+                        .build(),
+                null);
 
         assertNotNull(emitter);
-        verify(conversationService).appendAssistantMessage(1L, 2L, "", ConversationMessageStatus.PENDING);
+        verify(conversationService).appendOrGetAssistantMessage(
+                1L,
+                2L,
+                "",
+                ConversationMessageStatus.PENDING,
+                "assistant:cid-2");
         verify(conversationService).updateAssistantMessage(
                 1L,
                 2L,
@@ -328,3 +440,4 @@ class AiConversationControllerTest {
                 Instant.parse("2026-02-08T10:00:00Z"));
     }
 }
+

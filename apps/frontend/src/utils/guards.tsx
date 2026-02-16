@@ -52,7 +52,11 @@ export const PublicOnly: React.FC<GuardProps> = ({ children }) => {
     return <Spin fullscreen size="large" tip="Checking session..." />;
   }
 
-  if (isAuthenticated) {
+  // Special handling for admin login - allow access even if authenticated as user
+  // This allows switching accounts or re-authenticating as admin
+  const isAdminLogin = location.pathname === '/auth/admin/login';
+
+  if (isAuthenticated && !isAdminLogin) {
     // If user is already logged in, redirect to dashboard or previous page
     const state = location.state as { from?: { pathname: string } } | null;
     const from = state?.from?.pathname || '/dashboard';

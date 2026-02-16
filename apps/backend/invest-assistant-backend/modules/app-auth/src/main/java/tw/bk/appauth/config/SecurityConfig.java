@@ -39,10 +39,13 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC,
                                 jakarta.servlet.DispatcherType.ERROR)
                         .permitAll()
+                        .requestMatchers("/admin/**")
+                        .hasRole("ADMIN")
                         .requestMatchers(
                                 "/health",
                                 "/actuator/health",
                                 "/auth/google/login",
+                                "/auth/admin/login",
                                 "/auth/refresh",
                                 "/auth/logout",
                                 "/oauth2/**",

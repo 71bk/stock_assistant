@@ -111,8 +111,8 @@
 | POST | `/api/admin/portfolios/valuations-snapshot` | 手動重算估值快照（寫入 portfolio_valuations） | 見下方 |
 
 #### 認證方式
-- 若 **未設定** `APP_ADMIN_API_KEY` → 只要登入即可
-- 若 **已設定** `APP_ADMIN_API_KEY` → 必須帶 `X-Admin-Key` header
+- 必須為 **ADMIN 角色**（`ROLE_ADMIN`，由 access token / Spring Security RBAC 驗證）
+- 若 **已設定** `APP_ADMIN_API_KEY`，除 ADMIN 角色外，還需帶 `X-Admin-Key` header（第二道防線）
 
 #### 同步 Instrument（`POST /api/admin/instruments/sync`）
 Request Headers（若已設定 API Key）：
@@ -265,6 +265,7 @@ Response：
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
 | GET | `/api/auth/google/login` | 302 導向 Google OAuth | 否 |
+| POST | `/api/auth/admin/login` | Admin 本地帳密登入（Argon2id） | 否 |
 | GET | `/api/oauth2/authorization/{provider}` | OAuth2 授權端點（Spring Security 處理） | 否 |
 | GET | `/api/login/oauth2/code/google` | OAuth 回調（Spring Security 處理，設置 Cookie 並重導） | 否 |
 | GET | `/api/auth/me` | 取得登入使用者資訊 | 是 |
@@ -273,8 +274,35 @@ Response：
 
 #### 認證/參數說明
 - `GET /api/auth/me`：需要有效 `access_token` Cookie
+- `POST /api/auth/admin/login`：request body 需含 `email`、`password`，成功後回寫 `access_token` / `refresh_token` Cookie
 - `POST /api/auth/refresh`：需要 `refresh_token` Cookie（無 request body）
 - `POST /api/auth/logout`：可帶 `refresh_token` Cookie（無 request body；若缺少則只清除瀏覽器 cookie）
+- `POST /api/auth/admin/login` 有 IP rate limit 與帳號鎖定保護：
+  - rate limit：`app.auth.admin-login.rate-limit` / `app.auth.admin-login.rate-window`
+  - lockout：`app.auth.admin-login.max-failures` / `app.auth.admin-login.fail-window` / `app.auth.admin-login.lock-duration`
+
+### Admin Local Login（`POST /api/auth/admin/login`）
+Request：
+```json
+{
+  "email": "admin@example.com",
+  "password": "your-strong-password"
+}
+```
+
+成功 Response：
+```json
+{
+  "success": true,
+  "data": null,
+  "error": null,
+  "traceId": "..."
+}
+```
+
+錯誤行為：
+- 帳密錯誤或非 ADMIN：`401 AUTH_UNAUTHORIZED`
+- 嘗試過多（rate limit 或 lockout）：`429 RATE_LIMITED`
 
 ### User Profile（`GET /api/auth/me`）
 ```json

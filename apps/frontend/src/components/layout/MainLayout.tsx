@@ -13,6 +13,8 @@ import {
   LogoutOutlined,
   RobotOutlined,
   BookOutlined,
+  DashboardOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -23,7 +25,7 @@ const { Header, Sider, Content } = Layout;
 export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuthStore();
+  const { user, logout, isAdmin } = useAuthStore();
   const { siderCollapsed, toggleSider } = useUIStore();
   const {
     token: { colorBgContainer, borderRadiusLG },
@@ -57,6 +59,12 @@ export const MainLayout: React.FC = () => {
         icon: <SettingOutlined />,
         onClick: () => navigate('/settings'),
       },
+      ...(!isAdmin ? [{
+        key: 'admin-login',
+        label: '管理員登入',
+        icon: <KeyOutlined />,
+        onClick: () => navigate('/auth/admin/login'),
+      }] : []),
       {
         key: 'logout',
         label: '登出',
@@ -83,6 +91,7 @@ export const MainLayout: React.FC = () => {
         'knowledge-base': '知識庫',
         reports: '分析報告',
         settings: '設定',
+        admin: '管理員',
       };
       return { title: labelMap[path] || path.charAt(0).toUpperCase() + path.slice(1) };
     });
@@ -142,6 +151,14 @@ export const MainLayout: React.FC = () => {
       label: '設定',
     },
   ];
+
+  if (isAdmin) {
+    menuItems.push({
+      key: '/admin/dashboard',
+      icon: <DashboardOutlined />,
+      label: '管理後台',
+    });
+  }
 
   const MenuContent = (
     <Menu

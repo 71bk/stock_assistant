@@ -31,12 +31,21 @@ export const authApi = {
     }
   },
 
+  // 4. Admin 本地登入 (Argon2id)
+  loginAdmin: (data: LoginRequest) =>
+    http.post<void>('/auth/admin/login', data),
+
   getSessions: () =>
     http.get<Session[]>('/auth/sessions'),
 
   revokeSession: (sessionId: string) =>
     http.delete<void>(`/auth/sessions/${sessionId}`),
 };
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
 
 export interface Session {
   sessionId: string;
