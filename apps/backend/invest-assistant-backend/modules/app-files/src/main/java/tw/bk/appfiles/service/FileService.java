@@ -1,46 +1,50 @@
 package tw.bk.appfiles.service;
 
+import io.minio.GetObjectArgs;
+import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.http.Method;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.FileProvider;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appfiles.config.FileStorageProperties;
 import tw.bk.appfiles.model.FileView;
+import tw.bk.appfiles.model.PresignResult;
 import tw.bk.apppersistence.entity.FileEntity;
 import tw.bk.apppersistence.repository.FileRepository;
-import io.minio.GetPresignedObjectUrlArgs;
-import io.minio.MinioClient;
-import io.minio.http.Method;
-import java.net.URI;
-import java.time.Duration;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.S3Presigner;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
-import tw.bk.appfiles.model.PresignResult;
 
 @Slf4j
 @Service
@@ -60,11 +64,10 @@ public class FileService {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
         if (input == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "檔案不得為空");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File is required");
         }
 
-        Path baseDir = ensureBaseDir();
-        Path tempFile = createTempFile(baseDir);
+        Path tempFile = createTempFile(ensureBaseDir());
 
         long sizeBytes = 0;
         String sha256;
@@ -79,12 +82,12 @@ public class FileService {
             }
             if (sizeBytes <= 0) {
                 deleteQuietly(tempFile);
-                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "檔案不得為空");
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File is empty");
             }
             sha256 = toHex(digest.digest());
         } catch (IOException ex) {
             deleteQuietly(tempFile);
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "檔案儲存失敗");
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read upload stream");
         } catch (NoSuchAlgorithmException ex) {
             deleteQuietly(tempFile);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "SHA-256 not available");
@@ -92,31 +95,40 @@ public class FileService {
 
         Optional<FileEntity> existing = fileRepository.findByUserIdAndSha256(userId, sha256);
         if (existing.isPresent()) {
-            log.info("檔案已存在，返回既存記錄: fileId={}, sha256={}", existing.get().getId(), sha256);
+            log.info("File deduplicated: fileId={}, sha256={}", existing.get().getId(), sha256);
             deleteQuietly(tempFile);
             return existing.get();
         }
 
         String objectKey = sha256;
-        Path finalPath = baseDir.resolve(objectKey);
-        log.info("準備將檔案移動到: {}", finalPath);
+        String normalizedContentType = isBlank(contentType) ? DEFAULT_CONTENT_TYPE : contentType.trim();
+        FileProvider provider = resolveProvider(properties.getProvider());
+        String bucket = null;
+
         try {
-            Files.move(tempFile, finalPath, StandardCopyOption.REPLACE_EXISTING);
-            log.info("檔案已成功儲存: path={}, size={}", finalPath, sizeBytes);
-        } catch (IOException ex) {
-            log.error("檔案移動失敗: from={}, to={}, error={}", tempFile, finalPath, ex.getMessage(), ex);
+            if (provider == FileProvider.LOCAL) {
+                persistLocal(tempFile, objectKey);
+            } else if (provider == FileProvider.S3) {
+                bucket = resolveBucket(null);
+                uploadToS3(tempFile, bucket, objectKey, normalizedContentType);
+            } else if (provider == FileProvider.MINIO) {
+                bucket = resolveBucket(null);
+                uploadToMinio(tempFile, bucket, objectKey, normalizedContentType);
+            } else {
+                throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "File provider not supported");
+            }
+        } finally {
             deleteQuietly(tempFile);
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "檔案儲存失敗");
         }
 
         FileEntity entity = new FileEntity();
         entity.setUserId(userId);
-        entity.setProvider(PROVIDER_LOCAL);
-        entity.setBucket(null);
+        entity.setProvider(providerValue(provider));
+        entity.setBucket(bucket);
         entity.setObjectKey(objectKey);
         entity.setSha256(sha256);
         entity.setSizeBytes(sizeBytes);
-        entity.setContentType(isBlank(contentType) ? DEFAULT_CONTENT_TYPE : contentType.trim());
+        entity.setContentType(normalizedContentType);
 
         try {
             return fileRepository.save(entity);
@@ -125,7 +137,7 @@ public class FileService {
             if (saved.isPresent()) {
                 return saved.get();
             }
-            throw new BusinessException(ErrorCode.CONFLICT, "檔案已存在");
+            throw new BusinessException(ErrorCode.CONFLICT, "File already exists");
         }
     }
 
@@ -140,7 +152,7 @@ public class FileService {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
         return fileRepository.findByIdAndUserId(fileId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "檔案不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "File not found"));
     }
 
     @Transactional(readOnly = true)
@@ -150,8 +162,7 @@ public class FileService {
 
     @Transactional(readOnly = true)
     public byte[] loadBytes(Long userId, Long fileId) {
-        FileEntity file = getFile(userId, fileId);
-        return loadBytes(file);
+        return loadBytes(getFile(userId, fileId));
     }
 
     @Transactional(readOnly = true)
@@ -159,27 +170,21 @@ public class FileService {
         if (file == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
         }
-
-        String provider = isBlank(file.getProvider()) ? properties.getProvider() : file.getProvider();
-        if (isBlank(provider)) {
-            provider = PROVIDER_LOCAL;
-        }
-        provider = provider.trim().toLowerCase(Locale.ROOT);
-
-        if (!PROVIDER_LOCAL.equals(provider)) {
-            throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "File provider not supported");
-        }
         if (isBlank(file.getObjectKey())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File object key not found");
         }
 
-        Path baseDir = ensureBaseDir();
-        Path filePath = baseDir.resolve(file.getObjectKey()).toAbsolutePath().normalize();
-        try {
-            return Files.readAllBytes(filePath);
-        } catch (IOException ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read file content");
+        FileProvider provider = resolveProvider(file);
+        if (provider == FileProvider.LOCAL) {
+            return loadLocalBytes(file.getObjectKey());
         }
+        if (provider == FileProvider.S3) {
+            return loadS3Bytes(resolveBucket(file.getBucket()), file.getObjectKey());
+        }
+        if (provider == FileProvider.MINIO) {
+            return loadMinioBytes(resolveBucket(file.getBucket()), file.getObjectKey());
+        }
+        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "File provider not supported");
     }
 
     @Transactional(readOnly = true)
@@ -187,28 +192,21 @@ public class FileService {
         if (file == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
         }
-
-        String provider = file.provider();
-        provider = isBlank(provider) ? properties.getProvider() : provider;
-        if (isBlank(provider)) {
-            provider = PROVIDER_LOCAL;
-        }
-        provider = provider.trim().toLowerCase(Locale.ROOT);
-
-        if (!PROVIDER_LOCAL.equals(provider)) {
-            throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "File provider not supported");
-        }
         if (isBlank(file.objectKey())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File object key not found");
         }
 
-        Path baseDir = ensureBaseDir();
-        Path filePath = baseDir.resolve(file.objectKey()).toAbsolutePath().normalize();
-        try {
-            return Files.readAllBytes(filePath);
-        } catch (IOException ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read file content");
+        FileProvider provider = resolveProvider(file);
+        if (provider == FileProvider.LOCAL) {
+            return loadLocalBytes(file.objectKey());
         }
+        if (provider == FileProvider.S3) {
+            return loadS3Bytes(resolveBucket(file.bucket()), file.objectKey());
+        }
+        if (provider == FileProvider.MINIO) {
+            return loadMinioBytes(resolveBucket(file.bucket()), file.objectKey());
+        }
+        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "File provider not supported");
     }
 
     @Transactional
@@ -226,20 +224,32 @@ public class FileService {
 
         Optional<FileEntity> existing = fileRepository.findByUserIdAndSha256(userId, sha256);
         boolean alreadyExists = existing.isPresent();
+        FileProvider provider = existing.map(this::resolveProvider)
+                .orElseGet(() -> resolveProvider(properties.getProvider()));
+
+        if (provider == FileProvider.LOCAL) {
+            return presignLocalFallback(existing, sha256, alreadyExists);
+        }
+
         FileEntity entity = existing.orElseGet(FileEntity::new);
-        boolean needsSave = entity.getId() == null;
+        boolean needsSave = false;
+
+        String providerValue = providerValue(provider);
+        if (!providerValue.equals(entity.getProvider())) {
+            entity.setProvider(providerValue);
+            needsSave = true;
+        }
         if (entity.getId() == null) {
             entity.setUserId(userId);
             entity.setSha256(sha256);
-        }
-        if (isBlank(entity.getProvider())) {
-            entity.setProvider(properties.getProvider());
             needsSave = true;
         }
-        if (isBlank(entity.getBucket())) {
-            entity.setBucket(properties.getBucket());
+        String bucket = resolveBucket(entity.getBucket());
+        if (!bucket.equals(entity.getBucket())) {
+            entity.setBucket(bucket);
             needsSave = true;
         }
+
         if (isBlank(entity.getObjectKey())) {
             entity.setObjectKey(sha256);
             needsSave = true;
@@ -252,6 +262,7 @@ public class FileService {
             entity.setContentType(normalizedContentType);
             needsSave = true;
         }
+
         if (needsSave) {
             entity = fileRepository.save(entity);
         }
@@ -266,19 +277,37 @@ public class FileService {
                 alreadyExists);
     }
 
+    private PresignResult presignLocalFallback(Optional<FileEntity> existing, String sha256, boolean alreadyExists) {
+        Long fileId = existing.map(FileEntity::getId).orElse(null);
+        String objectKey = existing.map(FileEntity::getObjectKey)
+                .filter(key -> !isBlank(key))
+                .orElse(sha256);
+
+        return new PresignResult(
+                fileId,
+                objectKey,
+                "/api/files",
+                "POST",
+                Map.of(),
+                alreadyExists);
+    }
+
     @Transactional(readOnly = true)
     public String presignDownloadUrl(FileEntity file) {
         if (file == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
         }
+        if (isBlank(file.getObjectKey())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File object key not found");
+        }
         FileProvider provider = resolveProvider(file);
         if (provider == FileProvider.S3) {
-            return presignS3Download(file.getObjectKey());
+            return presignS3Download(resolveBucket(file.getBucket()), file.getObjectKey());
         }
         if (provider == FileProvider.MINIO) {
-            return presignMinioDownload(file.getObjectKey());
+            return presignMinioDownload(resolveBucket(file.getBucket()), file.getObjectKey());
         }
-        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Presign download not supported for local storage");
+        return localContentPath(file.getId());
     }
 
     @Transactional(readOnly = true)
@@ -286,33 +315,53 @@ public class FileService {
         if (file == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
         }
+        if (isBlank(file.objectKey())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "File object key not found");
+        }
         FileProvider provider = resolveProvider(file);
         if (provider == FileProvider.S3) {
-            return presignS3Download(file.objectKey());
+            return presignS3Download(resolveBucket(file.bucket()), file.objectKey());
         }
         if (provider == FileProvider.MINIO) {
-            return presignMinioDownload(file.objectKey());
+            return presignMinioDownload(resolveBucket(file.bucket()), file.objectKey());
         }
-        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Presign download not supported for local storage");
+        return localContentPath(file.id());
     }
 
     public FileProvider resolveProvider(FileEntity file) {
-        String provider = isBlank(file.getProvider()) ? properties.getProvider() : file.getProvider();
+        String provider = file == null ? null : file.getProvider();
         if (isBlank(provider)) {
-            provider = PROVIDER_LOCAL;
+            provider = properties.getProvider();
         }
-        FileProvider resolved = FileProvider.from(provider);
-        return resolved != null ? resolved : FileProvider.LOCAL;
+        return resolveProvider(provider);
     }
 
     public FileProvider resolveProvider(FileView file) {
         String provider = file == null ? null : file.provider();
-        provider = isBlank(provider) ? properties.getProvider() : provider;
         if (isBlank(provider)) {
-            provider = PROVIDER_LOCAL;
+            provider = properties.getProvider();
         }
-        FileProvider resolved = FileProvider.from(provider);
-        return resolved != null ? resolved : FileProvider.LOCAL;
+        return resolveProvider(provider);
+    }
+
+    private FileProvider resolveProvider(String rawProvider) {
+        if (isBlank(rawProvider)) {
+            return FileProvider.LOCAL;
+        }
+        FileProvider resolved = FileProvider.from(rawProvider);
+        if (resolved == null) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Unsupported file provider: " + rawProvider.trim());
+        }
+        return resolved;
+    }
+
+    private String providerValue(FileProvider provider) {
+        if (provider == null) {
+            return PROVIDER_LOCAL;
+        }
+        return provider.name().toLowerCase(Locale.ROOT);
     }
 
     private Path ensureBaseDir() {
@@ -324,7 +373,7 @@ public class FileService {
         try {
             Files.createDirectories(baseDir);
         } catch (IOException ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "無法建立上傳目錄");
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to create local upload directory");
         }
         return baseDir;
     }
@@ -333,7 +382,7 @@ public class FileService {
         try {
             return Files.createTempFile(baseDir, "upload-", ".tmp");
         } catch (IOException ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "檔案儲存失敗");
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to create upload temp file");
         }
     }
 
@@ -344,7 +393,7 @@ public class FileService {
         try {
             Files.deleteIfExists(path);
         } catch (IOException ignored) {
-            // ignore
+            // ignore cleanup failure
         }
     }
 
@@ -361,113 +410,94 @@ public class FileService {
     }
 
     private PresignResult presignByProvider(FileEntity entity) {
-        String provider = properties.getProvider();
-        if (isBlank(provider)) {
-            provider = PROVIDER_LOCAL;
-        }
-        provider = provider.trim().toLowerCase(Locale.ROOT);
+        FileProvider provider = resolveProvider(entity);
+        String bucket = provider == FileProvider.LOCAL ? null : resolveBucket(entity.getBucket());
 
-        if (PROVIDER_S3.equals(provider)) {
-            return presignS3(entity);
+        if (provider == FileProvider.S3) {
+            return presignS3(entity, bucket);
         }
-        if (PROVIDER_MINIO.equals(provider)) {
-            return presignMinio(entity);
+        if (provider == FileProvider.MINIO) {
+            return presignMinio(entity, bucket);
         }
-        throw new BusinessException(ErrorCode.NOT_IMPLEMENTED, "Presign not supported for local storage");
+        return new PresignResult(
+                entity.getId(),
+                entity.getObjectKey(),
+                "/api/files",
+                "POST",
+                Map.of(),
+                false);
     }
 
-    private PresignResult presignS3(FileEntity entity) {
-        String bucket = requireBucket();
-        String region = isBlank(properties.getRegion()) ? "us-east-1" : properties.getRegion().trim();
-        String accessKey = properties.getAccessKey();
-        String secretKey = properties.getSecretKey();
-        if (isBlank(accessKey) || isBlank(secretKey)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "S3 credentials are required");
+    private String localContentPath(Long fileId) {
+        if (fileId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "file_id is required for local content path");
         }
+        return "/api/files/" + fileId + "/content";
+    }
 
-        AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
-        S3Presigner.Builder builder = S3Presigner.builder()
-                .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(credentials));
-
-        if (!isBlank(properties.getEndpoint())) {
-            builder.endpointOverride(URI.create(properties.getEndpoint().trim()));
+    private PresignResult presignS3(FileEntity entity, String bucket) {
+        String objectKey = entity.getObjectKey();
+        if (isBlank(objectKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "object_key is required");
         }
 
         PutObjectRequest putRequest = PutObjectRequest.builder()
                 .bucket(bucket)
-                .key(entity.getObjectKey())
+                .key(objectKey)
                 .contentType(entity.getContentType())
                 .build();
 
-        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
         PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
-                .signatureDuration(Duration.ofSeconds(expirySeconds))
+                .signatureDuration(Duration.ofSeconds(resolvePresignExpirySeconds()))
                 .putObjectRequest(putRequest)
                 .build();
 
-        try (S3Presigner presigner = builder.build()) {
+        try (S3Presigner presigner = buildS3Presigner()) {
             PresignedPutObjectRequest presigned = presigner.presignPutObject(presignRequest);
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", entity.getContentType());
-            return new PresignResult(entity.getId(), entity.getObjectKey(), presigned.url().toString(), "PUT", headers,
+            return new PresignResult(
+                    entity.getId(),
+                    objectKey,
+                    presigned.url().toString(),
+                    "PUT",
+                    headers,
                     false);
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign S3 upload");
         }
     }
 
-    private PresignResult presignMinio(FileEntity entity) {
-        String bucket = requireBucket();
-        String endpoint = properties.getEndpoint();
-        String accessKey = properties.getAccessKey();
-        String secretKey = properties.getSecretKey();
-        if (isBlank(endpoint)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO endpoint is required");
-        }
-        if (isBlank(accessKey) || isBlank(secretKey)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO credentials are required");
+    private PresignResult presignMinio(FileEntity entity, String bucket) {
+        String objectKey = entity.getObjectKey();
+        if (isBlank(objectKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "object_key is required");
         }
 
-        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
         try {
-            MinioClient client = MinioClient.builder()
-                    .endpoint(endpoint.trim())
-                    .credentials(accessKey, secretKey)
-                    .build();
-
-            String url = client.getPresignedObjectUrl(
+            String url = buildMinioClient().getPresignedObjectUrl(
                     GetPresignedObjectUrlArgs.builder()
                             .method(Method.PUT)
                             .bucket(bucket)
-                            .object(entity.getObjectKey())
-                            .expiry(expirySeconds)
+                            .object(objectKey)
+                            .expiry(resolvePresignExpirySeconds())
                             .build());
 
             Map<String, String> headers = new HashMap<>();
             headers.put("Content-Type", entity.getContentType());
-            return new PresignResult(entity.getId(), entity.getObjectKey(), url, "PUT", headers, false);
+            return new PresignResult(entity.getId(), objectKey, url, "PUT", headers, false);
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign MinIO upload");
         }
     }
 
-    private String presignS3Download(String objectKey) {
-        String bucket = requireBucket();
-        String region = isBlank(properties.getRegion()) ? "us-east-1" : properties.getRegion().trim();
-        String accessKey = properties.getAccessKey();
-        String secretKey = properties.getSecretKey();
-        if (isBlank(accessKey) || isBlank(secretKey)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "S3 credentials are required");
-        }
-
-        AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
-        S3Presigner.Builder builder = S3Presigner.builder()
-                .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(credentials));
-
-        if (!isBlank(properties.getEndpoint())) {
-            builder.endpointOverride(URI.create(properties.getEndpoint().trim()));
+    private String presignS3Download(String bucket, String objectKey) {
+        if (isBlank(objectKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "object_key is required");
         }
 
         GetObjectRequest getRequest = GetObjectRequest.builder()
@@ -475,57 +505,200 @@ public class FileService {
                 .key(objectKey)
                 .build();
 
-        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                .signatureDuration(Duration.ofSeconds(expirySeconds))
+                .signatureDuration(Duration.ofSeconds(resolvePresignExpirySeconds()))
                 .getObjectRequest(getRequest)
                 .build();
 
-        try (S3Presigner presigner = builder.build()) {
+        try (S3Presigner presigner = buildS3Presigner()) {
             PresignedGetObjectRequest presigned = presigner.presignGetObject(presignRequest);
             return presigned.url().toString();
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign S3 download");
         }
     }
 
-    private String presignMinioDownload(String objectKey) {
-        String bucket = requireBucket();
-        String endpoint = properties.getEndpoint();
-        String accessKey = properties.getAccessKey();
-        String secretKey = properties.getSecretKey();
-        if (isBlank(endpoint)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO endpoint is required");
-        }
-        if (isBlank(accessKey) || isBlank(secretKey)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO credentials are required");
+    private String presignMinioDownload(String bucket, String objectKey) {
+        if (isBlank(objectKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "object_key is required");
         }
 
-        int expirySeconds = properties.getPresignExpirySeconds() == null ? 900 : properties.getPresignExpirySeconds();
         try {
-            MinioClient client = MinioClient.builder()
-                    .endpoint(endpoint.trim())
-                    .credentials(accessKey, secretKey)
-                    .build();
-
-            return client.getPresignedObjectUrl(
+            return buildMinioClient().getPresignedObjectUrl(
                     GetPresignedObjectUrlArgs.builder()
                             .method(Method.GET)
                             .bucket(bucket)
                             .object(objectKey)
-                            .expiry(expirySeconds)
+                            .expiry(resolvePresignExpirySeconds())
                             .build());
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to presign MinIO download");
         }
     }
 
-    private String requireBucket() {
-        String bucket = properties.getBucket();
+    private int resolvePresignExpirySeconds() {
+        Integer expiry = properties.getPresignExpirySeconds();
+        return expiry == null ? 900 : Math.max(1, expiry);
+    }
+
+    private String resolveBucket(String bucketInFile) {
+        String bucket = isBlank(bucketInFile) ? properties.getBucket() : bucketInFile;
         if (isBlank(bucket)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bucket is required");
         }
         return bucket.trim();
+    }
+
+    private String resolveRegion() {
+        return isBlank(properties.getRegion()) ? "us-east-1" : properties.getRegion().trim();
+    }
+
+    private AwsBasicCredentials resolveAwsCredentials() {
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (isBlank(accessKey) || isBlank(secretKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "S3 credentials are required");
+        }
+        return AwsBasicCredentials.create(accessKey.trim(), secretKey.trim());
+    }
+
+    private S3Client buildS3Client() {
+        AwsBasicCredentials credentials = resolveAwsCredentials();
+        var builder = S3Client.builder()
+                .region(Region.of(resolveRegion()))
+                .credentialsProvider(StaticCredentialsProvider.create(credentials));
+
+        if (!isBlank(properties.getEndpoint())) {
+            builder.endpointOverride(URI.create(properties.getEndpoint().trim()));
+        }
+        return builder.build();
+    }
+
+    private S3Presigner buildS3Presigner() {
+        AwsBasicCredentials credentials = resolveAwsCredentials();
+        S3Presigner.Builder builder = S3Presigner.builder()
+                .region(Region.of(resolveRegion()))
+                .credentialsProvider(StaticCredentialsProvider.create(credentials));
+
+        if (!isBlank(properties.getEndpoint())) {
+            builder.endpointOverride(URI.create(properties.getEndpoint().trim()));
+        }
+        return builder.build();
+    }
+
+    private MinioClient buildMinioClient() {
+        String endpoint = properties.getEndpoint();
+        if (isBlank(endpoint)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO endpoint is required");
+        }
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (isBlank(accessKey) || isBlank(secretKey)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "MinIO credentials are required");
+        }
+
+        return MinioClient.builder()
+                .endpoint(endpoint.trim())
+                .credentials(accessKey.trim(), secretKey.trim())
+                .build();
+    }
+
+    private void persistLocal(Path tempFile, String objectKey) {
+        Path baseDir = ensureBaseDir();
+        Path finalPath = baseDir.resolve(objectKey).toAbsolutePath().normalize();
+        if (!finalPath.startsWith(baseDir)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid object key");
+        }
+
+        try {
+            Files.move(tempFile, finalPath, StandardCopyOption.REPLACE_EXISTING);
+            log.info("Stored local file: path={}", finalPath);
+        } catch (IOException ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to persist local file");
+        }
+    }
+
+    private void uploadToS3(Path sourceFile, String bucket, String objectKey, String contentType) {
+        PutObjectRequest request = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(objectKey)
+                .contentType(contentType)
+                .build();
+
+        try (S3Client client = buildS3Client()) {
+            client.putObject(request, RequestBody.fromFile(sourceFile));
+            log.info("Stored S3 object: bucket={}, objectKey={}", bucket, objectKey);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to upload file to S3");
+        }
+    }
+
+    private void uploadToMinio(Path sourceFile, String bucket, String objectKey, String contentType) {
+        long size;
+        try {
+            size = Files.size(sourceFile);
+        } catch (IOException ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read upload temp file");
+        }
+
+        try (InputStream in = Files.newInputStream(sourceFile)) {
+            buildMinioClient().putObject(
+                    PutObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(objectKey)
+                            .stream(in, size, -1)
+                            .contentType(contentType)
+                            .build());
+            log.info("Stored MinIO object: bucket={}, objectKey={}", bucket, objectKey);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to upload file to MinIO");
+        }
+    }
+
+    private byte[] loadLocalBytes(String objectKey) {
+        Path baseDir = ensureBaseDir();
+        Path filePath = baseDir.resolve(objectKey).toAbsolutePath().normalize();
+        if (!filePath.startsWith(baseDir)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid object key");
+        }
+        try {
+            return Files.readAllBytes(filePath);
+        } catch (IOException ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read local file content");
+        }
+    }
+
+    private byte[] loadS3Bytes(String bucket, String objectKey) {
+        GetObjectRequest request = GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(objectKey)
+                .build();
+        try (S3Client client = buildS3Client()) {
+            return client.getObjectAsBytes(request).asByteArray();
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read file from S3");
+        }
+    }
+
+    private byte[] loadMinioBytes(String bucket, String objectKey) {
+        try (InputStream in = buildMinioClient().getObject(
+                GetObjectArgs.builder().bucket(bucket).object(objectKey).build())) {
+            return in.readAllBytes();
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to read file from MinIO");
+        }
     }
 
     private FileView toFileView(FileEntity entity) {

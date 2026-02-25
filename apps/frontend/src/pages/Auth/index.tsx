@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, Typography, Button } from 'antd';
 import { GoogleOutlined } from '@ant-design/icons';
 import { GOOGLE_LOGIN_URL } from '../../api/auth.api';

@@ -25,7 +25,10 @@ const Dashboard: React.FC = () => {
   // Calculate value for pie chart (fallback to cost if market value missing)
   const pieData = positions.map((p) => ({
     ...p,
-    value: p.currentValue || (p.totalQuantity * p.avgCostNative) || 0,
+    value: Number(
+      p.marketValue ??
+      (Number(p.totalQuantity || 0) * Number(p.avgCostNative || 0)),
+    ),
   }));
 
   const pieConfig = {
@@ -34,7 +37,8 @@ const Dashboard: React.FC = () => {
     colorField: 'ticker',
     radius: 0.8,
     label: {
-      text: (d: { ticker: string; value: number }) => `${d.ticker}\n${(d.value / (summary?.totalMarketValue || 1) * 100).toFixed(1)}%`,
+      text: (d: { ticker: string; value: number }) =>
+        `${d.ticker}\n${(d.value / Number(summary?.totalMarketValue || 1) * 100).toFixed(1)}%`,
       position: 'spider',
     },
     legend: {
@@ -49,7 +53,7 @@ const Dashboard: React.FC = () => {
   const areaConfig = {
     data: valuations.map(v => ({
       date: v.date,
-      value: v.totalValue
+      value: Number(v.totalValue || 0),
     })),
     xField: 'date',
     yField: 'value',
@@ -77,8 +81,8 @@ const Dashboard: React.FC = () => {
 
   // Fallback values if summary is null
   const totalAssets = summary?.totalMarketValue || 0;
-  const totalPnl = summary?.totalPnl || 0;
-  const roi = summary?.totalPnlPercent || 0;
+  const totalPnl = Number(summary?.totalPnl || 0);
+  const roi = Number(summary?.totalPnlPercent || 0);
 
   return (
     <PageContainer>
@@ -92,7 +96,7 @@ const Dashboard: React.FC = () => {
           <Card>
             <Statistic
               title="總資產"
-              value={totalAssets}
+              value={Number(totalAssets)}
               precision={0}
               prefix={baseCurrency === 'USD' ? '$' : 'NT$'}
               formatter={(val) => formatCurrency(Number(val), baseCurrency)}
@@ -103,7 +107,7 @@ const Dashboard: React.FC = () => {
           <Card>
             <Statistic
               title="總損益"
-              value={totalPnl}
+              value={Number(totalPnl)}
               precision={0}
               styles={{ content: { color: totalPnl >= 0 ? '#3f8600' : '#cf1322' } }}
               prefix={totalPnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
@@ -115,7 +119,7 @@ const Dashboard: React.FC = () => {
           <Card>
             <Statistic
               title="報酬率"
-              value={roi}
+              value={Number(roi)}
               precision={2}
               styles={{ content: { color: roi >= 0 ? '#3f8600' : '#cf1322' } }}
               suffix="%"

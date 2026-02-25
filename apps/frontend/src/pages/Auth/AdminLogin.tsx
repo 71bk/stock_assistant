@@ -13,6 +13,14 @@ export const AdminLogin: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const getErrorStatus = (error: unknown): number | undefined => {
+    if (typeof error !== 'object' || error === null || !('response' in error)) {
+      return undefined;
+    }
+    const response = (error as { response?: { status?: unknown } }).response;
+    return typeof response?.status === 'number' ? response.status : undefined;
+  };
+
   const onFinish = async (values: LoginRequest) => {
     setLoading(true);
     setErrorMsg(null);
@@ -20,12 +28,13 @@ export const AdminLogin: React.FC = () => {
       await loginAdmin(values);
       message.success('管理員登入成功');
       navigate('/admin/dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Admin login failed:', err);
       // Handle different error cases if needed (e.g., 429, 401)
-      if (err.response?.status === 429) {
+      const status = getErrorStatus(err);
+      if (status === 429) {
         setErrorMsg('嘗試次數過多，請稍後再試');
-      } else if (err.response?.status === 401) {
+      } else if (status === 401) {
         setErrorMsg('帳號或密碼錯誤');
       } else {
         setErrorMsg('登入失敗，請稍後再試');

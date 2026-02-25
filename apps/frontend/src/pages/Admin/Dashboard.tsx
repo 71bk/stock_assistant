@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Typography, Row, Col, Statistic, Button, message, Input, Space, Divider, Alert } from 'antd';
+import { Card, Typography, Row, Col, Statistic, Button, message, Input, InputNumber, Space, Divider, Alert } from 'antd';
 import { SyncOutlined, ReloadOutlined, DatabaseOutlined, SaveOutlined, KeyOutlined } from '@ant-design/icons';
 import { adminApi, type SyncResult } from '../../api/admin.api';
 import { PageContainer } from '../../components/layout/PageContainer';
@@ -14,13 +14,15 @@ export const Dashboard: React.FC = () => {
     message: string;
     details?: string;
   } | null>(null);
+  const [rebuildPortfolioId, setRebuildPortfolioId] = useState<number | null>(null);
+  const [rebuildInstrumentId, setRebuildInstrumentId] = useState<number | null>(null);
 
   const saveApiKey = () => {
     localStorage.setItem('admin_api_key', apiKey);
     message.success('Admin API Key 已儲存');
   };
 
-  const handleAction = async (action: string, apiCall: () => Promise<any>) => {
+  const handleAction = async (action: string, apiCall: () => Promise<unknown>) => {
     setLoading(prev => ({ ...prev, [action]: true }));
     setResult(null);
     try {
@@ -46,9 +48,9 @@ export const Dashboard: React.FC = () => {
 
       setResult({ type: 'success', message: msg, details });
       message.success(msg);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`${action} failed:`, err);
-      const errMsg = err.message || '操作失敗';
+      const errMsg = err instanceof Error ? err.message : '操作失敗';
       setResult({ type: 'error', message: errMsg });
       message.error(errMsg);
     } finally {
@@ -57,7 +59,7 @@ export const Dashboard: React.FC = () => {
   };
 
   return (
-    <PageContainer title="管理員儀表板">
+    <PageContainer>
       <Row gutter={[16, 16]}>
         <Col span={24}>
           <Card title="API Key 設定 (若後端有啟用)" bordered={false}>
@@ -146,6 +148,22 @@ export const Dashboard: React.FC = () => {
 
         <Col xs={24} sm={12}>
           <Card>
+            <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
+              <InputNumber
+                style={{ width: '100%' }}
+                min={1}
+                value={rebuildPortfolioId}
+                onChange={(value) => setRebuildPortfolioId(value)}
+                placeholder="Portfolio ID（必填）"
+              />
+              <InputNumber
+                style={{ width: '100%' }}
+                min={1}
+                value={rebuildInstrumentId}
+                onChange={(value) => setRebuildInstrumentId(value)}
+                placeholder="Instrument ID（可選）"
+              />
+            </Space>
             <Statistic
               title="持倉重算 (Positions Rebuild)"
               value="Repair"
@@ -154,14 +172,22 @@ export const Dashboard: React.FC = () => {
                   danger
                   icon={<ReloadOutlined spin={loading['rebuildPositions']} />} 
                   loading={loading['rebuildPositions']}
-                  onClick={() => handleAction('rebuildPositions', () => adminApi.rebuildPositions('0', undefined, apiKey))} // 0 represents 'all' or needs specific ID input logic
+                  disabled={!rebuildPortfolioId}
+                  onClick={() => handleAction(
+                    'rebuildPositions',
+                    () => adminApi.rebuildPositions(
+                      Number(rebuildPortfolioId),
+                      rebuildInstrumentId ?? undefined,
+                      apiKey,
+                    ),
+                  )}
                 >
-                  重算所有持倉 (需謹慎)
+                  重算指定持倉
                 </Button>
               )}
             />
             <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
-              重新計算所有使用者的持倉快照 (User Positions)，用於資料修正。
+              依指定 portfolioId（必填）重算持倉；instrumentId 填入可縮小重算範圍。
             </Text>
           </Card>
         </Col>

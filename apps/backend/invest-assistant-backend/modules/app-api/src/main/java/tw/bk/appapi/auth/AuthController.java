@@ -5,11 +5,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -55,6 +58,12 @@ public class AuthController {
     @Value("${app.auth.admin-login.rate-window:60s}")
     private Duration adminLoginRateWindow;
 
+    @Value("${app.security.trusted-proxy.enabled:false}")
+    private boolean trustedProxyEnabled;
+
+    @Value("${app.security.trusted-proxy.ip-list:}")
+    private String trustedProxyIpList;
+
     public AuthController(AuthService authService,
             AuthCookieService cookieService,
             AdminAuthService adminAuthService,
@@ -78,6 +87,20 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create("/api/oauth2/authorization/google"))
                 .build();
+    }
+
+    @GetMapping("/csrf")
+    public Result<Map<String, Object>> csrf(HttpServletRequest request) {
+        Object attribute = request.getAttribute(CsrfToken.class.getName());
+        if (!(attribute instanceof CsrfToken csrfToken)) {
+            return Result.ok(Map.of("enabled", false));
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("enabled", true);
+        payload.put("headerName", csrfToken.getHeaderName());
+        payload.put("parameterName", csrfToken.getParameterName());
+        payload.put("token", csrfToken.getToken());
+        return Result.ok(payload);
     }
 
     @PostMapping("/refresh")
@@ -165,14 +188,47 @@ public class AuthController {
     }
 
     private String getClientKey(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
+        if (isTrustedProxyRequest(request)) {
+            String forwarded = request.getHeader("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) {
+                return forwarded.split(",")[0].trim();
+            }
+            String realIp = request.getHeader("X-Real-IP");
+            if (realIp != null && !realIp.isBlank()) {
+                return realIp.trim();
+            }
         }
         return request.getRemoteAddr();
+    }
+
+    private boolean isTrustedProxyRequest(HttpServletRequest request) {
+        if (!trustedProxyEnabled) {
+            return false;
+        }
+
+        String remoteAddr = request.getRemoteAddr();
+        if (remoteAddr == null || remoteAddr.isBlank()) {
+            return false;
+        }
+        if (isLoopback(remoteAddr)) {
+            return true;
+        }
+
+        if (trustedProxyIpList == null || trustedProxyIpList.isBlank()) {
+            return false;
+        }
+        for (String candidate : trustedProxyIpList.split(",")) {
+            String trimmed = candidate.trim();
+            if (!trimmed.isEmpty() && trimmed.equals(remoteAddr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isLoopback(String ip) {
+        return "127.0.0.1".equals(ip)
+                || "::1".equals(ip)
+                || "0:0:0:0:0:0:0:1".equals(ip);
     }
 }

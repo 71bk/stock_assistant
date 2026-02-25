@@ -39,6 +39,9 @@ export const chatApi = {
   updateConversation: (conversationId: string, title: string) =>
     http.patch<ConversationSummary>(`/ai/conversations/${conversationId}`, { title }),
 
+  deleteConversation: (conversationId: string) =>
+    http.delete<void>(`/ai/conversations/${conversationId}`),
+
   sendMessage: (conversationId: string, content: string, clientMessageId?: string) =>
     http.post(`/ai/conversations/${conversationId}/messages`, { content, clientMessageId }),
 };

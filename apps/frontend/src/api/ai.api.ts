@@ -1,15 +1,19 @@
 import { http } from '../utils/http';
 import type { PageData } from '../types/api';
 
-export interface AiReport {
+export type AiReportType = 'INSTRUMENT' | 'PORTFOLIO' | 'GENERAL';
+
+export interface AiReportSummary {
   reportId: string;
-  reportType: 'INSTRUMENT' | 'PORTFOLIO' | 'GENERAL';
+  reportType: AiReportType;
   portfolioId?: string;
   instrumentId?: string;
-  ticker?: string;
+  createdAt: string;
+}
+
+export interface AiReportDetail extends AiReportSummary {
   inputSummary?: string;
   outputText: string;
-  createdAt: string;
 }
 
 export const aiApi = {
@@ -18,8 +22,8 @@ export const aiApi = {
     http.post('/ai/analysis/stream', data),
 
   getReports: (page = 1, size = 20) =>
-    http.get<PageData<AiReport>>('/ai/reports', { params: { page, size } }),
+    http.get<PageData<AiReportSummary>>('/ai/reports', { params: { page, size } }),
 
   getReport: (reportId: string) =>
-    http.get<AiReport>(`/ai/reports/${reportId}`),
+    http.get<AiReportDetail>(`/ai/reports/${reportId}`),
 };

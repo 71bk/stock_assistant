@@ -40,8 +40,8 @@ export const MainLayout: React.FC = () => {
 
   // Close drawer when route changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDrawerOpen(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
   const handleMenuClick = ({ key }: { key: string }) => {

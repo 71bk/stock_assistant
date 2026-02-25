@@ -179,3 +179,18 @@ class RagRepository:
 
         return [dict(row) for row in rows]
 
+    async def delete_document(self, user_id: int, document_id: int) -> bool:
+        pool = get_pool()
+        async with pool.connection() as conn:
+            async with conn.transaction():
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        DELETE FROM vector.rag_documents
+                        WHERE id = %s AND user_id = %s
+                        RETURNING id
+                        """,
+                        (document_id, user_id),
+                    )
+                    row = await cur.fetchone()
+                    return row is not None

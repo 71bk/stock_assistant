@@ -7,7 +7,6 @@ import type { Trade } from '../../../api/portfolios.api';
 import { usePortfolioStore } from '../../../stores/portfolio.store';
 import dayjs from 'dayjs';
 import { logger } from '../../../utils/logger';
-import type { ApiResponse } from '../../../types/api';
 
 const { Text } = Typography;
 
@@ -31,13 +30,12 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ open, onCancel, on
         form.setFieldsValue({
           side: trade.side,
           date: dayjs(trade.tradeDate),
-          quantity: trade.quantity,
-          price: trade.price,
-          fee: trade.fee || 0,
+          quantity: Number(trade.quantity),
+          price: Number(trade.price),
+          fee: Number(trade.fee || 0),
         });
         // Fetch instrument details
-        stocksApi.getInstrumentById(trade.instrumentId).then((res) => {
-          const inst = (res as unknown as ApiResponse<Instrument>).data;
+        stocksApi.getInstrumentById(trade.instrumentId).then((inst) => {
           setSelectedInstrument(inst);
         }).catch(() => {
           // Fallback
@@ -66,18 +64,23 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ open, onCancel, on
     setCurrentStep(1);
   };
 
-  const handleFinish = async (values: { side: 'BUY' | 'SELL'; quantity: string; price: string; date: dayjs.Dayjs; fee?: string }) => {
+  const handleFinish = async (values: {
+    side: 'BUY' | 'SELL';
+    quantity: number;
+    price: number;
+    date: dayjs.Dayjs;
+    fee?: number;
+  }) => {
     if (!selectedInstrument) return;
 
     const payload = {
       instrumentId: selectedInstrument.instrumentId,
-      symbol: selectedInstrument.ticker,
       side: values.side,
-      quantity: values.quantity,
-      price: values.price,
+      quantity: String(values.quantity),
+      price: String(values.price),
       currency: selectedInstrument.currency,
       tradeDate: values.date.format('YYYY-MM-DD'),
-      fee: values.fee || 0,
+      fee: String(values.fee || 0),
     };
 
     try {

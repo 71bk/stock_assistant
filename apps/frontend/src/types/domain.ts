@@ -5,7 +5,7 @@ export interface User {
   pictureUrl?: string;
   baseCurrency: string;
   displayTimezone: string;
-  role: 'USER' | 'ADMIN';
+  role?: 'USER' | 'ADMIN';
 }
 
 export interface AuthState {

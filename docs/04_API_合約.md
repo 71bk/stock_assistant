@@ -1,6 +1,6 @@
 ﻿# API 合約
 
-> 狀態：v1.5 持續更新（2026-02-09）  
+> 狀態：v1.5 持續更新（2026-02-16）  
 > 範圍：MVP + v1（以標註說明）
 
 ---
@@ -27,6 +27,10 @@
 - **Content-Type**：預設 `application/json`  
   - 檔案上傳：`multipart/form-data`  
   - SSE：`text/event-stream`
+- **CSRF（啟用時）**：
+  - 先呼叫 `GET /api/auth/csrf` 初始化 token（同時寫入 `XSRF-TOKEN` cookie）
+  - 非 `GET/HEAD/OPTIONS/TRACE` 請求需帶 `X-XSRF-TOKEN` header
+  - `dev` 預設關閉，`prod` 預設啟用
 - **分頁**：`page`（1 起算）、`size`（預設 20）、`sort=field,desc`
 - **Trace**：回傳 `traceId` 便於追查
 - **LLM（AI 分析）**：Groq（OpenAI Compatible）
@@ -109,6 +113,7 @@
 | POST | `/api/admin/rag/portfolio-snapshots` | 手動觸發投資組合快照向量化 | 見下方 |
 | POST | `/api/admin/portfolios/positions-rebuild` | 手動重算持倉快照（資料修復） | 見下方 |
 | POST | `/api/admin/portfolios/valuations-snapshot` | 手動重算估值快照（寫入 portfolio_valuations） | 見下方 |
+| DELETE | `/api/admin/ai/conversations/{conversationId}` | 管理員手動硬刪除對話（立即刪除） | 見下方 |
 
 #### 認證方式
 - 必須為 **ADMIN 角色**（`ROLE_ADMIN`，由 access token / Spring Security RBAC 驗證）
@@ -258,6 +263,26 @@ Response：
 }
 ```
 
+#### 管理員手動硬刪除對話（`DELETE /api/admin/ai/conversations/{conversationId}`）
+Headers：
+```
+X-Admin-Key: your-secret-key
+```
+
+說明：
+- 立即硬刪除對話與其訊息（不走保留期）。
+- 可用於法遵、誤建資料清理、或提前清除已軟刪除資料。
+
+Response：
+```json
+{
+  "success": true,
+  "data": null,
+  "error": null,
+  "traceId": "..."
+}
+```
+
 ---
 
 ## Auth
@@ -266,6 +291,7 @@ Response：
 |---|---|---|---|
 | GET | `/api/auth/google/login` | 302 導向 Google OAuth | 否 |
 | POST | `/api/auth/admin/login` | Admin 本地帳密登入（Argon2id） | 否 |
+| GET | `/api/auth/csrf` | 初始化 CSRF token（啟用時） | 否 |
 | GET | `/api/oauth2/authorization/{provider}` | OAuth2 授權端點（Spring Security 處理） | 否 |
 | GET | `/api/login/oauth2/code/google` | OAuth 回調（Spring Security 處理，設置 Cookie 並重導） | 否 |
 | GET | `/api/auth/me` | 取得登入使用者資訊 | 是 |
@@ -275,6 +301,7 @@ Response：
 #### 認證/參數說明
 - `GET /api/auth/me`：需要有效 `access_token` Cookie
 - `POST /api/auth/admin/login`：request body 需含 `email`、`password`，成功後回寫 `access_token` / `refresh_token` Cookie
+- `GET /api/auth/csrf`：回傳 `{ enabled, headerName, parameterName, token }`，供前端/Swagger 初始化 CSRF
 - `POST /api/auth/refresh`：需要 `refresh_token` Cookie（無 request body）
 - `POST /api/auth/logout`：可帶 `refresh_token` Cookie（無 request body；若缺少則只清除瀏覽器 cookie）
 - `POST /api/auth/admin/login` 有 IP rate limit 與帳號鎖定保護：
@@ -303,6 +330,34 @@ Request：
 錯誤行為：
 - 帳密錯誤或非 ADMIN：`401 AUTH_UNAUTHORIZED`
 - 嘗試過多（rate limit 或 lockout）：`429 RATE_LIMITED`
+
+### CSRF Bootstrap（`GET /api/auth/csrf`）
+Response（CSRF 啟用）：
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "headerName": "X-XSRF-TOKEN",
+    "parameterName": "_csrf",
+    "token": "..."
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
+
+Response（CSRF 關閉）：
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": false
+  },
+  "error": null,
+  "traceId": "..."
+}
+```
 
 ### User Profile（`GET /api/auth/me`）
 ```json
@@ -965,6 +1020,12 @@ Response：
 欄位說明：
 - `alreadyExists=true`：同一使用者下已存在相同 `sha256`，前端可略過重複上傳。
 
+實作規則（已落地）：
+- `provider=s3/minio`：回傳 object storage 的 presigned upload URL（`method=PUT`）。
+- `provider=local`：回傳後端上傳端點（`uploadUrl=/api/files`、`method=POST`、`headers={}`）。
+  - `alreadyExists=true` 時會帶既有 `fileId`。
+  - `alreadyExists=false` 時 `fileId` 可能為 `null`，需以 `POST /api/files` 上傳後取得。
+
 #### 取得檔案下載/預覽連結（`GET /api/files/{fileId}/url`）
 Response：
 ```json
@@ -1233,6 +1294,7 @@ Response（節錄）
 | GET | `/api/ai/conversations` | 對話列表 | 是 |
 | GET | `/api/ai/conversations/{id}` | 對話詳情（含訊息） | 是 |
 | PATCH | `/api/ai/conversations/{id}` | 更新對話標題 | 是 |
+| DELETE | `/api/ai/conversations/{id}` | 刪除對話（軟刪除） | 是 |
 | POST | `/api/ai/conversations/{id}/messages` | 傳送訊息（SSE） | 是 |
 
 ### 伺服器端工具補強（不改 API 介面）
@@ -1341,6 +1403,21 @@ Request：
 ```json
 {
   "title": "新的對話標題"
+}
+```
+
+#### 刪除對話（`DELETE /api/ai/conversations/{id}`）
+- 執行**軟刪除**：對話會從使用者列表隱藏，不可再讀取或傳送新訊息。
+- 系統會在保留期後自動硬刪除（預設 30 天，可由 `APP_AI_CHAT_SOFT_DELETE_RETENTION_DAYS` 調整）。
+- 若管理員需要立即刪除，可使用 Admin API（見下方）。
+
+Response：
+```json
+{
+  "success": true,
+  "data": null,
+  "error": null,
+  "traceId": "..."
 }
 ```
 Response（節錄）：
@@ -1509,6 +1586,8 @@ Response：
 |---|---|---|---|
 | POST | `/ingest` | 文件 ingestion（multipart） | 否 |
 | POST | `/ingest/text` | 純文字 ingestion | 否 |
+| POST | `/ingest/url` | 透過 URL ingestion（presigned URL） | 否 |
+| DELETE | `/ingest/documents/{document_id}` | 刪除指定文件（含 chunks） | 否 |
 | POST | `/query` | RAG 問答（向量檢索） | 否 |
 
 #### 文件 Ingestion（`POST /ingest`）
@@ -1546,6 +1625,48 @@ Request（form-data）：
 - `tags`：標籤（逗號分隔）
 
 Response：同上
+
+#### URL Ingestion（`POST /ingest/url`）
+Request（JSON）：
+```json
+{
+  "user_id": 123,
+  "file_url": "https://storage.example.com/presigned-url",
+  "title": "Monthly Report",
+  "source_type": "upload",
+  "tags": ["report", "monthly"],
+  "source_id": "file-501",
+  "filename": "report.pdf",
+  "content_type": "application/pdf"
+}
+```
+
+Response：同 `POST /ingest`
+
+#### 刪除文件（`DELETE /ingest/documents/{document_id}`）
+Path Parameters：
+- `document_id`：文件 ID（必填）
+
+Query Parameters：
+- `user_id`：使用者 ID（必填）
+
+Response：
+```json
+{
+  "document_id": 123,
+  "status": "deleted",
+  "message": "Document deleted successfully"
+}
+```
+
+說明：
+- 刪除 `vector.rag_documents` 對應資料，`vector.rag_chunks` 會由資料庫 FK `ON DELETE CASCADE` 一併刪除。
+- 若文件不存在或不屬於該使用者，回傳 `404`：
+```json
+{
+  "detail": "Document not found"
+}
+```
 
 #### RAG Query（`POST /query`）
 Request（JSON）：

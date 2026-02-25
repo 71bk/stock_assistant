@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -51,6 +52,9 @@ public class AiConversationService {
     @Value("${app.ai.chat.prompt-version:v1}")
     private String promptVersion;
 
+    @Value("${app.ai.chat.soft-delete.retention-days:30}")
+    private int softDeleteRetentionDays;
+
     @Transactional
     public ConversationView createConversation(Long userId, String title) {
         if (userId == null) {
@@ -78,7 +82,7 @@ public class AiConversationService {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
-        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId).stream()
+        return conversationRepository.findByUserIdAndDeletedAtIsNullOrderByUpdatedAtDesc(userId).stream()
                 .map(this::toConversationView)
                 .toList();
     }
@@ -92,7 +96,7 @@ public class AiConversationService {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
-        return conversationRepository.findByIdAndUserId(conversationId, userId)
+        return conversationRepository.findByIdAndUserIdAndDeletedAtIsNull(conversationId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Conversation not found"));
     }
 
@@ -227,8 +231,38 @@ public class AiConversationService {
         }
         String normalized = title.trim();
         conversationRepository.updateTitleById(conversationId, normalized);
-        return toConversationView(conversationRepository.findByIdAndUserId(conversationId, userId)
+        return toConversationView(conversationRepository.findByIdAndUserIdAndDeletedAtIsNull(conversationId, userId)
                 .orElse(conversation));
+    }
+
+    @Transactional
+    public void softDeleteConversation(Long userId, Long conversationId) {
+        ConversationEntity conversation = getConversationEntity(userId, conversationId);
+        OffsetDateTime now = OffsetDateTime.now();
+        conversation.setDeletedAt(now);
+        conversation.setPurgeAfterAt(now.plusDays(resolveSoftDeleteRetentionDays()));
+        conversationRepository.save(conversation);
+    }
+
+    @Transactional
+    public void hardDeleteConversationAsAdmin(Long conversationId) {
+        ConversationEntity conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Conversation not found"));
+        conversationRepository.delete(conversation);
+    }
+
+    @Transactional
+    public int purgeExpiredConversations(int batchSize) {
+        int effectiveBatchSize = Math.min(Math.max(batchSize, 1), 1000);
+        List<ConversationEntity> expired = conversationRepository
+                .findByDeletedAtIsNotNullAndPurgeAfterAtLessThanEqualOrderByPurgeAfterAtAsc(
+                        OffsetDateTime.now(),
+                        PageRequest.of(0, effectiveBatchSize));
+        if (expired.isEmpty()) {
+            return 0;
+        }
+        conversationRepository.deleteAllInBatch(expired);
+        return expired.size();
     }
 
     @Transactional(readOnly = true)
@@ -358,5 +392,9 @@ public class AiConversationService {
             return null;
         }
         return clientMessageId.trim();
+    }
+
+    private int resolveSoftDeleteRetentionDays() {
+        return Math.min(Math.max(softDeleteRetentionDays, 1), 3650);
     }
 }

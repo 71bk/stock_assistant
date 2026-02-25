@@ -3,6 +3,7 @@ package tw.bk.appapi.rag;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,6 +29,7 @@ import tw.bk.apprag.model.RagDocumentView;
 import tw.bk.apprag.service.RagDocumentService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,7 +37,10 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/rag")
 @Tag(name = "RAG", description = "RAG APIs")
 @RequiredArgsConstructor
+@Slf4j
 public class RagController {
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final AiWorkerRagClient ragClient;
     private final FileService fileService;
     private final CurrentUserProvider currentUserProvider;
@@ -50,13 +55,13 @@ public class RagController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         Long userId = requireUserId();
-        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by("createdAt").descending());
-        Page<RagDocumentView> pageResult = ragDocumentService.listByUserId(userId, pageRequest);
+        PageableInfo pageInfo = buildPageable(page, size);
+        Page<RagDocumentView> pageResult = ragDocumentService.listByUserId(userId, pageInfo.pageable());
 
         return Result.ok(PageResponse.ok(
                 pageResult.getContent().stream().map(RagDocumentResponse::from).toList(),
-                page,
-                size,
+                pageInfo.page(),
+                pageInfo.size(),
                 pageResult.getTotalElements()));
     }
 
@@ -64,12 +69,27 @@ public class RagController {
     @Operation(summary = "Delete RAG document")
     public Result<Void> deleteDocument(@PathVariable Long id) {
         Long userId = requireUserId();
-        ragDocumentService.deleteForUser(userId, id);
-        // Note: Ideally we should also call AI Worker or vector DB to delete chunks,
-        // but for now we just delete metadata.
-        // The cleanup mechanism or cascading delete in DB (if FK exists) would handle
-        // it.
-        // Assuming database FK cascade on rag_documents -> rag_chunks.
+        // Verify ownership first so we never delete foreign documents.
+        ragDocumentService.getForUser(userId, id);
+
+        boolean deletedByAiWorker = false;
+        try {
+            ragClient.deleteDocument(userId, id);
+            deletedByAiWorker = true;
+        } catch (BusinessException ex) {
+            if (ex.getErrorCode() != ErrorCode.NOT_FOUND) {
+                log.warn("AI worker delete failed, fallback to direct DB delete: userId={}, documentId={}, reason={}",
+                        userId, id, ex.getMessage());
+            }
+        }
+
+        try {
+            ragDocumentService.deleteForUser(userId, id);
+        } catch (BusinessException ex) {
+            if (!(deletedByAiWorker && ex.getErrorCode() == ErrorCode.NOT_FOUND)) {
+                throw ex;
+            }
+        }
 
         return Result.ok();
     }
@@ -133,10 +153,14 @@ public class RagController {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Request body is required");
         }
+        Integer topK = request.getTopK();
+        if (topK != null && topK <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "topK must be greater than 0");
+        }
         AiWorkerQueryResponse response = ragClient.query(
                 userId,
                 request.getQuery(),
-                request.getTopK(),
+                topK,
                 request.getSourceType());
         return Result.ok(RagQueryResponse.from(response));
     }
@@ -162,5 +186,15 @@ public class RagController {
         if (limitBytes > 0 && file.sizeBytes() > limitBytes) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File size exceeds limit");
         }
+    }
+
+    private record PageableInfo(Pageable pageable, int page, int size) {
+    }
+
+    private PageableInfo buildPageable(int page, int size) {
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+        Pageable pageable = PageRequest.of(safePage - 1, safeSize, Sort.by("createdAt").descending());
+        return new PageableInfo(pageable, safePage, safeSize);
     }
 }

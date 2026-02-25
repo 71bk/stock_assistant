@@ -262,6 +262,11 @@ class RagService:
             source_type=source_type,
         )
 
+    async def delete_document(self, user_id: int, document_id: int) -> bool:
+        if document_id <= 0:
+            raise ValueError("document_id must be positive")
+        return await self.repo.delete_document(user_id=user_id, document_id=document_id)
+
     async def _embed_with_fallbacks(self, texts: list[str]) -> list[list[float]]:
         batch_sizes = [self.settings.embedding_batch_size] + self.settings.embedding_batch_fallbacks_list
         last_exc: Exception | None = None

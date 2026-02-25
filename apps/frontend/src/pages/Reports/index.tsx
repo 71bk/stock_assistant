@@ -2,25 +2,37 @@ import React, { useEffect, useState } from 'react';
 import { Typography, Card, Table, Tag, Button, Modal, Skeleton } from 'antd';
 import { FileSearchOutlined, RobotOutlined } from '@ant-design/icons';
 import { useAiStore } from '../../stores/ai.store';
+import { aiApi } from '../../api/ai.api';
 import { ErrorState } from '../../components/common/ErrorState';
 import { formatDateTime } from '../../utils/format';
 import { AiReportViewer } from '../../components/ai/AiReportViewer';
-import type { AiReport } from '../../api/ai.api';
+import type { AiReportDetail, AiReportSummary } from '../../api/ai.api';
+import { logger } from '../../utils/logger';
 
 const { Title } = Typography;
 
 const Reports: React.FC = () => {
   const { reports, totalReports, isLoading, error, fetchReports } = useAiStore();
-  const [selectedReport, setSelectedReport] = useState<AiReport | null>(null);
+  const [selectedReport, setSelectedReport] = useState<AiReportDetail | null>(null);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     fetchReports();
   }, [fetchReports]);
 
-  const handleViewDetails = (report: AiReport) => {
-    setSelectedReport(report);
+  const handleViewDetails = async (report: AiReportSummary) => {
     setIsModalOpen(true);
+    setIsDetailLoading(true);
+    try {
+      const detail = await aiApi.getReport(report.reportId);
+      setSelectedReport(detail);
+    } catch (e) {
+      logger.error('Failed to load report detail', e);
+      setSelectedReport(null);
+    } finally {
+      setIsDetailLoading(false);
+    }
   };
 
   if (error) {
@@ -53,15 +65,15 @@ const Reports: React.FC = () => {
     {
       title: '分析對象',
       key: 'target',
-      render: (record: AiReport) => {
+      render: (record: AiReportSummary) => {
         if (record.reportType === 'PORTFOLIO') return '預設投資組合';
-        return record.ticker || record.instrumentId || '未知標的';
+        return record.instrumentId || '未知標的';
       },
     },
     {
       title: '操作',
       key: 'actions',
-      render: (record: AiReport) => (
+      render: (record: AiReportSummary) => (
         <Button
           icon={<FileSearchOutlined />}
           onClick={() => handleViewDetails(record)}
@@ -107,15 +119,27 @@ const Reports: React.FC = () => {
           </span>
         }
         open={isModalOpen}
-        onCancel={() => setIsModalOpen(false)}
+        onCancel={() => {
+          setIsModalOpen(false);
+          setSelectedReport(null);
+        }}
         footer={[
-          <Button key="close" onClick={() => setIsModalOpen(false)} type="primary">
+          <Button
+            key="close"
+            onClick={() => {
+              setIsModalOpen(false);
+              setSelectedReport(null);
+            }}
+            type="primary"
+          >
             關閉
           </Button>
         ]}
         width={800}
       >
-        {selectedReport ? (
+        {isDetailLoading ? (
+          <Skeleton active />
+        ) : selectedReport ? (
           <div style={{ padding: '10px 0' }}>
             <div style={{ marginBottom: 16 }}>
               <Tag color={selectedReport.reportType === 'PORTFOLIO' ? 'blue' : 'green'}>
@@ -125,7 +149,7 @@ const Reports: React.FC = () => {
             <AiReportViewer content={selectedReport.outputText} />
           </div>
         ) : (
-          <Skeleton active />
+          <div style={{ color: '#8c8c8c' }}>報告內容不存在或已刪除。</div>
         )}
       </Modal>
     </div>

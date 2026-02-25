@@ -75,9 +75,9 @@ const DocumentManager: React.FC = () => {
       await ragApi.ingestText({
         text: values.text,
         title: values.title,
-        user_id: userId,
-        source_type: 'note',
-        tags: values.tags
+        userId,
+        sourceType: 'note',
+        tags: values.tags,
       });
       message.success('文字內容已寫入知識庫！');
       textForm.resetFields();

@@ -3,6 +3,7 @@ import { message as uiMessage } from 'antd';
 import { chatApi } from '../api/chat.api';
 import type { ConversationMessage, ConversationSummary } from '../api/chat.api';
 import { fetchSseWithRetry } from '../utils/sse';
+import { env } from '../app/env';
 
 interface ChatState {
   conversations: ConversationSummary[];
@@ -157,8 +158,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     try {
+      const apiBaseUrl = env.API_BASE_URL.endsWith('/') ? env.API_BASE_URL.slice(0, -1) : env.API_BASE_URL;
       await fetchSseWithRetry({
-        url: `/api/ai/conversations/${conversationId}/messages`,
+        url: `${apiBaseUrl}/ai/conversations/${conversationId}/messages`,
         body: { content: trimmed, clientMessageId },
         signal: abortController.signal,
         onMeta: (payload) => {

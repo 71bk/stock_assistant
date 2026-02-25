@@ -21,16 +21,24 @@ public class RagDocumentService {
         return ragDocumentRepository.findByUserId(userId, pageable).map(this::toView);
     }
 
+    public RagDocumentView getForUser(Long userId, Long documentId) {
+        return toView(requireOwnedEntity(userId, documentId));
+    }
+
     @Transactional
     public void deleteForUser(Long userId, Long documentId) {
+        RagDocumentEntity entity = requireOwnedEntity(userId, documentId);
+        ragDocumentRepository.delete(entity);
+    }
+
+    private RagDocumentEntity requireOwnedEntity(Long userId, Long documentId) {
         RagDocumentEntity entity = ragDocumentRepository.findById(documentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Document not found"));
 
         if (!entity.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, "Access denied");
         }
-
-        ragDocumentRepository.delete(entity);
+        return entity;
     }
 
     private RagDocumentView toView(RagDocumentEntity entity) {

@@ -50,7 +50,7 @@ const Portfolio: React.FC = () => {
         <Card>
           <Statistic
             title="總市值"
-            value={summary?.totalMarketValue || 0}
+            value={Number(summary?.totalMarketValue || 0)}
             precision={0}
             prefix={summary?.baseCurrency === 'USD' ? '$' : 'NT$'}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
@@ -61,7 +61,7 @@ const Portfolio: React.FC = () => {
         <Card>
           <Statistic
             title="總成本"
-            value={summary?.totalCost || 0}
+            value={Number(summary?.totalCost || 0)}
             precision={0}
             prefix={summary?.baseCurrency === 'USD' ? '$' : 'NT$'}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
@@ -72,11 +72,11 @@ const Portfolio: React.FC = () => {
         <Card>
           <Statistic
             title="總損益"
-            value={summary?.totalPnl || 0}
+            value={Number(summary?.totalPnl || 0)}
             precision={0}
-            styles={{ content: { color: (summary?.totalPnl || 0) >= 0 ? '#3f8600' : '#cf1322' } }}
-            prefix={(summary?.totalPnl || 0) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-            suffix={`(${summary?.totalPnlPercent || 0}%)`}
+            styles={{ content: { color: Number(summary?.totalPnl || 0) >= 0 ? '#3f8600' : '#cf1322' } }}
+            prefix={Number(summary?.totalPnl || 0) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+            suffix={`(${Number(summary?.totalPnlPercent || 0)}%)`}
             formatter={(val) => formatCurrency(Number(val), summary?.baseCurrency)}
           />
         </Card>
@@ -102,39 +102,39 @@ const Portfolio: React.FC = () => {
       dataIndex: 'totalQuantity',
       key: 'totalQuantity',
       align: 'right' as const,
-      render: (val: number) => val?.toLocaleString() ?? '-',
+      render: (val: string) => (val != null ? Number(val).toLocaleString() : '-'),
     },
     {
       title: '平均成本',
       dataIndex: 'avgCostNative',
       key: 'avgCostNative',
       align: 'right' as const,
-      render: (val: number, record: Position) => val != null ? formatCurrency(val, record.currency) : '-',
+      render: (val: string, record: Position) => val != null ? formatCurrency(Number(val), record.currency) : '-',
     },
     {
       title: '現價',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
       align: 'right' as const,
-      render: (val: number, record: Position) => (
-        <span style={{ fontWeight: 'bold' }}>{val != null ? formatCurrency(val, record.currency) : '-'}</span>
+      render: (val: string, record: Position) => (
+        <span style={{ fontWeight: 'bold' }}>{val != null ? formatCurrency(Number(val), record.currency) : '-'}</span>
       ),
     },
     {
       title: '市值',
-      dataIndex: 'currentValue',
-      key: 'currentValue',
+      dataIndex: 'marketValue',
+      key: 'marketValue',
       align: 'right' as const,
-      render: (val: number, record: Position) => val != null ? formatCurrency(val, record.currency) : '-',
+      render: (val: string, record: Position) => val != null ? formatCurrency(Number(val), record.currency) : '-',
     },
     {
       title: '未實現損益',
       dataIndex: 'unrealizedPnl',
       key: 'unrealizedPnl',
       align: 'right' as const,
-      render: (val: number, record: Position) => (
-        <div style={{ color: (val || 0) >= 0 ? '#3f8600' : '#cf1322' }}>
-          <div>{val != null ? formatCurrency(val, record.currency) : '-'}</div>
+      render: (val: string, record: Position) => (
+        <div style={{ color: Number(val || 0) >= 0 ? '#3f8600' : '#cf1322' }}>
+          <div>{val != null ? formatCurrency(Number(val), record.currency) : '-'}</div>
           <div style={{ fontSize: 12 }}>
             {record.unrealizedPnlPercent != null ? `${Number(record.unrealizedPnlPercent).toFixed(2)}%` : '-'}
           </div>

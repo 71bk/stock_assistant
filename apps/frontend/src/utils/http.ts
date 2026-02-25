@@ -1,5 +1,12 @@
-import axios, { AxiosError, type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosHeaders,
+  type AxiosInstance,
+  type AxiosResponse,
+  type InternalAxiosRequestConfig,
+} from 'axios';
 import { notification } from 'antd';
+import { buildCsrfHeader } from './csrf';
 
 // Environment variables can be loaded from import.meta.env (Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -9,6 +16,8 @@ const instance = axios.create({
   baseURL: API_BASE_URL,
   timeout: API_TIMEOUT,
   withCredentials: true, // Critical for cookie-based auth
+  xsrfCookieName: 'XSRF-TOKEN',
+  xsrfHeaderName: 'X-XSRF-TOKEN',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -24,6 +33,23 @@ export const http = instance as unknown as Omit<AxiosInstance, 'get' | 'delete' 
   put<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: unknown): Promise<R>;
   patch<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: unknown): Promise<R>;
 };
+
+instance.interceptors.request.use(async (config) => {
+  const csrfHeader = await buildCsrfHeader(config.method);
+  if (Object.keys(csrfHeader).length > 0) {
+    if (!config.headers) {
+      config.headers = new AxiosHeaders();
+    }
+    if (config.headers instanceof AxiosHeaders) {
+      for (const [name, value] of Object.entries(csrfHeader)) {
+        config.headers.set(name, value);
+      }
+    } else {
+      Object.assign(config.headers, csrfHeader);
+    }
+  }
+  return config;
+});
 
 // Response Interceptor
 instance.interceptors.response.use(

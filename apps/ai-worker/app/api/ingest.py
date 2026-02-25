@@ -3,9 +3,9 @@
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
-from app.models.schemas import IngestResponse, IngestUrlRequest
+from app.models.schemas import DeleteDocumentResponse, IngestResponse, IngestUrlRequest
 from app.services.rag_service import RagService, IngestRateLimitError
 
 router = APIRouter()
@@ -199,4 +199,36 @@ async def ingest_url(request: IngestUrlRequest) -> IngestResponse:
         chunks_count=chunks_count,
         status="completed",
         message="URL ingested successfully",
+    )
+
+
+@router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
+async def delete_document(
+    document_id: int,
+    user_id: Annotated[str, Query(description="User ID for ownership")],
+) -> DeleteDocumentResponse:
+    """
+    Delete an ingested RAG document and all related chunks.
+    """
+    try:
+        uid = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+    service = RagService()
+    try:
+        deleted = await service.delete_document(uid, document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Delete document failed", error=str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail="Delete document failed")
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return DeleteDocumentResponse(
+        document_id=document_id,
+        status="deleted",
+        message="Document deleted successfully",
     )

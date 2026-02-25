@@ -1,11 +1,17 @@
 package tw.bk.appocr.queue;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Range;
+import org.springframework.data.redis.connection.RedisStreamCommands;
+import org.springframework.data.redis.connection.stream.PendingMessage;
+import org.springframework.data.redis.connection.stream.PendingMessages;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.ReadOffset;
 import org.springframework.data.redis.connection.stream.RecordId;
@@ -21,6 +27,10 @@ import tw.bk.apppersistence.entity.OcrJobEntity;
 @Component
 @RequiredArgsConstructor
 public class OcrQueueService {
+    private static final ReadOffset GROUP_START_OFFSET = ReadOffset.from("0");
+    private static final String INIT_FIELD = "init";
+    private static final String INIT_VALUE = "1";
+    private static final int MAX_PENDING_CLAIM_LIMIT = 500;
 
     private final StringRedisTemplate redisTemplate;
     private final OcrQueueProperties properties;
@@ -59,6 +69,7 @@ public class OcrQueueService {
     public List<MapRecord<String, String, String>> readPending() {
         try {
             ensureGroup();
+            claimStalePending();
             return doReadPending();
         } catch (Exception ex) {
             if (isNoGroup(ex)) {
@@ -87,8 +98,11 @@ public class OcrQueueService {
                 return;
             }
             StreamOperations<String, String, String> ops = redisTemplate.opsForStream();
+            String streamKey = properties.getStreamKey();
+            String group = properties.getGroup();
             try {
-                ops.createGroup(properties.getStreamKey(), ReadOffset.from("0"), properties.getGroup());
+                ensureStreamExists(ops, streamKey);
+                ops.createGroup(streamKey, GROUP_START_OFFSET, group);
                 groupReady = true;
                 return;
             } catch (Exception ex) {
@@ -96,18 +110,27 @@ public class OcrQueueService {
                     groupReady = true;
                     return;
                 }
-            }
-
-            try {
-                ops.add(StreamRecords.newRecord().in(properties.getStreamKey()).ofMap(Map.of("init", "1")));
-                ops.createGroup(properties.getStreamKey(), ReadOffset.from("0"), properties.getGroup());
-                groupReady = true;
-            } catch (Exception ex) {
-                if (isBusyGroup(ex)) {
-                    groupReady = true;
-                } else {
-                    log.error("Failed to create consumer group", ex);
+                if (isMissingStream(ex)) {
+                    log.warn("OCR stream missing during createGroup, retrying once: streamKey={}, group={}",
+                            streamKey, group);
+                    ensureStreamExists(ops, streamKey);
+                    try {
+                        ops.createGroup(streamKey, GROUP_START_OFFSET, group);
+                        groupReady = true;
+                        return;
+                    } catch (Exception retryEx) {
+                        if (isBusyGroup(retryEx)) {
+                            groupReady = true;
+                            return;
+                        }
+                        throw new IllegalStateException(
+                                "Failed to ensure OCR consumer group after stream recreation: streamKey="
+                                        + streamKey + ", group=" + group,
+                                retryEx);
+                    }
                 }
+                throw new IllegalStateException(
+                        "Failed to ensure OCR consumer group: streamKey=" + streamKey + ", group=" + group, ex);
             }
         }
     }
@@ -147,11 +170,87 @@ public class OcrQueueService {
         return containsMessage(ex, "NOGROUP");
     }
 
+    private boolean isMissingStream(Exception ex) {
+        return containsMessageIgnoreCase(ex, "requires the key to exist")
+                || containsMessageIgnoreCase(ex, "no such key");
+    }
+
+    private void ensureStreamExists(StreamOperations<String, String, String> ops, String streamKey) {
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(streamKey))) {
+            return;
+        }
+        ops.add(StreamRecords.newRecord().in(streamKey).ofMap(Map.of(INIT_FIELD, INIT_VALUE)));
+    }
+
+    private void claimStalePending() {
+        Duration minIdle = properties.getPendingClaimMinIdle();
+        if (minIdle == null || minIdle.isZero() || minIdle.isNegative()) {
+            return;
+        }
+        int claimLimit = Math.min(Math.max(properties.getPendingClaimLimit(), 1), MAX_PENDING_CLAIM_LIMIT);
+        redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Void>) connection -> {
+            RedisStreamCommands streamCommands = connection.streamCommands();
+            if (streamCommands == null) {
+                return null;
+            }
+            byte[] streamKey = serializeStreamKey(properties.getStreamKey());
+            PendingMessages pendingMessages = streamCommands.xPending(
+                    streamKey,
+                    properties.getGroup(),
+                    Range.unbounded(),
+                    Long.valueOf(claimLimit),
+                    minIdle);
+            if (pendingMessages == null || pendingMessages.isEmpty()) {
+                return null;
+            }
+            List<RecordId> staleIds = new ArrayList<>();
+            for (PendingMessage pending : pendingMessages) {
+                if (pending == null || pending.getId() == null) {
+                    continue;
+                }
+                staleIds.add(pending.getId());
+            }
+            if (staleIds.isEmpty()) {
+                return null;
+            }
+            streamCommands.xClaim(
+                    streamKey,
+                    properties.getGroup(),
+                    properties.getConsumer(),
+                    minIdle,
+                    staleIds.toArray(new RecordId[0]));
+            log.debug("Claimed {} stale pending OCR records for consumer={}", staleIds.size(), properties.getConsumer());
+            return null;
+        });
+    }
+
+    private byte[] serializeStreamKey(String streamKey) {
+        if (streamKey == null) {
+            return new byte[0];
+        }
+        byte[] serialized = redisTemplate.getStringSerializer() == null
+                ? null
+                : redisTemplate.getStringSerializer().serialize(streamKey);
+        return serialized != null ? serialized : streamKey.getBytes(StandardCharsets.UTF_8);
+    }
+
     private boolean containsMessage(Throwable ex, String keyword) {
         Throwable cursor = ex;
         while (cursor != null) {
             String message = cursor.getMessage();
             if (message != null && message.contains(keyword)) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
+    }
+
+    private boolean containsMessageIgnoreCase(Throwable ex, String keyword) {
+        Throwable cursor = ex;
+        while (cursor != null) {
+            String message = cursor.getMessage();
+            if (message != null && message.toLowerCase().contains(keyword.toLowerCase())) {
                 return true;
             }
             cursor = cursor.getCause();

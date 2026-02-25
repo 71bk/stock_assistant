@@ -12,6 +12,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 
@@ -213,6 +214,37 @@ public class AiWorkerRagClient {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker query timeout");
             }
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker query failed: " + ex.getMessage());
+        }
+    }
+
+    public void deleteDocument(Long userId, Long documentId) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
+        }
+        if (documentId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Document ID is required");
+        }
+
+        try {
+            webClient
+                    .delete()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/ingest/documents/{id}")
+                            .queryParam("user_id", userId)
+                            .build(documentId))
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+        } catch (WebClientResponseException.NotFound ex) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Document not found");
+        } catch (WebClientResponseException.Forbidden ex) {
+            throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, "Access denied");
+        } catch (WebClientResponseException.BadRequest ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid delete request");
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker delete failed: " + ex.getMessage());
         }
     }
 

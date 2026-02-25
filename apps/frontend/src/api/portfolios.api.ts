@@ -21,16 +21,16 @@ export interface Position {
   instrumentId: string;
   ticker: string;
   name: string;
-  totalQuantity: number; // Backend: totalQuantity
-  avgCostNative: number; // Backend: avgCostNative
+  totalQuantity: string;
+  avgCostNative: string;
   currency: string;
   // Optional fields (backend might not return yet)
   exchange?: string;
   market?: string;
-  currentPrice?: number;
-  currentValue?: number;
-  unrealizedPnl?: number;
-  unrealizedPnlPercent?: number;
+  currentPrice?: string;
+  marketValue?: string;
+  unrealizedPnl?: string;
+  unrealizedPnlPercent?: string;
   lastUpdated?: string;
 }
 
@@ -38,17 +38,17 @@ export interface PortfolioSummary {
   id: string;
   name: string;
   baseCurrency: string;
-  totalMarketValue: number;
-  totalCost: number;
-  totalPnl: number;
-  totalPnlPercent: number;
+  totalMarketValue: number | string;
+  totalCost: number | string;
+  totalPnl: number | string;
+  totalPnlPercent: number | string;
 }
 
 export interface PortfolioValuation {
   date: string;
-  totalValue: number;
-  cashValue: number;
-  positionsValue: number;
+  totalValue: number | string;
+  cashValue: number | string;
+  positionsValue: number | string;
   currency: string;
 }
 

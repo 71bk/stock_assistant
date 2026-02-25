@@ -18,9 +18,9 @@ export interface DraftTrade {
   netAmount: string | null;
   confidence?: number;
   warnings: string[];
-  status?: 'VALID' | 'WARNING' | 'ERROR';
+  status: 'VALID' | 'WARNING' | 'ERROR';
   errors: string[];
-  duplicate?: boolean;
+  duplicate: boolean;
 }
 
 export interface OcrJob {
@@ -56,8 +56,27 @@ export interface PresignResponse {
   uploadUrl: string;
   method: string;
   headers: Record<string, string>;
-  fileId: string;
+  fileId: string | null;
   alreadyExists: boolean;
+}
+
+const DUPLICATE_WARNING_CODES = new Set([
+  'DUPLICATE_PORTFOLIO_TRADE',
+  'DUPLICATE_IN_STATEMENT',
+]);
+
+function normalizeDraft(draft: DraftTrade): DraftTrade {
+  const warnings = Array.isArray(draft.warnings) ? draft.warnings : [];
+  const errors = Array.isArray(draft.errors) ? draft.errors : [];
+  const duplicate = warnings.some((warning) => DUPLICATE_WARNING_CODES.has(warning));
+  const status = errors.length > 0 ? 'ERROR' : warnings.length > 0 ? 'WARNING' : 'VALID';
+  return {
+    ...draft,
+    warnings,
+    errors,
+    duplicate,
+    status,
+  };
 }
 
 export const ocrApi = {
@@ -86,15 +105,24 @@ export const ocrApi = {
   getJob: (jobId: string) =>
     http.get<OcrJob>(`/ocr/jobs/${jobId}`),
 
-  getDrafts: (jobId: string) =>
-    http.get<GetDraftsResponse>(`/ocr/jobs/${jobId}/drafts`),
+  getDrafts: async (jobId: string): Promise<GetDraftsResponse> => {
+    const response = await http.get<GetDraftsResponse>(`/ocr/jobs/${jobId}/drafts`);
+    return {
+      ...response,
+      items: (response.items ?? []).map(normalizeDraft),
+    };
+  },
 
-  updateDraft: (draftId: string, updates: Partial<DraftTrade>) =>
-    http.patch<DraftTrade>(`/ocr/drafts/${draftId}`, updates),
+  updateDraft: async (draftId: string, updates: Partial<DraftTrade>): Promise<DraftTrade> => {
+    const response = await http.patch<DraftTrade>(`/ocr/drafts/${draftId}`, updates);
+    return normalizeDraft(response);
+  },
 
   // PUT method for full update or if preferred over PATCH
-  updateDraftPut: (draftId: string, updates: Partial<DraftTrade>) =>
-    http.put<DraftTrade>(`/ocr/drafts/${draftId}`, updates),
+  updateDraftPut: async (draftId: string, updates: Partial<DraftTrade>): Promise<DraftTrade> => {
+    const response = await http.put<DraftTrade>(`/ocr/drafts/${draftId}`, updates);
+    return normalizeDraft(response);
+  },
 
   confirmImport: (jobId: string, draftIds?: string[]) =>
     http.post<ConfirmImportResponse>(`/ocr/jobs/${jobId}/confirm`, draftIds?.length ? { draftIds } : {}),

@@ -1,6 +1,7 @@
 package tw.bk.appai.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -8,14 +9,17 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 import tw.bk.appai.model.ConversationMessageView;
 import tw.bk.apppersistence.entity.ConversationEntity;
@@ -38,15 +42,12 @@ class AiConversationServiceTest {
         service = new AiConversationService(conversationRepository, messageRepository);
         ReflectionTestUtils.setField(service, "historyLimit", 20);
         ReflectionTestUtils.setField(service, "tokenBudget", 6000);
-
-        ConversationEntity conversation = new ConversationEntity();
-        conversation.setId(2L);
-        conversation.setUserId(1L);
-        when(conversationRepository.findByIdAndUserId(2L, 1L)).thenReturn(Optional.of(conversation));
+        ReflectionTestUtils.setField(service, "softDeleteRetentionDays", 30);
     }
 
     @Test
     void buildContextMessagesWithTool_shouldInjectToolPolicyForDeterministicQuoteUsage() {
+        stubActiveConversation();
         ConversationMessageEntity system = new ConversationMessageEntity();
         system.setRole("system");
         system.setContent("You are a financial analysis assistant. Be concise and factual.");
@@ -76,6 +77,7 @@ class AiConversationServiceTest {
 
     @Test
     void appendUserMessage_shouldReturnExistingMessageForDuplicateClientMessageId() {
+        stubActiveConversation();
         ConversationMessageEntity existing = new ConversationMessageEntity();
         existing.setId(99L);
         existing.setConversationId(2L);
@@ -94,6 +96,7 @@ class AiConversationServiceTest {
 
     @Test
     void buildContextMessages_shouldKeepNewestMessagesWithinTokenBudget() {
+        stubActiveConversation();
         ReflectionTestUtils.setField(service, "tokenBudget", 8);
 
         ConversationMessageEntity system = new ConversationMessageEntity();
@@ -130,5 +133,59 @@ class AiConversationServiceTest {
         assertEquals("BBBBBBBBBBBB", messages.get(1).get("content"));
         assertEquals("CCCCCCCCCCCC", messages.get(2).get("content"));
         assertEquals("DDDDDDDD", messages.get(3).get("content"));
+    }
+
+    @Test
+    void softDeleteConversation_shouldSetDeletedAtAndPurgeAfterAt() {
+        stubActiveConversation();
+        service.softDeleteConversation(1L, 2L);
+
+        ArgumentCaptor<ConversationEntity> captor = ArgumentCaptor.forClass(ConversationEntity.class);
+        verify(conversationRepository).save(captor.capture());
+        ConversationEntity saved = captor.getValue();
+
+        assertNotNull(saved.getDeletedAt());
+        assertNotNull(saved.getPurgeAfterAt());
+        assertEquals(saved.getDeletedAt().plusDays(30), saved.getPurgeAfterAt());
+    }
+
+    @Test
+    void hardDeleteConversationAsAdmin_shouldDeleteConversation() {
+        ConversationEntity target = new ConversationEntity();
+        target.setId(8L);
+        when(conversationRepository.findById(8L)).thenReturn(Optional.of(target));
+
+        service.hardDeleteConversationAsAdmin(8L);
+
+        verify(conversationRepository).delete(target);
+    }
+
+    @Test
+    void purgeExpiredConversations_shouldDeleteExpiredBatch() {
+        ConversationEntity first = new ConversationEntity();
+        first.setId(10L);
+        first.setDeletedAt(OffsetDateTime.now().minusDays(10));
+        first.setPurgeAfterAt(OffsetDateTime.now().minusDays(1));
+
+        ConversationEntity second = new ConversationEntity();
+        second.setId(11L);
+        second.setDeletedAt(OffsetDateTime.now().minusDays(7));
+        second.setPurgeAfterAt(OffsetDateTime.now().minusHours(2));
+
+        when(conversationRepository.findByDeletedAtIsNotNullAndPurgeAfterAtLessThanEqualOrderByPurgeAfterAtAsc(
+                any(OffsetDateTime.class),
+                any(Pageable.class))).thenReturn(List.of(first, second));
+
+        int purged = service.purgeExpiredConversations(200);
+
+        assertEquals(2, purged);
+        verify(conversationRepository).deleteAllInBatch(List.of(first, second));
+    }
+
+    private void stubActiveConversation() {
+        ConversationEntity conversation = new ConversationEntity();
+        conversation.setId(2L);
+        conversation.setUserId(1L);
+        when(conversationRepository.findByIdAndUserIdAndDeletedAtIsNull(2L, 1L)).thenReturn(Optional.of(conversation));
     }
 }

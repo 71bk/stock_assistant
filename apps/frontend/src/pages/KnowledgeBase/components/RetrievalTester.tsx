@@ -80,7 +80,7 @@ const RetrievalTester: React.FC = () => {
                 dataSource={results}
                 renderItem={(item) => (
                   <List.Item
-                    key={`${item.document_id}-${item.chunk_index}`}
+                    key={`${item.documentId}-${item.chunkIndex}`}
                     style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}
                   >
                     <List.Item.Meta
@@ -88,11 +88,11 @@ const RetrievalTester: React.FC = () => {
                         <div className="flex justify-between items-center">
                           <Space>
                             <Text strong>{item.title || 'Untitled'}</Text>
-                            <Tag color="blue">{item.source_type}</Tag>
-                            {item.document_id && <Tag>{`Doc ID: ${item.document_id}`}</Tag>}
+                            <Tag color="blue">{item.sourceType}</Tag>
+                            {item.documentId && <Tag>{`Doc ID: ${item.documentId}`}</Tag>}
                           </Space>
-                          <Tag color={item.score > 0.7 ? 'green' : 'orange'}>
-                            相似度: {(item.score * 100).toFixed(1)}%
+                          <Tag color={item.distance <= 0.3 ? 'green' : 'orange'}>
+                            距離: {item.distance.toFixed(4)}
                           </Tag>
                         </div>
                       }

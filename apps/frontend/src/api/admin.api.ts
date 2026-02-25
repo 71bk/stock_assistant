@@ -28,7 +28,7 @@ export const adminApi = {
     });
   },
 
-  rebuildPositions: (portfolioId: string, instrumentId?: string, adminKey?: string) => {
+  rebuildPositions: (portfolioId: number, instrumentId?: number, adminKey?: string) => {
     const headers: Record<string, string> = {};
     if (adminKey) {
       headers['X-Admin-Key'] = adminKey;
@@ -43,7 +43,7 @@ export const adminApi = {
     }>('/admin/portfolios/positions-rebuild', { portfolioId, instrumentId }, { headers });
   },
 
-  snapshotValuations: (portfolioId?: string, userId?: string, asOfDate?: string, adminKey?: string) => {
+  snapshotValuations: (portfolioId?: number, userId?: number, asOfDate?: string, adminKey?: string) => {
     const headers: Record<string, string> = {};
     if (adminKey) {
       headers['X-Admin-Key'] = adminKey;

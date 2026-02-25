@@ -89,12 +89,13 @@ public class OcrService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
 
         String sha256 = file.getSha256();
+        String dedupeContentKey = resolveDedupeContentKey(file);
         log.info("建立 OCR Job: sha256={}, force={}", sha256, force);
 
         // 如果不是強制模式，檢查去重
         boolean reserved = false;
-        if (!force) {
-            Optional<Long> existingJobId = dedupeService.findJobId(userId, sha256, portfolioId);
+        if (!force && dedupeContentKey != null) {
+            Optional<Long> existingJobId = dedupeService.findJobId(userId, dedupeContentKey, portfolioId);
             if (existingJobId.isPresent()) {
                 log.info("發現既存 Job ID: {}", existingJobId.get());
                 OcrJobEntity existing = ocrJobRepository.findByIdAndUserId(existingJobId.get(), userId).orElse(null);
@@ -113,9 +114,9 @@ public class OcrService {
                 }
             }
 
-            reserved = dedupeService.reserve(userId, sha256, portfolioId);
+            reserved = dedupeService.reserve(userId, dedupeContentKey, portfolioId);
             if (!reserved) {
-                Optional<Long> jobId = dedupeService.findJobId(userId, sha256, portfolioId);
+                Optional<Long> jobId = dedupeService.findJobId(userId, dedupeContentKey, portfolioId);
                 if (jobId.isPresent()) {
                     OcrJobEntity existing = ocrJobRepository.findByIdAndUserId(jobId.get(), userId).orElse(null);
                     if (existing != null) {
@@ -124,6 +125,9 @@ public class OcrService {
                 }
                 throw new BusinessException(ErrorCode.CONFLICT, "OCR job is being created, please retry");
             }
+        } else if (!force) {
+            log.warn("Skip OCR dedupe because dedupeContentKey is missing: fileId={}, userId={}",
+                    file.getId(), userId);
         } else {
             log.info("強制模式：跳過去重邏輯，建立新 Job");
         }
@@ -145,8 +149,8 @@ public class OcrService {
         job.setProgress(0);
         ocrJobRepository.save(job);
 
-        if (!force) {
-            dedupeService.store(userId, sha256, portfolioId, job.getId());
+        if (!force && dedupeContentKey != null) {
+            dedupeService.store(userId, dedupeContentKey, portfolioId, job.getId());
         }
         queueService.enqueue(job);
         return toJobView(job);
@@ -527,6 +531,24 @@ public class OcrService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Amount cannot be negative");
         }
         return amount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private String resolveDedupeContentKey(FileEntity file) {
+        if (file == null) {
+            return null;
+        }
+        String sha256 = file.getSha256();
+        if (sha256 != null) {
+            String normalizedSha = sha256.trim().toLowerCase(Locale.ROOT);
+            if (!normalizedSha.isBlank()) {
+                return "sha:" + normalizedSha;
+            }
+        }
+        Long fileId = file.getId();
+        if (fileId != null) {
+            return "file-id:" + fileId;
+        }
+        return null;
     }
 
     private OcrJobView toJobView(OcrJobEntity entity) {

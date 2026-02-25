@@ -1,6 +1,7 @@
 /**
  * SSE (Server-Sent Events) Streaming Utility
  */
+import { buildCsrfHeader } from './csrf';
 
 export interface SseOptions {
   url: string;
@@ -43,6 +44,8 @@ export async function fetchSseWithRetry(options: SseOptions): Promise<void> {
         Accept: 'text/event-stream',
         ...headers,
       };
+      const csrfHeader = await buildCsrfHeader(method);
+      Object.assign(requestHeaders, csrfHeader);
 
       if (body) {
         requestHeaders['Content-Type'] = requestHeaders['Content-Type'] ?? 'application/json';

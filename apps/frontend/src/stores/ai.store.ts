@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { aiApi } from '../api/ai.api';
-import type { AiReport } from '../api/ai.api';
+import type { AiReportSummary } from '../api/ai.api';
 import { message } from 'antd';
+import { fetchSseWithRetry } from '../utils/sse';
+import { env } from '../app/env';
 
 interface AiState {
-  reports: AiReport[];
+  reports: AiReportSummary[];
   totalReports: number;
   isLoading: boolean;
   error: string | null;
@@ -43,24 +45,10 @@ export const useAiStore = create<AiState>((set, get) => ({
     set({ isAnalyzing: true, analysisStream: '' });
     
     try {
-      // Since it's a POST SSE, we use fetch instead of axios/http for easier streaming
-      // Note: We need to pass credentials (cookies) if using fetch with the same domain
-      const response = await fetch('/api/ai/analysis/stream', {
-        method: 'POST',
-        credentials: 'include', // Ensure cookies are sent
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params),
-      });
-
-      if (!response.ok) throw new Error('Analysis failed');
-      
       // Use the shared SSE utility for robust parsing
-      const { fetchSseWithRetry } = await import('../utils/sse');
-      
+      const apiBaseUrl = env.API_BASE_URL.endsWith('/') ? env.API_BASE_URL.slice(0, -1) : env.API_BASE_URL;
       await fetchSseWithRetry({
-        url: '/api/ai/analysis/stream',
+        url: `${apiBaseUrl}/ai/analysis/stream`,
         body: params,
         onDelta: (text) => {
           set((state) => ({ analysisStream: state.analysisStream + text }));

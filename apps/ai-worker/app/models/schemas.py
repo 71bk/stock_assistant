@@ -128,6 +128,14 @@ class IngestResponse(BaseModel):
     message: str | None = None
 
 
+class DeleteDocumentResponse(BaseModel):
+    """Document deletion response."""
+
+    document_id: int
+    status: str = Field(description="Status: deleted")
+    message: str | None = None
+
+
 class IngestUrlRequest(BaseModel):
     """Document ingestion request by URL."""
 

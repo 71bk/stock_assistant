@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Set;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -50,6 +51,20 @@ public class PortfolioController {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
     private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
+    private static final Set<String> ALLOWED_TRADE_SORT_FIELDS = Set.of(
+            "id",
+            "tradeDate",
+            "settlementDate",
+            "instrumentId",
+            "quantity",
+            "price",
+            "currency",
+            "grossAmount",
+            "fee",
+            "tax",
+            "netAmount",
+            "createdAt",
+            "updatedAt");
 
     private final PortfolioService portfolioService;
     private final CurrentUserProvider currentUserProvider;
@@ -162,14 +177,14 @@ public class PortfolioController {
             @RequestParam(defaultValue = "tradeDate,desc") String sort) {
 
         Long userId = requireUserId();
-        Pageable pageable = buildPageable(page, size, sort);
+        PageableInfo pageInfo = buildPageable(page, size, sort);
         Page<TradeView> trades = portfolioService.listTrades(
-                userId, parseId(portfolioId), from, to, pageable);
+                userId, parseId(portfolioId), from, to, pageInfo.pageable());
 
         List<TradeResponse> items = trades.getContent().stream()
                 .map(TradeResponse::from)
                 .toList();
-        return Result.ok(PageResponse.ok(items, page, size, trades.getTotalElements()));
+        return Result.ok(PageResponse.ok(items, pageInfo.page(), pageInfo.size(), trades.getTotalElements()));
     }
 
     @PostMapping("/portfolios/{portfolioId}/trades")
@@ -230,23 +245,47 @@ public class PortfolioController {
         }
     }
 
-    private Pageable buildPageable(int page, int size, String sort) {
+    private record PageableInfo(Pageable pageable, int page, int size) {
+    }
+
+    private PageableInfo buildPageable(int page, int size, String sort) {
         int safePage = Math.max(1, page) - 1; // API 是 1-based，Spring 是 0-based
         int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
 
         Sort sortObj = Sort.unsorted();
         if (sort != null && !sort.isBlank()) {
-            String[] parts = sort.split(",");
-            if (parts.length == 2) {
-                Sort.Direction direction = "desc".equalsIgnoreCase(parts[1])
-                        ? Sort.Direction.DESC
-                        : Sort.Direction.ASC;
-                sortObj = Sort.by(direction, parts[0].trim());
-            } else if (parts.length == 1) {
-                sortObj = Sort.by(Sort.Direction.ASC, parts[0].trim());
+            String[] parts = sort.split(",", -1);
+            if (parts.length > 2) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid sort format: " + sort);
             }
+
+            String field = parts[0].trim();
+            if (field.isBlank()) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Sort field is required");
+            }
+            if (!ALLOWED_TRADE_SORT_FIELDS.contains(field)) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unsupported sort field: " + field);
+            }
+
+            Sort.Direction direction = Sort.Direction.ASC;
+            if (parts.length == 2) {
+                String rawDirection = parts[1].trim();
+                if (!rawDirection.isBlank()) {
+                    if ("desc".equalsIgnoreCase(rawDirection)) {
+                        direction = Sort.Direction.DESC;
+                    } else if ("asc".equalsIgnoreCase(rawDirection)) {
+                        direction = Sort.Direction.ASC;
+                    } else {
+                        throw new BusinessException(
+                                ErrorCode.VALIDATION_ERROR,
+                                "Unsupported sort direction: " + rawDirection);
+                    }
+                }
+            }
+            sortObj = Sort.by(direction, field);
         }
-        return PageRequest.of(safePage, safeSize, sortObj);
+        Pageable pageable = PageRequest.of(safePage, safeSize, sortObj);
+        return new PageableInfo(pageable, safePage + 1, safeSize);
     }
 
     private TradeCommand toTradeCommand(CreateTradeRequest request) {

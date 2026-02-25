@@ -34,6 +34,12 @@ public class ConversationEntity {
     @Column(name = "summary")
     private String summary;
 
+    @Column(name = "deleted_at")
+    private OffsetDateTime deletedAt;
+
+    @Column(name = "purge_after_at")
+    private OffsetDateTime purgeAfterAt;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
 
