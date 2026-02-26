@@ -30,9 +30,9 @@ import tw.bk.appauth.service.UserService;
 import tw.bk.appauth.service.UserSettingsService;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
+import tw.bk.appcommon.ratelimit.RateLimiter;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
-import tw.bk.appapi.security.SimpleRateLimiter;
 
 @RestController
 @RequestMapping("/auth")
@@ -44,7 +44,7 @@ public class AuthController {
     private final UserSettingsService userSettingsService;
     private final CurrentUserProvider currentUserProvider;
     private final AuthProperties authProperties;
-    private final SimpleRateLimiter rateLimiter;
+    private final RateLimiter rateLimiter;
 
     @Value("${app.auth.refresh.rate-limit:30}")
     private int refreshRateLimit;
@@ -71,7 +71,7 @@ public class AuthController {
             UserSettingsService userSettingsService,
             CurrentUserProvider currentUserProvider,
             AuthProperties authProperties,
-            SimpleRateLimiter rateLimiter) {
+            RateLimiter rateLimiter) {
         this.authService = authService;
         this.cookieService = cookieService;
         this.adminAuthService = adminAuthService;

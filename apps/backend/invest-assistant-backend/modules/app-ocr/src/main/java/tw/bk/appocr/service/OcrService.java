@@ -1,12 +1,8 @@
 package tw.bk.appocr.service;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.appcommon.enums.StatementStatus;
-import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.ConfirmResult;
@@ -52,7 +47,6 @@ public class OcrService {
     private static final String JOB_DONE = OcrJobStatus.DONE.name();
     private static final String JOB_FAILED = OcrJobStatus.FAILED.name();
     private static final String JOB_CANCELLED = OcrJobStatus.CANCELLED.name();
-    private static final int AMOUNT_SCALE = 6;
 
     private final FileRepository fileRepository;
     private final StatementRepository statementRepository;
@@ -65,6 +59,9 @@ public class OcrService {
     private final StockTradeRepository stockTradeRepository;
     private final OcrJobProcessor jobProcessor;
     private final OcrDraftService ocrDraftService;
+    private final OcrDedupeContentKeyResolver dedupeContentKeyResolver;
+    private final OcrTradeCommandFactory tradeCommandFactory;
+    private final OcrViewMapper viewMapper;
 
     @Value("${app.ocr.queue.max-running-minutes:30}")
     private long maxRunningMinutes;
@@ -89,7 +86,7 @@ public class OcrService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
 
         String sha256 = file.getSha256();
-        String dedupeContentKey = resolveDedupeContentKey(file);
+        String dedupeContentKey = dedupeContentKeyResolver.resolve(file);
         log.info("建立 OCR Job: sha256={}, force={}", sha256, force);
 
         // 如果不是強制模式，檢查去重
@@ -110,7 +107,7 @@ public class OcrService {
                         ocrJobRepository.save(existing);
                         queueService.enqueue(existing);
                     }
-                    return toJobView(existing);
+                    return viewMapper.toJobView(existing);
                 }
             }
 
@@ -120,7 +117,7 @@ public class OcrService {
                 if (jobId.isPresent()) {
                     OcrJobEntity existing = ocrJobRepository.findByIdAndUserId(jobId.get(), userId).orElse(null);
                     if (existing != null) {
-                        return toJobView(existing);
+                        return viewMapper.toJobView(existing);
                     }
                 }
                 throw new BusinessException(ErrorCode.CONFLICT, "OCR job is being created, please retry");
@@ -153,7 +150,7 @@ public class OcrService {
             dedupeService.store(userId, dedupeContentKey, portfolioId, job.getId());
         }
         queueService.enqueue(job);
-        return toJobView(job);
+        return viewMapper.toJobView(job);
     }
 
     /**
@@ -167,7 +164,7 @@ public class OcrService {
 
     @Transactional(readOnly = true)
     public OcrJobView getJob(Long userId, Long jobId) {
-        return toJobView(getJobEntity(userId, jobId));
+        return viewMapper.toJobView(getJobEntity(userId, jobId));
     }
 
     private OcrJobEntity getJobEntity(Long userId, Long jobId) {
@@ -187,7 +184,7 @@ public class OcrService {
         }
         return statementTradeRepository.findByStatementIdOrderByIdAsc(statement.getId())
                 .stream()
-                .map(this::toDraftView)
+                .map(viewMapper::toDraftView)
                 .toList();
     }
 
@@ -224,7 +221,7 @@ public class OcrService {
         job.setErrorMessage(null);
         ocrJobRepository.save(job);
         queueService.enqueue(job);
-        return toJobView(job);
+        return viewMapper.toJobView(job);
     }
 
     @Transactional
@@ -269,7 +266,7 @@ public class OcrService {
         job.setErrorMessage(null);
         ocrJobRepository.save(job);
         queueService.enqueue(job);
-        return toJobView(job);
+        return viewMapper.toJobView(job);
     }
 
     @Transactional
@@ -280,13 +277,13 @@ public class OcrService {
             throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
         }
         if (JOB_DONE.equals(status) || JOB_FAILED.equals(status) || JOB_CANCELLED.equals(status)) {
-            return toJobView(job);
+            return viewMapper.toJobView(job);
         }
 
         job.setStatus(JOB_CANCELLED);
         job.setProgress(100);
         job.setErrorMessage("Cancelled by user");
-        return toJobView(ocrJobRepository.save(job));
+        return viewMapper.toJobView(ocrJobRepository.save(job));
     }
 
     @Transactional(readOnly = true)
@@ -310,7 +307,7 @@ public class OcrService {
 
     @Transactional
     public OcrDraftView updateDraft(Long userId, Long draftId, OcrDraftUpdate update) {
-        return toDraftView(ocrDraftService.updateDraft(userId, draftId, update));
+        return viewMapper.toDraftView(ocrDraftService.updateDraft(userId, draftId, update));
     }
 
     /**
@@ -381,7 +378,7 @@ public class OcrService {
 
             // Import the draft
             try {
-                TradeCommand command = toTradeCommand(draft);
+                TradeCommand command = tradeCommandFactory.toTradeCommand(draft);
                 if (command == null) {
                     errors.add(ConfirmResult.DraftError.builder()
                             .draftId(draft.getId())
@@ -476,112 +473,6 @@ public class OcrService {
     private StatementEntity requireStatement(Long statementId, Long userId) {
         Optional<StatementEntity> statement = statementRepository.findByIdAndUserId(statementId, userId);
         return statement.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Statement not found"));
-    }
-
-    private TradeCommand toTradeCommand(StatementTradeEntity draft) {
-        if (draft.getInstrumentId() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Draft missing instrumentId");
-        }
-        if (draft.getTradeDate() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Draft missing tradeDate");
-        }
-        if (isSettlementBeforeTrade(draft.getTradeDate(), draft.getSettlementDate())) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "Settlement date cannot be before trade date");
-        }
-        if (draft.getSide() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Draft missing side");
-        }
-        if (draft.getQuantity() == null || draft.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Draft quantity must be > 0");
-        }
-        if (draft.getPrice() == null || draft.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Draft price must be > 0");
-        }
-        String currency = draft.getCurrency();
-        if (currency == null || currency.isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Draft missing currency");
-        }
-
-        TradeSide side;
-        try {
-            side = TradeSide.valueOf(draft.getSide().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ex) {
-            return null;
-        }
-        return new TradeCommand(
-                draft.getInstrumentId(),
-                draft.getTradeDate(),
-                draft.getSettlementDate(),
-                side,
-                draft.getQuantity(),
-                draft.getPrice(),
-                currency,
-                normalizeAmount(draft.getFee()),
-                normalizeAmount(draft.getTax()),
-                null,
-                SOURCE_OCR);
-    }
-
-    private BigDecimal normalizeAmount(BigDecimal amount) {
-        if (amount == null) {
-            return BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-        }
-        if (amount.compareTo(BigDecimal.ZERO) < 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Amount cannot be negative");
-        }
-        return amount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private String resolveDedupeContentKey(FileEntity file) {
-        if (file == null) {
-            return null;
-        }
-        String sha256 = file.getSha256();
-        if (sha256 != null) {
-            String normalizedSha = sha256.trim().toLowerCase(Locale.ROOT);
-            if (!normalizedSha.isBlank()) {
-                return "sha:" + normalizedSha;
-            }
-        }
-        Long fileId = file.getId();
-        if (fileId != null) {
-            return "file-id:" + fileId;
-        }
-        return null;
-    }
-
-    private OcrJobView toJobView(OcrJobEntity entity) {
-        return new OcrJobView(
-                entity.getId(),
-                entity.getStatementId(),
-                entity.getStatusEnum(),
-                entity.getProgress(),
-                entity.getErrorMessage());
-    }
-
-    private OcrDraftView toDraftView(StatementTradeEntity entity) {
-        return new OcrDraftView(
-                entity.getId(),
-                entity.getInstrumentId(),
-                entity.getRawTicker(),
-                entity.getName(),
-                entity.getTradeDate(),
-                entity.getSettlementDate(),
-                entity.getSideEnum(),
-                entity.getQuantity(),
-                entity.getPrice(),
-                entity.getCurrency(),
-                entity.getFee(),
-                entity.getTax(),
-                entity.getNetAmount(),
-                entity.getWarningsJson(),
-                entity.getErrorsJson(),
-                entity.getRowHash());
-    }
-
-    private boolean isSettlementBeforeTrade(LocalDate tradeDate, LocalDate settlementDate) {
-        return tradeDate != null && settlementDate != null && settlementDate.isBefore(tradeDate);
     }
 
 }

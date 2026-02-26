@@ -15,6 +15,8 @@ public class OcrQueueProperties {
     private int batchSize = 10;
     private Duration block = Duration.ofSeconds(2);
     private long pollIntervalMs = 1000;
+    private int workerConcurrency = 2;
+    private int workerQueueCapacity = 50;
     private int pendingClaimLimit = 20;
     private Duration pendingClaimMinIdle = Duration.ofMinutes(5);
 }

@@ -2,8 +2,11 @@ package tw.bk.appocr.queue;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,6 +20,8 @@ public class OcrQueueWorker {
 
     private final OcrQueueService queueService;
     private final OcrService ocrService;
+    @Qualifier("ocrQueueExecutor")
+    private final Executor ocrQueueExecutor;
 
     @Scheduled(fixedDelayString = "${app.ocr.queue.poll-interval-ms:1000}")
     public void poll() {
@@ -44,32 +49,43 @@ public class OcrQueueWorker {
             return;
         }
         for (MapRecord<String, String, String> record : records) {
-            RecordId recordId = record.getId();
-            Map<String, String> value = record.getValue();
-            try {
-                Long jobId = parseLong(value.get("job_id"));
-                Long userId = parseLong(value.get("user_id"));
+            CompletableFuture.runAsync(() -> processRecord(record), ocrQueueExecutor)
+                    .exceptionally(ex -> {
+                        log.error("Failed to dispatch OCR job record: {}", ex.getMessage(), ex);
+                        return null;
+                    });
+        }
+    }
 
-                // Skip init record
-                if (value.containsKey("init")) {
-                    queueService.acknowledge(recordId);
-                    continue;
-                }
+    private void processRecord(MapRecord<String, String, String> record) {
+        if (record == null) {
+            return;
+        }
+        RecordId recordId = record.getId();
+        Map<String, String> value = record.getValue();
+        try {
+            Long jobId = parseLong(value.get("job_id"));
+            Long userId = parseLong(value.get("user_id"));
 
-                log.info("Processing OCR job: jobId={}, userId={}", jobId, userId);
-                if (jobId != null && userId != null) {
-                    ocrService.processJob(userId, jobId);
-                    // Only acknowledge on success (or known handling)
-                    queueService.acknowledge(recordId);
-                } else {
-                    log.warn("Invalid OCR job record: {}", value);
-                    // Acknowledge invalid records to avoid infinite loops
-                    queueService.acknowledge(recordId);
-                }
-            } catch (Exception e) {
-                log.error("Failed to process OCR job: {}", e.getMessage(), e);
-                // Do NOT acknowledge on error, so it remains in pending for retry
+            // Skip init record
+            if (value.containsKey("init")) {
+                queueService.acknowledge(recordId);
+                return;
             }
+
+            log.info("Processing OCR job: jobId={}, userId={}", jobId, userId);
+            if (jobId != null && userId != null) {
+                ocrService.processJob(userId, jobId);
+                // Only acknowledge on success (or known handling)
+                queueService.acknowledge(recordId);
+            } else {
+                log.warn("Invalid OCR job record: {}", value);
+                // Acknowledge invalid records to avoid infinite loops
+                queueService.acknowledge(recordId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to process OCR job: {}", e.getMessage(), e);
+            // Do NOT acknowledge on error, so it remains in pending for retry
         }
     }
 
