@@ -10,13 +10,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.DefaultCsrfToken;
-import tw.bk.appapi.security.SimpleRateLimiter;
 import tw.bk.appauth.config.AuthProperties;
 import tw.bk.appauth.service.AdminAuthService;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
 import tw.bk.appauth.service.UserService;
 import tw.bk.appauth.service.UserSettingsService;
+import tw.bk.appcommon.ratelimit.RateLimiter;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
 
@@ -34,7 +34,7 @@ class AuthControllerTest {
                 mock(UserSettingsService.class),
                 mock(CurrentUserProvider.class),
                 new AuthProperties(),
-                mock(SimpleRateLimiter.class));
+                mock(RateLimiter.class));
     }
 
     @Test

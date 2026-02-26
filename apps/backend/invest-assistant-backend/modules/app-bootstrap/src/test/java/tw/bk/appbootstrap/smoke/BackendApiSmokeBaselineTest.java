@@ -35,7 +35,6 @@ import tw.bk.appapi.portfolio.vo.PortfolioValuationResponse;
 import tw.bk.appapi.rag.RagController;
 import tw.bk.appapi.rag.dto.RagQueryRequest;
 import tw.bk.appapi.rag.vo.RagQueryResponse;
-import tw.bk.appapi.security.SimpleRateLimiter;
 import tw.bk.appapi.stocks.StockController;
 import tw.bk.appapi.stocks.vo.MarketResponse;
 import tw.bk.appauth.config.AuthProperties;
@@ -47,6 +46,7 @@ import tw.bk.appauth.service.UserSettingsService;
 import tw.bk.appcommon.enums.AiReportType;
 import tw.bk.appcommon.enums.FileProvider;
 import tw.bk.appcommon.enums.OcrJobStatus;
+import tw.bk.appcommon.ratelimit.RateLimiter;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
@@ -76,7 +76,7 @@ class BackendApiSmokeBaselineTest {
                 mock(UserSettingsService.class),
                 mock(CurrentUserProvider.class),
                 new AuthProperties(),
-                mock(SimpleRateLimiter.class));
+                mock(RateLimiter.class));
 
         ResponseEntity<Void> response = controller.googleLogin();
 
