@@ -4,9 +4,11 @@ import axios, {
   type AxiosInstance,
   type AxiosResponse,
   type InternalAxiosRequestConfig,
+  type AxiosRequestConfig,
 } from 'axios';
 import { notification } from 'antd';
 import { buildCsrfHeader } from './csrf';
+import type { ApiResponse } from '@/types/api';
 
 // Environment variables can be loaded from import.meta.env (Vite)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -24,14 +26,20 @@ const instance = axios.create({
 });
 
 /**
- * 客製化 Axios 實例，使其直接回傳 data 內容而非 AxiosResponse
+ * 客製化 Axios 實例
+ * 
+ * 1. 自動處理 ApiResponse<T> 解包：直接回傳 T
+ * 2. 強化型別定義：
+ *    - T: 回傳資料的型別 (Response Data Type)
+ *    - D: 請求資料的型別 (Request Payload Type)
+ *    - R: 最終 Promise 回傳的型別 (預設為 T)
  */
 export const http = instance as unknown as Omit<AxiosInstance, 'get' | 'delete' | 'post' | 'put' | 'patch'> & {
-  get<T = unknown, R = T>(url: string, config?: unknown): Promise<R>;
-  delete<T = unknown, R = T>(url: string, config?: unknown): Promise<R>;
-  post<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: unknown): Promise<R>;
-  put<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: unknown): Promise<R>;
-  patch<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: unknown): Promise<R>;
+  get<T = unknown, R = T>(url: string, config?: AxiosRequestConfig): Promise<R>;
+  delete<T = unknown, R = T>(url: string, config?: AxiosRequestConfig): Promise<R>;
+  post<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig): Promise<R>;
+  put<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig): Promise<R>;
+  patch<T = unknown, R = T, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig): Promise<R>;
 };
 
 instance.interceptors.request.use(async (config) => {
@@ -53,19 +61,27 @@ instance.interceptors.request.use(async (config) => {
 
 // Response Interceptor
 instance.interceptors.response.use(
-  (response: AxiosResponse) => {
+  (response: AxiosResponse<ApiResponse<unknown> | unknown>) => {
     // 自動提取 ApiResponse<T>.data
     const res = response.data;
+    
+    // 檢查是否為標準 ApiResponse 結構
     if (res && typeof res === 'object' && 'success' in res) {
-      if (res.success === true) {
-        return res.data;
+      // 強制轉型為 ApiResponse<unknown> 以存取 properties
+      const apiRes = res as ApiResponse<unknown>;
+      
+      if (apiRes.success === true) {
+        return apiRes.data as unknown as AxiosResponse;
       }
+      
       // 如果 success 為 false，則視為錯誤，進入 reject
-      const error = new Error(res.error?.message || 'API Request Failed');
-      error.cause = res;
+      const error = new Error(apiRes.error?.message || 'API Request Failed');
+      error.cause = apiRes;
       return Promise.reject(error);
     }
-    return res;
+    
+    // 若非標準結構 (例如 blob 或第三方 API)，直接回傳
+    return res as unknown as AxiosResponse;
   },
   async (error: AxiosError) => {
     const config = error.config as InternalAxiosRequestConfig & { retryCount?: number };
@@ -87,6 +103,7 @@ instance.interceptors.response.use(
     const data = error.response?.data as { error?: { message?: string }; message?: string } | undefined;
 
     if (status === 401) {
+      // 避免在登入頁無限重整
       if (!window.location.pathname.includes('/auth/login')) {
         window.location.href = '/auth/login?expired=true';
       }

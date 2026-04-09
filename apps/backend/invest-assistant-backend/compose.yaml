@@ -6,7 +6,7 @@ services:
       - 'POSTGRES_PASSWORD=invest'
       - 'POSTGRES_USER=invest'
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
       - 'postgres_data:/var/lib/postgresql/data'
     healthcheck:
@@ -17,7 +17,7 @@ services:
   redis:
     image: 'redis:7.2'
     ports:
-      - '6379:6379'
+      - '${REDIS_PORT:-6379}:6379'
     volumes:
       - 'redis_data:/data'
     command: ['redis-server', '--appendonly', 'yes']
@@ -26,7 +26,59 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  ai-worker:
+    build:
+      context: ../../ai-worker
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://invest:invest@postgres:5432/invest_assistant
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: ${AI_WORKER_CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
+      LLM_PROVIDER: ${AI_WORKER_LLM_PROVIDER:-openai}
+      EMBEDDING_PROVIDER: ${AI_WORKER_EMBEDDING_PROVIDER:-openai}
+      OCR_PROVIDER: ${AI_WORKER_OCR_PROVIDER:-auto}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSION: ${AI_WORKER_EMBEDDING_DIMENSION:-1536}
+    ports:
+      - '${AI_WORKER_PORT:-8001}:8001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: invest_assistant
+      DB_USER: invest
+      DB_PASSWORD: invest
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      APP_AUTH_JWT_SECRET: ${APP_AUTH_JWT_SECRET:-dev-secret-change-me-please-use-32bytes-123456}
+      APP_OCR_AI_WORKER_BASE_URL: http://ai-worker:8001
+      APP_RAG_AI_WORKER_BASE_URL: http://ai-worker:8001
+      APP_FILES_LOCAL_PATH: /app/data/uploads
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:5173}
+      APP_AI_GROQ_API_KEY: ${APP_AI_GROQ_API_KEY:-}
+    ports:
+      - '${BACKEND_PORT:-8080}:8080'
+    volumes:
+      - 'backend_uploads:/app/data/uploads'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-worker:
+        condition: service_healthy
 
 volumes:
   postgres_data:
   redis_data:
+  backend_uploads:

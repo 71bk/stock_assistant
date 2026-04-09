@@ -1,0 +1,28 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Backend-AppBootstrap" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="tw.bk.appbootstrap.AppBootstrapApplication" />
+    <module name="app-bootstrap" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/apps/backend/invest-assistant-backend" />
+    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8" />
+    <envs>
+      <env name="SPRING_PROFILES_ACTIVE" value="dev" />
+      <env name="DB_HOST" value="localhost" />
+      <env name="DB_PORT" value="5432" />
+      <env name="DB_NAME" value="invest_assistant" />
+      <env name="DB_USER" value="invest" />
+      <env name="DB_PASSWORD" value="invest" />
+      <env name="REDIS_HOST" value="localhost" />
+      <env name="REDIS_PORT" value="6379" />
+      <env name="APP_OCR_AI_WORKER_BASE_URL" value="http://localhost:8001" />
+      <env name="APP_RAG_AI_WORKER_BASE_URL" value="http://localhost:8001" />
+      <env name="APP_AUTH_JWT_SECRET" value="local-dev-secret-change-me-1234567890" />
+      <env name="APP_CORS_ORIGINS" value="http://localhost:5173" />
+      <env name="APP_AUTH_LOGIN_REDIRECT" value="http://localhost:5173" />
+      <env name="SENTRY_ENABLED" value="false" />
+      <env name="SENTRY_LOGS_ENABLED" value="false" />
+    </envs>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

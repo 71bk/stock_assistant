@@ -2,7 +2,6 @@
 
 import structlog
 from openai import AsyncOpenAI
-import google.generativeai as genai
 
 from app.config import EmbeddingProvider, get_settings
 
@@ -16,6 +15,7 @@ class EmbeddingService:
         """Initialize embedding service."""
         self.settings = get_settings()
         self.provider = self.settings.resolved_embedding_provider
+        self.genai = None
 
         if self.provider == EmbeddingProvider.OPENAI:
             self.client = AsyncOpenAI(
@@ -29,7 +29,10 @@ class EmbeddingService:
                 base_url=f"{self.settings.ollama_base_url}/v1",
             )
         else:  # Gemini
+            import google.generativeai as genai
+
             genai.configure(api_key=self.settings.gemini_api_key)
+            self.genai = genai
             self.client = None  # Gemini uses different API
 
     async def embed(self, text: str) -> list[float]:
@@ -92,7 +95,7 @@ class EmbeddingService:
         import asyncio
 
         def _sync_embed():
-            result = genai.embed_content(
+            result = self.genai.embed_content(
                 model=f"models/{self.settings.gemini_embedding_model}",
                 content=text,
                 task_type="retrieval_document",
@@ -107,7 +110,7 @@ class EmbeddingService:
         import asyncio
 
         def _sync_embed_batch():
-            result = genai.embed_content(
+            result = self.genai.embed_content(
                 model=f"models/{self.settings.gemini_embedding_model}",
                 content=texts,
                 task_type="retrieval_document",
