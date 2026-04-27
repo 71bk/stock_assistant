@@ -35,6 +35,7 @@ async def test_readiness_check(client: AsyncClient, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(health, "_check_database", ok_check)
     monkeypatch.setattr(health, "_check_redis", ok_check)
     monkeypatch.setattr(health, "_check_llm", ok_check)
+    monkeypatch.setattr(health, "_check_rag_schema", ok_check)
 
     response = await client.get("/ready")
     assert response.status_code == 200
@@ -42,6 +43,7 @@ async def test_readiness_check(client: AsyncClient, monkeypatch: pytest.MonkeyPa
     data = response.json()
     assert data["status"] == "ready"
     assert "checks" in data
+    assert data["checks"]["rag_schema"] == "ok"
 
 
 @pytest.mark.asyncio
@@ -60,6 +62,7 @@ async def test_readiness_check_should_return_503_when_any_check_fails(
     monkeypatch.setattr(health, "_check_database", ok_check)
     monkeypatch.setattr(health, "_check_redis", failed_check)
     monkeypatch.setattr(health, "_check_llm", ok_check)
+    monkeypatch.setattr(health, "_check_rag_schema", ok_check)
 
     response = await client.get("/ready")
     assert response.status_code == 503
@@ -67,3 +70,29 @@ async def test_readiness_check_should_return_503_when_any_check_fails(
     data = response.json()
     assert data["status"] == "not_ready"
     assert data["checks"]["redis"] == "error:unavailable"
+
+
+@pytest.mark.asyncio
+async def test_readiness_check_should_return_503_when_rag_schema_not_ready(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Readiness should fail when RAG schema is not yet created."""
+
+    async def ok_check(*_args, **_kwargs):
+        return "ok"
+
+    async def schema_not_ready(*_args, **_kwargs):
+        return "error:schema_not_ready"
+
+    monkeypatch.setattr(health, "_check_database", ok_check)
+    monkeypatch.setattr(health, "_check_redis", ok_check)
+    monkeypatch.setattr(health, "_check_llm", ok_check)
+    monkeypatch.setattr(health, "_check_rag_schema", schema_not_ready)
+
+    response = await client.get("/ready")
+    assert response.status_code == 503
+
+    data = response.json()
+    assert data["status"] == "not_ready"
+    assert data["checks"]["rag_schema"] == "error:schema_not_ready"

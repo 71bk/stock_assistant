@@ -25,12 +25,6 @@ public class RagDocumentService {
         return toView(requireOwnedEntity(userId, documentId));
     }
 
-    @Transactional
-    public void deleteForUser(Long userId, Long documentId) {
-        RagDocumentEntity entity = requireOwnedEntity(userId, documentId);
-        ragDocumentRepository.delete(entity);
-    }
-
     private RagDocumentEntity requireOwnedEntity(Long userId, Long documentId) {
         RagDocumentEntity entity = ragDocumentRepository.findById(documentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Document not found"));

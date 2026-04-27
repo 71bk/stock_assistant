@@ -87,6 +87,28 @@ Content-Type: multipart/form-data
 XADD ocr:queue * file_id {id} user_id {uid}
 ```
 
+## RAG Schema Ownership
+
+- `vector.rag_documents`、`vector.rag_chunks` 的 schema source of truth 在 backend Flyway migration。
+- AI Worker 擁有這兩張表的 row mutation，但不能自行定義或擴充 schema。
+- Java 後端可以做 ownership check 與列表查詢，但不直接 insert/delete `vector.rag_documents`、`vector.rag_chunks`。
+- AI Worker 啟動時會驗證 `vector.rag_chunks.embedding` 的 DB dimension 是否等於 `embedding_dimension`。
+- 任何 RAG schema 變更都要同步更新：
+  - backend Flyway migration
+  - Java schema contract test
+  - AI Worker SQL 與測試
+  - `docs/05_DB_資料庫設計.md`
+- 規則詳見 `docs/adr/0004_rag_schema_ownership.md`。
+
+## 測試
+
+```bash
+# Worker 端 schema contract test
+python -m unittest tests.test_rag_schema_contract
+```
+
+- `tests/test_rag_schema_contract.py` 會固定 `insert_document_with_chunks` 的函式參數與 `vector.rag_chunks` 寫入 SQL，避免 worker 端和 Flyway schema 漂移。
+
 ## License
 
 MIT

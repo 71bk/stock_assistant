@@ -3,7 +3,6 @@ package tw.bk.apprag.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
@@ -92,22 +91,10 @@ class RagDocumentServiceTest {
     }
 
     @Test
-    void deleteForUser_shouldDeleteWhenOwnerMatches() {
-        RagDocumentEntity entity = new RagDocumentEntity();
-        entity.setId(13L);
-        entity.setUserId(10L);
-        when(ragDocumentRepository.findById(13L)).thenReturn(Optional.of(entity));
-
-        service.deleteForUser(10L, 13L);
-
-        verify(ragDocumentRepository).delete(entity);
-    }
-
-    @Test
-    void deleteForUser_shouldThrowNotFoundWhenMissing() {
+    void getForUser_shouldThrowNotFoundWhenMissing() {
         when(ragDocumentRepository.findById(404L)).thenReturn(Optional.empty());
 
-        BusinessException ex = assertThrows(BusinessException.class, () -> service.deleteForUser(10L, 404L));
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.getForUser(10L, 404L));
 
         assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
     }

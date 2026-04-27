@@ -182,19 +182,24 @@ class Settings(BaseSettings):
 
     def resolve_expected_embedding_dimension(self) -> int | None:
         """Resolve expected embedding dimension for fail-fast checks."""
+        # Explicit override takes highest priority
         if self.embedding_expected_dimension is not None:
             return self.embedding_expected_dimension
 
-        provider = self.resolved_embedding_provider.value
-        model = self.embedding_model_name
+        provider = self.resolved_embedding_provider
 
+        # Gemini supports output_dimensionality — the expected dimension
+        # is whatever the worker is configured to request.
+        if provider == EmbeddingProvider.GEMINI:
+            return self.embedding_dimension
+
+        # Fixed-dimension models
         dimension_table: dict[tuple[str, str], int] = {
             ("openai", "text-embedding-3-small"): 1536,
             ("openai", "text-embedding-3-large"): 3072,
             ("ollama", "nomic-embed-text"): 768,
         }
-
-        return dimension_table.get((provider, model))
+        return dimension_table.get((provider.value, self.embedding_model_name))
     embedding_version: str = "v1.0"
 
     @property

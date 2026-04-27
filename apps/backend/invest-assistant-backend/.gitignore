@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Local backend runtime artifacts
+.m2/
+data/uploads/
+modules/app-bootstrap/modules/

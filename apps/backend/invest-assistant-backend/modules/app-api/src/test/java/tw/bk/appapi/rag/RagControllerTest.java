@@ -8,6 +8,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -58,50 +59,47 @@ class RagControllerTest {
     }
 
     @Test
-    void deleteDocument_shouldDeleteViaAiWorkerThenDb() {
+    void deleteDocument_shouldDeleteViaAiWorkerOnly() {
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(7L));
         when(ragDocumentService.getForUser(7L, 11L)).thenReturn(
                 new RagDocumentView(11L, 7L, "t", "upload", null, null, null));
         doNothing().when(ragClient).deleteDocument(7L, 11L);
-        doNothing().when(ragDocumentService).deleteForUser(7L, 11L);
 
         Result<Void> result = controller.deleteDocument(11L);
 
         assertTrue(result.isSuccess());
         verify(ragClient).deleteDocument(7L, 11L);
-        verify(ragDocumentService).deleteForUser(7L, 11L);
+        verify(ragDocumentService).getForUser(7L, 11L);
+        verifyNoMoreInteractions(ragDocumentService);
     }
 
     @Test
-    void deleteDocument_shouldFallbackToDbDeleteWhenAiWorkerFails() {
+    void deleteDocument_shouldPropagateAiWorkerFailureWithoutDbFallback() {
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(7L));
         when(ragDocumentService.getForUser(7L, 12L)).thenReturn(
                 new RagDocumentView(12L, 7L, "t", "upload", null, null, null));
         doThrow(new BusinessException(ErrorCode.INTERNAL_ERROR, "worker down"))
                 .when(ragClient).deleteDocument(7L, 12L);
-        doNothing().when(ragDocumentService).deleteForUser(7L, 12L);
 
-        Result<Void> result = controller.deleteDocument(12L);
+        BusinessException ex = assertThrows(BusinessException.class, () -> controller.deleteDocument(12L));
 
-        assertTrue(result.isSuccess());
+        assertEquals(ErrorCode.INTERNAL_ERROR, ex.getErrorCode());
         verify(ragClient).deleteDocument(7L, 12L);
-        verify(ragDocumentService).deleteForUser(7L, 12L);
+        verify(ragDocumentService).getForUser(7L, 12L);
+        verifyNoMoreInteractions(ragDocumentService);
     }
 
     @Test
-    void deleteDocument_shouldIgnoreLocalNotFoundAfterAiWorkerDelete() {
+    void deleteDocument_shouldNotCallAiWorkerWhenOwnershipCheckFails() {
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(7L));
-        when(ragDocumentService.getForUser(7L, 13L)).thenReturn(
-                new RagDocumentView(13L, 7L, "t", "upload", null, null, null));
-        doNothing().when(ragClient).deleteDocument(7L, 13L);
-        doThrow(new BusinessException(ErrorCode.NOT_FOUND, "Document not found"))
-                .when(ragDocumentService).deleteForUser(7L, 13L);
+        when(ragDocumentService.getForUser(7L, 13L))
+                .thenThrow(new BusinessException(ErrorCode.AUTH_FORBIDDEN, "Access denied"));
 
-        Result<Void> result = controller.deleteDocument(13L);
+        BusinessException ex = assertThrows(BusinessException.class, () -> controller.deleteDocument(13L));
 
-        assertTrue(result.isSuccess());
-        verify(ragClient).deleteDocument(7L, 13L);
-        verify(ragDocumentService).deleteForUser(7L, 13L);
+        assertEquals(ErrorCode.AUTH_FORBIDDEN, ex.getErrorCode());
+        verify(ragDocumentService).getForUser(7L, 13L);
+        verify(ragClient, never()).deleteDocument(7L, 13L);
     }
 
     @Test

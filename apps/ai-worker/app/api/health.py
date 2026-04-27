@@ -38,16 +38,18 @@ async def readiness_check(response: Response) -> dict:
     Checks if all dependencies are available.
     """
     settings = get_settings()
-    database_status, redis_status, llm_status = await asyncio.gather(
+    database_status, redis_status, llm_status, rag_schema_status = await asyncio.gather(
         _check_database(),
         _check_redis(settings.redis_url),
         _check_llm(settings),
+        _check_rag_schema(),
     )
 
     checks = {
         "database": database_status,
         "redis": redis_status,
         "llm": llm_status,
+        "rag_schema": rag_schema_status,
     }
     ready = all(value == "ok" for value in checks.values())
     if not ready:
@@ -117,3 +119,19 @@ async def _check_ollama(base_url: str) -> str:
 
 def _check_gemini(api_key: str) -> str:
     return "ok" if api_key else "error:missing_api_key"
+
+
+async def _check_rag_schema() -> str:
+    """Check if the RAG schema exists and dimension matches."""
+    try:
+        from app.db.rag_repository import RagRepository
+
+        settings = get_settings()
+        db_dim = await RagRepository().get_embedding_column_dimension()
+        if db_dim is None:
+            return "error:schema_not_ready"
+        if db_dim != settings.embedding_dimension:
+            return f"error:dimension_mismatch_db={db_dim}_worker={settings.embedding_dimension}"
+        return "ok"
+    except Exception as exc:  # noqa: BLE001
+        return f"error:{exc.__class__.__name__}"

@@ -3,7 +3,6 @@ package tw.bk.appapi.rag;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,7 +36,6 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/rag")
 @Tag(name = "RAG", description = "RAG APIs")
 @RequiredArgsConstructor
-@Slf4j
 public class RagController {
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -71,25 +69,7 @@ public class RagController {
         Long userId = requireUserId();
         // Verify ownership first so we never delete foreign documents.
         ragDocumentService.getForUser(userId, id);
-
-        boolean deletedByAiWorker = false;
-        try {
-            ragClient.deleteDocument(userId, id);
-            deletedByAiWorker = true;
-        } catch (BusinessException ex) {
-            if (ex.getErrorCode() != ErrorCode.NOT_FOUND) {
-                log.warn("AI worker delete failed, fallback to direct DB delete: userId={}, documentId={}, reason={}",
-                        userId, id, ex.getMessage());
-            }
-        }
-
-        try {
-            ragDocumentService.deleteForUser(userId, id);
-        } catch (BusinessException ex) {
-            if (!(deletedByAiWorker && ex.getErrorCode() == ErrorCode.NOT_FOUND)) {
-                throw ex;
-            }
-        }
+        ragClient.deleteDocument(userId, id);
 
         return Result.ok();
     }

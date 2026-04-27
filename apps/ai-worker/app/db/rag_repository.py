@@ -11,6 +11,7 @@ from psycopg.types.json import Json
 from psycopg_pool import AsyncConnectionPool
 
 from app.config import get_settings
+from app.rag_schema_guard import parse_vector_dimension
 
 logger = structlog.get_logger()
 
@@ -178,6 +179,30 @@ class RagRepository:
                 rows = await cur.fetchall()
 
         return [dict(row) for row in rows]
+
+    async def get_embedding_column_dimension(self) -> int | None:
+        pool = get_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT format_type(a.atttypid, a.atttypmod) AS column_type
+                    FROM pg_attribute a
+                    JOIN pg_class c ON c.oid = a.attrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'vector'
+                      AND c.relname = 'rag_chunks'
+                      AND a.attname = 'embedding'
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
+                    """
+                )
+                row = await cur.fetchone()
+
+        if not row:
+            return None
+
+        return parse_vector_dimension(row[0])
 
     async def delete_document(self, user_id: int, document_id: int) -> bool:
         pool = get_pool()

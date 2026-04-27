@@ -17,7 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health, ingest, ocr, query
 from app.config import get_settings
-from app.db.rag_repository import close_pool, init_pool
+from app.db.rag_repository import RagRepository, close_pool, init_pool
+from app.rag_schema_guard import (
+    validate_configured_embedding_dimension,
+    validate_db_embedding_dimension,
+)
 from app.services.document_parser import init_ocr_limits
 from app.services.rag_service import init_ingest_limits
 
@@ -62,18 +66,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         environment=settings.environment,
     )
     expected_dim = settings.resolve_expected_embedding_dimension()
-    if expected_dim is None:
-        raise RuntimeError(
-            "Unknown embedding dimension for provider/model. "
-            "Set EMBEDDING_EXPECTED_DIMENSION to avoid mismatched vector size."
-        )
-    if expected_dim != settings.embedding_dimension:
-        raise RuntimeError(
-            f"Embedding dimension mismatch: expected {expected_dim} but got "
-            f"{settings.embedding_dimension}."
-        )
+    validate_configured_embedding_dimension(expected_dim, settings.embedding_dimension)
     init_ocr_limits(settings.ocr_concurrency)
     await init_pool()
+    db_dimension = await RagRepository().get_embedding_column_dimension()
+    schema_ok = validate_db_embedding_dimension(settings.embedding_dimension, db_dimension)
+    if not schema_ok:
+        logger.warning(
+            "RAG schema not ready yet; waiting for backend migrations",
+            configured_dimension=settings.embedding_dimension,
+        )
     init_ingest_limits(settings.ingest_concurrency)
     yield
     await close_pool()
