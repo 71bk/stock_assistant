@@ -68,3 +68,7 @@ coverage/
 *.swp
 *.swo
 *~
+
+# === Root markdown notes ===
+/*.md
+!/README.md
