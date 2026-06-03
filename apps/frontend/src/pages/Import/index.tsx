@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Steps, Card, Upload, Typography, Button, Progress, Table,
   Tag, Tooltip, Space, Popconfirm, InputNumber, DatePicker, Select,
-  Alert, Result, message, Input, Row, Col, Image, Empty, Spin, Flex
+  Alert, Result, message, Input, Image, Empty, Spin, Flex, Modal
 } from 'antd';
 import {
   InboxOutlined, CheckCircleOutlined,
@@ -109,6 +109,7 @@ const ReviewStep: React.FC = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
+  const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
 
   useEffect(() => {
     const fetchPreview = async () => {
@@ -274,23 +275,26 @@ const ReviewStep: React.FC = () => {
     {
       title: '代號',
       dataIndex: 'rawTicker',
+      width: 120,
       render: (text: string, record: DraftTrade) => {
-        if (isEditing(record)) return <Input value={text} onChange={(e) => updateDraftTrade(record.draftId, { rawTicker: e.target.value })} style={{ width: 100 }} />;
+        if (isEditing(record)) return <Input value={text} onChange={(e) => updateDraftTrade(record.draftId, { rawTicker: e.target.value })} style={{ width: '100%' }} />;
         return <Text strong>{text}</Text>;
       }
     },
     {
       title: '名稱',
       dataIndex: 'name',
+      width: 100,
       render: (text: string) => <Text type="secondary" style={{ fontSize: 12 }}>{text}</Text>,
     },
     {
       title: '方向',
       dataIndex: 'side',
+      width: 100,
       render: (text: string, record: DraftTrade) => {
         if (isEditing(record)) {
           return (
-            <Select value={text} onChange={(v) => updateDraftTrade(record.draftId, { side: v as 'BUY' | 'SELL' })}>
+            <Select value={text} onChange={(v) => updateDraftTrade(record.draftId, { side: v as 'BUY' | 'SELL' })} style={{ width: '100%' }}>
               <Select.Option value="BUY">BUY</Select.Option>
               <Select.Option value="SELL">SELL</Select.Option>
             </Select>
@@ -302,16 +306,18 @@ const ReviewStep: React.FC = () => {
     {
       title: '數量',
       dataIndex: 'quantity',
+      width: 120,
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { quantity: v })} style={{ width: 100 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { quantity: v })} style={{ width: '100%' }} />;
         return val;
       }
     },
     {
       title: '價格',
       dataIndex: 'price',
+      width: 140,
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { price: v })} style={{ width: 120 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { price: v })} style={{ width: '100%' }} />;
         return Number(val || 0).toFixed(2);
       }
     },
@@ -324,22 +330,25 @@ const ReviewStep: React.FC = () => {
     {
       title: '手續費',
       dataIndex: 'fee',
+      width: 120,
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { fee: v })} style={{ width: 100 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { fee: v })} style={{ width: '100%' }} />;
         return Number(val || 0).toFixed(2);
       }
     },
     {
       title: '稅金',
       dataIndex: 'tax',
+      width: 120,
       render: (val: number, record: DraftTrade) => {
-        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { tax: v })} style={{ width: 100 }} />;
+        if (isEditing(record)) return <InputNumber value={val} min={0} onChange={(v) => v != null && updateDraftTrade(record.draftId, { tax: v })} style={{ width: '100%' }} />;
         return Number(val || 0).toFixed(2);
       }
     },
     {
       title: '淨收付',
       dataIndex: 'netAmount',
+      width: 120,
       render: (val: number | null) => {
         if (val == null) return '-';
         const formatted = Math.abs(val).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -388,79 +397,80 @@ const ReviewStep: React.FC = () => {
 
   return (
     <div>
-      <Row gutter={24}>
-        {/* Left Side: Preview */}
-        <Col xs={24} xl={8}>
-          <Card
-            title={<Space><FileImageOutlined /> 原始文件預覽</Space>}
-            style={{ height: '100%', minHeight: 500 }}
-            styles={{ body: { height: 'calc(100% - 57px)', overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f5f5f5' } }}
-          >
-            {loadingPreview ? (
-              <Spin tip="載入預覽中..." />
-            ) : previewUrl ? (
-              fileType === 'pdf' ? (
-                <iframe src={previewUrl} style={{ width: '100%', height: '100%', border: 'none', minHeight: 600 }} title="PDF Preview" />
-              ) : (
-                <Image src={previewUrl} style={{ maxWidth: '100%' }} />
-              )
-            ) : (
-              <Empty description="無法預覽文件" />
-            )}
-          </Card>
-        </Col>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+        <Button icon={<FileImageOutlined />} onClick={() => setIsPreviewModalVisible(true)}>
+          預覽原始文件
+        </Button>
+      </div>
 
-        {/* Right Side: Table */}
-        <Col xs={24} xl={16}>
-          {draftTrades.some(t => t.status !== 'VALID') ? (
-            <Alert
-              title="發現異常資料"
-              description={`在 ${draftTrades.length} 筆交易中，有 ${draftTrades.filter(t => t.status !== 'VALID').length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
+      {draftTrades.some(t => t.status !== 'VALID') ? (
+        <Alert
+          title="發現異常資料"
+          description={`在 ${draftTrades.length} 筆交易中，有 ${draftTrades.filter(t => t.status !== 'VALID').length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      ) : (
+        <Alert
+          title={`找到 ${draftTrades.length} 筆交易`}
+          description="請校對以下細節，確認無誤後再匯入。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      <Table
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        }}
+        dataSource={draftTrades}
+        columns={columns}
+        rowKey="draftId"
+        pagination={false}
+        scroll={{ x: 1800, y: 600 }}
+        rowClassName={(record) => {
+          if (record.status === 'ERROR') return 'row-error';
+          if (record.duplicate) return 'row-warning row-duplicate';
+          if (record.status === 'WARNING') return 'row-warning';
+          return '';
+        }}
+      />
+
+      <div style={{ marginTop: 24, textAlign: 'right' }}>
+        <Space>
+          <Text>已選: {selectedRowKeys.length}</Text>
+          <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
+            重新辨識
+          </Button>
+          <Button type="primary" size="large" disabled={selectedRowKeys.length === 0} loading={isLoading} onClick={handleConfirm}>
+            確認匯入
+          </Button>
+        </Space>
+      </div>
+
+      <Modal
+        title="原始文件預覽"
+        open={isPreviewModalVisible}
+        onCancel={() => setIsPreviewModalVisible(false)}
+        footer={null}
+        width={800}
+        styles={{ body: { height: 600, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f5f5f5' } }}
+      >
+        {loadingPreview ? (
+          <Spin tip="載入預覽中..." />
+        ) : previewUrl ? (
+          fileType === 'pdf' ? (
+            <iframe src={previewUrl} style={{ width: '100%', height: '100%', border: 'none', minHeight: 550 }} title="PDF Preview" />
           ) : (
-            <Alert
-              title={`找到 ${draftTrades.length} 筆交易`}
-              description="請校對以下細節，確認無誤後再匯入。"
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
-          )}
-
-          <Table
-            rowSelection={{
-              selectedRowKeys,
-              onChange: (keys) => setSelectedRowKeys(keys),
-            }}
-            dataSource={draftTrades}
-            columns={columns}
-            rowKey="draftId"
-            pagination={false}
-            scroll={{ x: 1400, y: 600 }}
-            rowClassName={(record) => {
-              if (record.status === 'ERROR') return 'row-error';
-              if (record.duplicate) return 'row-warning row-duplicate';
-              if (record.status === 'WARNING') return 'row-warning';
-              return '';
-            }}
-          />
-
-          <div style={{ marginTop: 24, textAlign: 'right' }}>
-            <Space>
-              <Text>已選: {selectedRowKeys.length}</Text>
-              <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
-                重新辨識
-              </Button>
-              <Button type="primary" size="large" disabled={selectedRowKeys.length === 0} loading={isLoading} onClick={handleConfirm}>
-                確認匯入
-              </Button>
-            </Space>
-          </div>
-        </Col>
-      </Row>
+            <Image src={previewUrl} style={{ maxWidth: '100%' }} />
+          )
+        ) : (
+          <Empty description="無法預覽文件" />
+        )}
+      </Modal>
     </div>
   );
 };

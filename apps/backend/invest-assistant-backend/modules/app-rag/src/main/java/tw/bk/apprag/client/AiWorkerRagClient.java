@@ -2,7 +2,8 @@ package tw.bk.apprag.client;
 
 import java.time.Duration;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
+import java.util.concurrent.TimeoutException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -13,13 +14,21 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 
 @Component
-@RequiredArgsConstructor
 public class AiWorkerRagClient {
     private final WebClient webClient;
+    private final AiWorkerRagProperties properties;
+
+    public AiWorkerRagClient(
+            @Qualifier("aiWorkerRagWebClient") WebClient webClient,
+            AiWorkerRagProperties properties) {
+        this.webClient = webClient;
+        this.properties = properties;
+    }
 
     public AiWorkerIngestResponse ingestText(Long userId, String text, String title, String sourceType,
             List<String> tags) {
@@ -42,21 +51,18 @@ public class AiWorkerRagClient {
         }
 
         try {
-            AiWorkerIngestResponse response = webClient
+            return blockRequired(webClient
                     .post()
                     .uri("/ingest/text")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(BodyInserters.fromMultipartData(body))
                     .retrieve()
-                    .bodyToMono(AiWorkerIngestResponse.class)
-                    .block();
-
-            if (response == null) {
-                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Empty ingestion response");
-            }
-            return response;
+                    .bodyToMono(AiWorkerIngestResponse.class),
+                    "Empty ingestion response");
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker ingestion failed: " + ex.getMessage());
+            throw ingestionException(ex);
         }
     }
 
@@ -89,32 +95,25 @@ public class AiWorkerRagClient {
         };
 
         HttpHeaders fileHeaders = new HttpHeaders();
-        MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
-        if (contentType != null && !contentType.isBlank()) {
-            mediaType = MediaType.parseMediaType(contentType);
-        }
-        fileHeaders.setContentType(mediaType);
+        fileHeaders.setContentType(parseMediaType(contentType));
         fileHeaders.setContentDispositionFormData("file", resource.getFilename());
 
         HttpEntity<ByteArrayResource> filePart = new HttpEntity<>(resource, fileHeaders);
         body.add("file", filePart);
 
         try {
-            AiWorkerIngestResponse response = webClient
+            return blockRequired(webClient
                     .post()
                     .uri("/ingest")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(BodyInserters.fromMultipartData(body))
                     .retrieve()
-                    .bodyToMono(AiWorkerIngestResponse.class)
-                    .block();
-
-            if (response == null) {
-                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Empty ingestion response");
-            }
-            return response;
+                    .bodyToMono(AiWorkerIngestResponse.class),
+                    "Empty ingestion response");
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker ingestion failed: " + ex.getMessage());
+            throw ingestionException(ex);
         }
     }
 
@@ -153,21 +152,18 @@ public class AiWorkerRagClient {
         }
 
         try {
-            AiWorkerIngestResponse response = webClient
+            return blockRequired(webClient
                     .post()
                     .uri("/ingest/url")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(payload)
                     .retrieve()
-                    .bodyToMono(AiWorkerIngestResponse.class)
-                    .block();
-
-            if (response == null) {
-                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Empty ingestion response");
-            }
-            return response;
+                    .bodyToMono(AiWorkerIngestResponse.class),
+                    "Empty ingestion response");
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker ingestion failed: " + ex.getMessage());
+            throw ingestionException(ex);
         }
     }
 
@@ -194,21 +190,22 @@ public class AiWorkerRagClient {
         }
 
         try {
-            var responseMono = webClient
+            Duration effectiveTimeout = timeout != null ? timeout : requestTimeout();
+            AiWorkerQueryResponse response = webClient
                     .post()
                     .uri("/query")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(payload)
                     .retrieve()
-                    .bodyToMono(AiWorkerQueryResponse.class);
-            AiWorkerQueryResponse response = timeout != null
-                    ? responseMono.block(timeout)
-                    : responseMono.block();
+                    .bodyToMono(AiWorkerQueryResponse.class)
+                    .block(effectiveTimeout);
 
             if (response == null) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Empty query response");
             }
             return response;
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
             if (isTimeoutException(ex)) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker query timeout");
@@ -234,7 +231,7 @@ public class AiWorkerRagClient {
                             .build(documentId))
                     .retrieve()
                     .toBodilessEntity()
-                    .block();
+                    .block(requestTimeout());
         } catch (WebClientResponseException.NotFound ex) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Document not found");
         } catch (WebClientResponseException.Forbidden ex) {
@@ -244,14 +241,48 @@ public class AiWorkerRagClient {
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {
+            if (isTimeoutException(ex)) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker delete timeout");
+            }
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker delete failed: " + ex.getMessage());
         }
+    }
+
+    private <T> T blockRequired(Mono<T> mono, String emptyMessage) {
+        T response = mono.block(requestTimeout());
+        if (response == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, emptyMessage);
+        }
+        return response;
+    }
+
+    private BusinessException ingestionException(Exception ex) {
+        if (isTimeoutException(ex)) {
+            return new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker ingestion timeout");
+        }
+        return new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker ingestion failed: " + ex.getMessage());
+    }
+
+    private MediaType parseMediaType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        try {
+            return MediaType.parseMediaType(contentType);
+        } catch (Exception ex) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+    }
+
+    private Duration requestTimeout() {
+        int timeoutSeconds = properties.getTimeoutSeconds() != null ? properties.getTimeoutSeconds() : 120;
+        return Duration.ofSeconds(Math.max(1, timeoutSeconds));
     }
 
     private boolean isTimeoutException(Throwable ex) {
         Throwable current = ex;
         while (current != null) {
-            if (current instanceof java.util.concurrent.TimeoutException) {
+            if (current instanceof TimeoutException) {
                 return true;
             }
             String message = current.getMessage();

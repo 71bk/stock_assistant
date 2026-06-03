@@ -36,6 +36,7 @@ async def init_pool() -> None:
         timeout=settings.db_pool_timeout,
         max_idle=settings.db_pool_max_idle,
         configure=_configure,
+        open=False,
     )
     await _pool.open()
     logger.info(

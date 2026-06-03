@@ -1,4 +1,4 @@
-package tw.bk.apprag.client;
+package tw.bk.appocr.client;
 
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
@@ -8,10 +8,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
 @Configuration
-public class AiWorkerRagClientConfig {
+public class AiWorkerOcrClientConfig {
 
     @Bean
-    public WebClient aiWorkerRagWebClient(AiWorkerRagProperties properties, WebClient.Builder builder) {
+    public WebClient aiWorkerOcrWebClient(AiWorkerProperties properties, WebClient.Builder builder) {
         HttpClient httpClient = HttpClient.create()
                 .responseTimeout(timeout(properties));
         return builder
@@ -20,7 +20,7 @@ public class AiWorkerRagClientConfig {
                 .build();
     }
 
-    private Duration timeout(AiWorkerRagProperties properties) {
+    private Duration timeout(AiWorkerProperties properties) {
         int timeoutSeconds = properties.getTimeoutSeconds() != null ? properties.getTimeoutSeconds() : 120;
         return Duration.ofSeconds(Math.max(1, timeoutSeconds));
     }

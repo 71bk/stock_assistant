@@ -1,5 +1,6 @@
 # === IDE / Editor ===
 .idea/
+.run/
 *.iml
 *.ipr
 *.iws
@@ -24,6 +25,8 @@ lerna-debug.log*
 # === Environment ===
 .env
 .env.local
+.env.development
+.env.production
 .env.*.local
 
 # === Node.js ===

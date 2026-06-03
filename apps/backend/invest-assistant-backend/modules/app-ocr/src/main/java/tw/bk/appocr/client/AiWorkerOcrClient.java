@@ -1,6 +1,8 @@
 package tw.bk.appocr.client;
 
-import lombok.RequiredArgsConstructor;
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -18,10 +20,17 @@ import tw.bk.apppersistence.entity.FileEntity;
  * Client for AI Worker OCR service.
  */
 @Component
-@RequiredArgsConstructor
 public class AiWorkerOcrClient {
 
     private final AiWorkerProperties properties;
+    private final WebClient webClient;
+
+    public AiWorkerOcrClient(
+            AiWorkerProperties properties,
+            @Qualifier("aiWorkerOcrWebClient") WebClient webClient) {
+        this.properties = properties;
+        this.webClient = webClient;
+    }
 
     /**
      * Process a file through AI Worker OCR endpoint.
@@ -36,8 +45,6 @@ public class AiWorkerOcrClient {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File content is empty");
         }
 
-        String baseUrl = properties.getBaseUrl();
-
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("user_id", String.valueOf(userId));
 
@@ -49,11 +56,7 @@ public class AiWorkerOcrClient {
         };
 
         HttpHeaders fileHeaders = new HttpHeaders();
-        MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
-        if (file.getContentType() != null && !file.getContentType().isBlank()) {
-            mediaType = MediaType.parseMediaType(file.getContentType());
-        }
-        fileHeaders.setContentType(mediaType);
+        fileHeaders.setContentType(parseMediaType(file.getContentType()));
         fileHeaders.setContentDispositionFormData("file", resource.getFilename());
 
         HttpEntity<ByteArrayResource> filePart = new HttpEntity<>(resource, fileHeaders);
@@ -65,26 +68,25 @@ public class AiWorkerOcrClient {
         }
 
         try {
-            WebClient client = WebClient.builder()
-                    .baseUrl(baseUrl)
-                    .build();
-
-            AiWorkerOcrResponse response = client.post()
+            AiWorkerOcrResponse response = webClient.post()
                     .uri("/ocr")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(BodyInserters.fromMultipartData(body))
                     .retrieve()
                     .bodyToMono(AiWorkerOcrResponse.class)
-                    .block();
+                    .block(requestTimeout());
 
             if (response == null) {
                 throw new BusinessException(ErrorCode.OCR_PARSE_FAILED, "Empty OCR response");
             }
             return response;
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new BusinessException(
-                    ErrorCode.OCR_PARSE_FAILED,
-                    "AI Worker OCR failed: " + ex.getMessage());
+            String message = isTimeoutException(ex)
+                    ? "AI Worker OCR timeout"
+                    : "AI Worker OCR failed: " + ex.getMessage();
+            throw new BusinessException(ErrorCode.OCR_PARSE_FAILED, message);
         }
     }
 
@@ -109,5 +111,36 @@ public class AiWorkerOcrClient {
             return "sinopac";
         }
         return null;
+    }
+
+    private MediaType parseMediaType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        try {
+            return MediaType.parseMediaType(contentType);
+        } catch (Exception ex) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+    }
+
+    private Duration requestTimeout() {
+        int timeoutSeconds = properties.getTimeoutSeconds() != null ? properties.getTimeoutSeconds() : 120;
+        return Duration.ofSeconds(Math.max(1, timeoutSeconds));
+    }
+
+    private boolean isTimeoutException(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof TimeoutException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase().contains("timeout")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

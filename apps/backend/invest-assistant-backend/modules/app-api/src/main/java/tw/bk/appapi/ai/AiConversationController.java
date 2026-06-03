@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -55,7 +56,7 @@ public class AiConversationController {
     private final GroqChatClient groqChatClient;
     private final CurrentUserProvider currentUserProvider;
     private final CurrentUserRoleProvider currentUserRoleProvider;
-    private final Executor aiExecutor;
+    private final Executor aiSseExecutor;
     private final BufferedSseSessionStore bufferedSseSessionStore;
     private final ChatSkillExecutor chatSkillExecutor;
 
@@ -63,14 +64,14 @@ public class AiConversationController {
             GroqChatClient groqChatClient,
             CurrentUserProvider currentUserProvider,
             CurrentUserRoleProvider currentUserRoleProvider,
-            @Qualifier("aiExecutor") Executor aiExecutor,
+            @Qualifier("aiSseExecutor") Executor aiSseExecutor,
             BufferedSseSessionStore bufferedSseSessionStore,
             ChatSkillExecutor chatSkillExecutor) {
         this.conversationService = conversationService;
         this.groqChatClient = groqChatClient;
         this.currentUserProvider = currentUserProvider;
         this.currentUserRoleProvider = currentUserRoleProvider;
-        this.aiExecutor = aiExecutor;
+        this.aiSseExecutor = aiSseExecutor;
         this.bufferedSseSessionStore = bufferedSseSessionStore;
         this.chatSkillExecutor = chatSkillExecutor;
     }
@@ -145,11 +146,14 @@ public class AiConversationController {
         session.attachEmitter(emitter, lastEventId);
 
         session.startIfNeeded(() -> CompletableFuture.runAsync(() -> {
+            AtomicReference<ConversationMessageView> assistantMessageRef = new AtomicReference<>();
+            StringBuilder buffer = new StringBuilder();
             try {
                 ConversationMessageView userMessage = conversationService.appendUserMessage(
                         userId, id, content, effectiveClientMessageId);
                 ConversationMessageView assistantMessage = conversationService.appendOrGetAssistantMessage(
                         userId, id, "", ConversationMessageStatus.PENDING, assistantClientMessageId);
+                assistantMessageRef.set(assistantMessage);
                 sendMeta(session, requestId, id, userMessage.id(), assistantMessage.id());
 
                 if (assistantMessage.status() == ConversationMessageStatus.COMPLETED
@@ -177,7 +181,6 @@ public class AiConversationController {
                         ? conversationService.buildContextMessages(userId, id, content, userMessage.id())
                         : conversationService.buildContextMessagesWithTool(userId, id, content, userMessage.id(),
                                 toolContext);
-                StringBuilder buffer = new StringBuilder();
                 AtomicBoolean failed = new AtomicBoolean(false);
 
                 groqChatClient.streamChat(messages, userId)
@@ -188,12 +191,13 @@ public class AiConversationController {
                         .doOnError(ex -> {
                             failed.set(true);
                             try {
-                                conversationService.updateAssistantMessage(
+                                ConversationMessageView failedAssistant = conversationService.updateAssistantMessage(
                                         userId,
                                         id,
                                         assistantMessage.id(),
                                         buffer.toString(),
                                         ConversationMessageStatus.FAILED);
+                                assistantMessageRef.set(failedAssistant);
                             } catch (Exception saveEx) {
                                 log.error("Failed to mark assistant message as FAILED", saveEx);
                             }
@@ -216,6 +220,7 @@ public class AiConversationController {
                                         assistantMessage.id(),
                                         buffer.toString(),
                                         ConversationMessageStatus.COMPLETED);
+                                assistantMessageRef.set(assistant);
                                 sendDone(session, assistant.id());
                             } catch (Exception ex) {
                                 log.error("Failed to save assistant message", ex);
@@ -223,12 +228,14 @@ public class AiConversationController {
                         })
                         .blockLast();
             } catch (BusinessException ex) {
+                markAssistantMessageFailed(userId, id, assistantMessageRef.get(), buffer.toString());
                 sendError(session, ex.getErrorCode(), ex.getMessage());
             } catch (Exception ex) {
                 log.error("Chat streaming failed", ex);
+                markAssistantMessageFailed(userId, id, assistantMessageRef.get(), buffer.toString());
                 sendError(session, ErrorCode.INTERNAL_ERROR, "Chat streaming failed");
             }
-        }, aiExecutor));
+        }, aiSseExecutor));
 
         return emitter;
     }
@@ -264,6 +271,28 @@ public class AiConversationController {
         payload.put("message", message);
         session.sendEvent("error", payload);
         session.complete();
+    }
+
+    private void markAssistantMessageFailed(
+            Long userId,
+            Long conversationId,
+            ConversationMessageView assistantMessage,
+            String content) {
+        if (assistantMessage == null
+                || assistantMessage.status() == ConversationMessageStatus.COMPLETED
+                || assistantMessage.status() == ConversationMessageStatus.FAILED) {
+            return;
+        }
+        try {
+            conversationService.updateAssistantMessage(
+                    userId,
+                    conversationId,
+                    assistantMessage.id(),
+                    content,
+                    ConversationMessageStatus.FAILED);
+        } catch (Exception saveEx) {
+            log.error("Failed to mark assistant message as FAILED", saveEx);
+        }
     }
 
     private String resolveClientMessageId(String clientMessageId, String fallbackRequestId) {

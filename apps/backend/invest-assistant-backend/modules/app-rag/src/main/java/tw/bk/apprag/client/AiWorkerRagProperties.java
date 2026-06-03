@@ -9,4 +9,5 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.rag.ai-worker")
 public class AiWorkerRagProperties {
     private String baseUrl = "http://localhost:8001";
+    private Integer timeoutSeconds = 120;
 }

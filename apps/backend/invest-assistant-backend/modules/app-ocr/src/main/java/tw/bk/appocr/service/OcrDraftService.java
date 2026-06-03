@@ -36,6 +36,8 @@ public class OcrDraftService {
     private static final int AMOUNT_SCALE = 6;
     private static final int PRICE_SCALE = 8;
     private static final String WARNING_SETTLEMENT_BEFORE_TRADE = "SETTLEMENT_BEFORE_TRADE";
+    private static final String WARNING_AMBIGUOUS_TICKER = "AMBIGUOUS_TICKER";
+    private static final String WARNING_INSTRUMENT_NOT_FOUND = "INSTRUMENT_NOT_FOUND";
 
     private final StatementTradeRepository statementTradeRepository;
     private final InstrumentRepository instrumentRepository;
@@ -64,6 +66,7 @@ public class OcrDraftService {
             StatementTradeEntity entity = toDraftEntity(statement, trade);
             OcrDraftContext context = new OcrDraftContext(statement, trade, entity, seenHashes);
             OcrDraftValidationResult result = OcrDraftValidationResult.withWarnings(trade.warnings());
+            addInstrumentResolutionWarnings(entity, result);
             draftValidatorChain.validateAll(context, result);
             if (result.hasBlockingErrors()) {
                 log.warn("Draft blocked by validation: {}", result.getErrors());
@@ -119,7 +122,33 @@ public class OcrDraftService {
         if (ticker == null || ticker.isBlank()) {
             return null;
         }
-        return instrumentRepository.findFirstByTickerIgnoreCase(ticker.trim()).orElse(null);
+        List<InstrumentEntity> matches = instrumentRepository.findByTickerIgnoreCase(ticker.trim());
+        if (matches == null || matches.isEmpty()) {
+            return null;
+        }
+        if (matches.size() == 1) {
+            return matches.get(0);
+        }
+        log.warn("OCR ticker is ambiguous, manual instrument selection required: ticker={}, matches={}",
+                ticker.trim(),
+                matches.stream().map(InstrumentEntity::getSymbolKey).toList());
+        return null;
+    }
+
+    private void addInstrumentResolutionWarnings(StatementTradeEntity entity, OcrDraftValidationResult result) {
+        if (entity == null || entity.getInstrumentId() != null || entity.getRawTicker() == null
+                || entity.getRawTicker().isBlank()) {
+            return;
+        }
+
+        List<InstrumentEntity> matches = instrumentRepository.findByTickerIgnoreCase(entity.getRawTicker().trim());
+        if (matches == null || matches.isEmpty()) {
+            result.addWarning(WARNING_INSTRUMENT_NOT_FOUND);
+            return;
+        }
+        if (matches.size() > 1) {
+            result.addWarning(WARNING_AMBIGUOUS_TICKER);
+        }
     }
 
     private String normalizeSide(String side) {

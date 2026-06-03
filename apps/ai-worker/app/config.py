@@ -80,8 +80,8 @@ class Settings(BaseSettings):
     # Google Gemini (if using Gemini provider - FREE tier available)
     # ============================================================
     gemini_api_key: str = ""
-    gemini_vision_model: str = "gemini-3-pro-preview"  # Supports images
-    gemini_text_model: str = "gemini-3-pro-preview"
+    gemini_vision_model: str = "gemini-2.5-flash"  # Supports images
+    gemini_text_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
 
     # ============================================================

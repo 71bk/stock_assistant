@@ -46,7 +46,7 @@ class AiConversationControllerTest {
     @Mock
     private CurrentUserRoleProvider currentUserRoleProvider;
     @Mock
-    private Executor aiExecutor;
+    private Executor aiSseExecutor;
     @Mock
     private BufferedSseSessionStore bufferedSseSessionStore;
     @Mock
@@ -63,7 +63,7 @@ class AiConversationControllerTest {
                 groqChatClient,
                 currentUserProvider,
                 currentUserRoleProvider,
-                aiExecutor,
+                aiSseExecutor,
                 bufferedSseSessionStore,
                 chatSkillExecutor);
     }
@@ -91,7 +91,7 @@ class AiConversationControllerTest {
             Runnable runnable = invocation.getArgument(0);
             runnable.run();
             return null;
-        }).when(aiExecutor).execute(any(Runnable.class));
+        }).when(aiSseExecutor).execute(any(Runnable.class));
 
         ConversationMessageView userMessage = new ConversationMessageView(
                 11L,
@@ -173,7 +173,7 @@ class AiConversationControllerTest {
             Runnable runnable = invocation.getArgument(0);
             runnable.run();
             return null;
-        }).when(aiExecutor).execute(any(Runnable.class));
+        }).when(aiSseExecutor).execute(any(Runnable.class));
 
         ConversationMessageView userMessage = new ConversationMessageView(
                 11L,
@@ -244,6 +244,83 @@ class AiConversationControllerTest {
     }
 
     @Test
+    void sendMessage_shouldMarkAssistantFailedWhenStreamCreationThrows() {
+        when(bufferedSseSessionStore.getOrCreate(anyString())).thenReturn(bufferedSseSession);
+        doAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(0);
+            runnable.run();
+            return null;
+        }).when(bufferedSseSession).startIfNeeded(any(Runnable.class));
+        when(currentUserProvider.getUserId()).thenReturn(Optional.of(1L));
+        doAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(0);
+            runnable.run();
+            return null;
+        }).when(aiSseExecutor).execute(any(Runnable.class));
+
+        ConversationMessageView userMessage = new ConversationMessageView(
+                11L,
+                ConversationRole.USER,
+                "hello",
+                null,
+                null);
+        ConversationMessageView pendingAssistant = new ConversationMessageView(
+                22L,
+                ConversationRole.ASSISTANT,
+                "",
+                ConversationMessageStatus.PENDING,
+                null);
+        ConversationMessageView failedAssistant = new ConversationMessageView(
+                22L,
+                ConversationRole.ASSISTANT,
+                "",
+                ConversationMessageStatus.FAILED,
+                null);
+        List<Map<String, String>> contextMessages = List.of(
+                Map.of("role", "user", "content", "hello"));
+
+        when(chatSkillExecutor.executeAll(any())).thenReturn(new ChatSkillBatchResult(null, List.of()));
+        when(conversationService.appendUserMessage(1L, 2L, "hello", "cid-4")).thenReturn(userMessage);
+        when(conversationService.appendOrGetAssistantMessage(
+                1L,
+                2L,
+                "",
+                ConversationMessageStatus.PENDING,
+                "assistant:cid-4")).thenReturn(pendingAssistant);
+        when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
+        when(groqChatClient.streamChat(contextMessages, 1L))
+                .thenThrow(new RuntimeException("Groq API key missing"));
+        when(conversationService.updateAssistantMessage(
+                1L,
+                2L,
+                22L,
+                "",
+                ConversationMessageStatus.FAILED)).thenReturn(failedAssistant);
+
+        SseEmitter emitter = controller.sendMessage(
+                "2",
+                ChatMessageRequest.builder()
+                        .content("hello")
+                        .clientMessageId("cid-4")
+                        .build(),
+                null);
+
+        assertNotNull(emitter);
+        verify(conversationService).updateAssistantMessage(
+                1L,
+                2L,
+                22L,
+                "",
+                ConversationMessageStatus.FAILED);
+        verify(conversationService, never()).updateAssistantMessage(
+                eq(1L),
+                eq(2L),
+                eq(22L),
+                anyString(),
+                eq(ConversationMessageStatus.COMPLETED));
+    }
+
+    @Test
     void sendMessage_shouldUseToolContextMessagesWhenSkillHits() {
         when(bufferedSseSessionStore.getOrCreate(anyString())).thenReturn(bufferedSseSession);
         doAnswer(invocation -> {
@@ -256,7 +333,7 @@ class AiConversationControllerTest {
             Runnable runnable = invocation.getArgument(0);
             runnable.run();
             return null;
-        }).when(aiExecutor).execute(any(Runnable.class));
+        }).when(aiSseExecutor).execute(any(Runnable.class));
 
         ConversationMessageView userMessage = new ConversationMessageView(
                 11L,

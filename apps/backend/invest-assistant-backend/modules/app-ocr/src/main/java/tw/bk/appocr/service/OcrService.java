@@ -273,9 +273,6 @@ public class OcrService {
     public OcrJobView cancel(Long userId, Long jobId, boolean force) {
         OcrJobEntity job = getJobEntity(userId, jobId);
         String status = job.getStatus();
-        if (!force && JOB_RUNNING.equals(status)) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
-        }
         if (JOB_DONE.equals(status) || JOB_FAILED.equals(status) || JOB_CANCELLED.equals(status)) {
             return viewMapper.toJobView(job);
         }

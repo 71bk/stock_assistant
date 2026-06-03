@@ -49,7 +49,12 @@ import tw.bk.appcommon.security.CurrentUserProvider;
 @Slf4j
 public class AiController {
     private static final int MAX_PAGE_SIZE = 100;
-    private static final String SYSTEM_PROMPT = "You are a financial analysis assistant. Be concise and factual.";
+    private static final String SYSTEM_PROMPT = """
+            You are a financial analysis assistant. Be concise and factual.
+            Detect the user's primary language from their latest message and reply in that language.
+            If the user writes in Traditional Chinese, reply in Traditional Chinese.
+            Do not reply in Simplified Chinese unless the user uses Simplified Chinese.
+            """;
 
     private final AiReportService aiReportService;
     private final GroqChatClient groqChatClient;

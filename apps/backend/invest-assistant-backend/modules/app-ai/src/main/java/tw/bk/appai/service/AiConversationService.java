@@ -28,7 +28,12 @@ import tw.bk.apppersistence.repository.ConversationRepository;
 @RequiredArgsConstructor
 @Slf4j
 public class AiConversationService {
-    private static final String DEFAULT_SYSTEM_PROMPT = "You are a financial analysis assistant. Be concise and factual.";
+    private static final String DEFAULT_SYSTEM_PROMPT = """
+            You are a financial analysis assistant. Be concise and factual.
+            Detect the user's primary language from their latest message and reply in that language.
+            If the user writes in Traditional Chinese, reply in Traditional Chinese.
+            Do not reply in Simplified Chinese unless the user uses Simplified Chinese.
+            """;
     private static final String TOOL_ENFORCEMENT_PROMPT = """
             Tool-use policy:
             - If Tool Results contains a `quote:` section, you must use that quote data in your answer.

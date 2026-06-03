@@ -47,6 +47,11 @@ public interface InstrumentRepository extends JpaRepository<InstrumentEntity, Lo
         Optional<InstrumentEntity> findFirstByTickerIgnoreCase(String ticker);
 
         /**
+         * Find exact ticker matches (case-insensitive).
+         */
+        List<InstrumentEntity> findByTickerIgnoreCase(String ticker);
+
+        /**
          * Find by market and status.
          */
         List<InstrumentEntity> findByMarketIdAndStatus(Long marketId, String status);

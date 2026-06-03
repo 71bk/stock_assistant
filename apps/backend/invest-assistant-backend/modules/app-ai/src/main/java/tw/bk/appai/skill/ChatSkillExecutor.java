@@ -17,7 +17,7 @@ public class ChatSkillExecutor {
     private final ChatSkillRegistry registry;
     private final Executor skillExecutor;
 
-    public ChatSkillExecutor(ChatSkillRegistry registry, @Qualifier("aiExecutor") Executor skillExecutor) {
+    public ChatSkillExecutor(ChatSkillRegistry registry, @Qualifier("aiSkillExecutor") Executor skillExecutor) {
         this.registry = registry;
         this.skillExecutor = skillExecutor;
     }
@@ -123,4 +123,3 @@ public class ChatSkillExecutor {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
     }
 }
-

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Layout, Menu, Input, Button, Avatar, Typography, Spin, Empty } from 'antd';
+import { Layout, Menu, Input, Button, Avatar, Typography, Spin, Empty, Dropdown } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   SendOutlined,
   PlusOutlined,
@@ -8,6 +9,9 @@ import {
   UserOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  DeleteOutlined,
+  MoreOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useChatStore } from '../../stores/chat.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -30,12 +34,16 @@ const ChatPage: React.FC = () => {
     loadConversations,
     createConversation,
     updateConversationTitle,
+    deleteConversation,
     selectConversation,
     sendMessage,
   } = useChatStore();
   const { user } = useAuthStore();
   const [inputValue, setInputValue] = useState('');
   const [siderCollapsed, setSiderCollapsed] = useState(false);
+  const [hoveredConversationId, setHoveredConversationId] = useState<string | null>(null);
+  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+  const [editTitleValue, setEditTitleValue] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -108,28 +116,87 @@ const ChatPage: React.FC = () => {
               inlineCollapsed={siderCollapsed}
               selectedKeys={currentConversationId ? [currentConversationId] : []}
               onClick={({ key, domEvent }) => {
-                // If the click was on the edit icon, don't select
-                if ((domEvent.target as HTMLElement).closest('.ant-typography-edit')) {
+                if ((domEvent.target as HTMLElement).closest('.chat-menu-actions') || (domEvent.target as HTMLElement).closest('.ant-dropdown')) {
                   return;
                 }
                 selectConversation(key);
               }}
-              items={conversations.map((c) => ({
-                key: c.conversationId,
-                icon: <MessageOutlined />,
-                label: siderCollapsed ? null : (
-                  <Typography.Text
-                    editable={{
-                      onChange: (val) => updateConversationTitle(c.conversationId, val),
-                      triggerType: ['icon'],
-                    }}
-                    style={{ color: 'inherit', width: '100%' }}
-                    ellipsis
-                  >
-                    {c.title || '新對話'}
-                  </Typography.Text>
-                ),
-              }))}
+              items={conversations.map((c) => {
+                const isHovered = hoveredConversationId === c.conversationId;
+                const isEditing = editingConversationId === c.conversationId;
+
+                const menuItems: MenuProps['items'] = [
+                  {
+                    key: 'rename',
+                    icon: <EditOutlined />,
+                    label: '重新命名',
+                    onClick: (e) => {
+                      e.domEvent.stopPropagation();
+                      setEditingConversationId(c.conversationId);
+                      setEditTitleValue(c.title || '');
+                    }
+                  },
+                  {
+                    key: 'delete',
+                    icon: <DeleteOutlined />,
+                    label: '刪除',
+                    danger: true,
+                    onClick: (e) => {
+                      e.domEvent.stopPropagation();
+                      deleteConversation(c.conversationId);
+                    }
+                  }
+                ];
+
+                return {
+                  key: c.conversationId,
+                  icon: <MessageOutlined />,
+                  onMouseEnter: () => setHoveredConversationId(c.conversationId),
+                  onMouseLeave: () => setHoveredConversationId(null),
+                  label: siderCollapsed ? null : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
+                      {isEditing ? (
+                        <Input
+                          size="small"
+                          value={editTitleValue}
+                          autoFocus
+                          onChange={(e) => setEditTitleValue(e.target.value)}
+                          onPressEnter={async (e) => {
+                            e.stopPropagation();
+                            await updateConversationTitle(c.conversationId, editTitleValue);
+                            setEditingConversationId(null);
+                          }}
+                          onBlur={async () => {
+                            if (editTitleValue !== (c.title || '')) {
+                              await updateConversationTitle(c.conversationId, editTitleValue);
+                            }
+                            setEditingConversationId(null);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ flex: 1, marginRight: 8 }}
+                        />
+                      ) : (
+                        <Typography.Text style={{ color: 'inherit', flex: 1 }} ellipsis>
+                          {c.title || '新對話'}
+                        </Typography.Text>
+                      )}
+                      
+                      {!isEditing && isHovered && (
+                        <div className="chat-menu-actions" onClick={e => e.stopPropagation()}>
+                          <Dropdown menu={{ items: menuItems }} trigger={['click']}>
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<MoreOutlined />}
+                              style={{ color: 'inherit', flexShrink: 0 }}
+                            />
+                          </Dropdown>
+                        </div>
+                      )}
+                    </div>
+                  ),
+                };
+              })}
             />
           )}
         </div>

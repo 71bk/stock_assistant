@@ -19,6 +19,7 @@ interface ChatState {
   loadConversations: () => Promise<void>;
   createConversation: () => Promise<string | null>;
   updateConversationTitle: (conversationId: string, title: string) => Promise<void>;
+  deleteConversation: (conversationId: string) => Promise<void>;
   selectConversation: (conversationId: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   resetChat: () => void;
@@ -97,6 +98,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (e) {
       console.error('Failed to update title', e);
       uiMessage.error('更新標題失敗');
+    }
+  },
+
+  deleteConversation: async (conversationId: string) => {
+    try {
+      await chatApi.deleteConversation(conversationId);
+      set((state) => {
+        const nextConversations = state.conversations.filter(c => c.conversationId !== conversationId);
+        let nextCurrentId = state.currentConversationId;
+        if (state.currentConversationId === conversationId) {
+          nextCurrentId = nextConversations.length > 0 ? nextConversations[0].conversationId : null;
+        }
+        return {
+          conversations: nextConversations,
+          currentConversationId: nextCurrentId,
+          messages: state.currentConversationId === conversationId ? [] : state.messages,
+        };
+      });
+      uiMessage.success('對話已刪除');
+      
+      // If we selected a new conversation, we need to load it
+      const { currentConversationId } = get();
+      if (currentConversationId) {
+        await get().selectConversation(currentConversationId);
+      }
+    } catch (e) {
+      console.error('Failed to delete conversation', e);
+      uiMessage.error('刪除對話失敗');
     }
   },
 

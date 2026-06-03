@@ -191,17 +191,23 @@ class OcrServiceJobLifecycleTest {
     }
 
     @Test
-    void cancel_shouldRejectRunningJobWithoutForce() {
+    void cancel_shouldCancelRunningJobWithoutForce() {
         Long userId = 7L;
         Long jobId = 105L;
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.RUNNING.name(), 305L);
+        OcrJobView expected = new OcrJobView(jobId, 305L, OcrJobStatus.CANCELLED, 100, "Cancelled by user");
 
         when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.save(job)).thenReturn(job);
+        when(viewMapper.toJobView(job)).thenReturn(expected);
 
-        BusinessException ex = assertThrows(BusinessException.class, () -> service.cancel(userId, jobId, false));
+        OcrJobView view = service.cancel(userId, jobId, false);
 
-        assertEquals(ErrorCode.CONFLICT, ex.getErrorCode());
-        assertEquals("OCR job is still running", ex.getMessage());
+        assertEquals(expected, view);
+        assertEquals(OcrJobStatus.CANCELLED.name(), job.getStatus());
+        assertEquals(100, job.getProgress());
+        assertEquals("Cancelled by user", job.getErrorMessage());
+        verify(ocrJobRepository).save(job);
     }
 
     @Test

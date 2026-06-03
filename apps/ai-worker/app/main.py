@@ -4,6 +4,11 @@ import logging
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    import asyncio
+
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # type: ignore[attr-defined]
+
 # Fix import path when running directly
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -124,6 +129,5 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=8001,
-        reload=True,
-        reload_dirs=[str(Path(__file__).parent.parent)],
+        reload=False,
     )
