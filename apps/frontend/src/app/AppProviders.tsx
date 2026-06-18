@@ -28,6 +28,10 @@ interface AppProvidersProps {
 export function AppProviders({ children }: AppProvidersProps) {
   const { theme } = useUIStore();
 
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ConfigProvider

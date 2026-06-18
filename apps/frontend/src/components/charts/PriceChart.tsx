@@ -7,6 +7,8 @@ import { stocksApi } from '../../api/stocks.api';
 import { calculateSMA, calculateEMA, calculateRSI, calculateMACD } from './indicators';
 import type { OHLCData } from './indicators';
 
+import { useUIStore } from '../../stores/ui.store';
+
 interface PriceChartProps {
   symbolKey: string;
   assetType?: string;
@@ -61,6 +63,8 @@ export function PriceChart({
     macdHist?: ISeriesApi<"Histogram">;
   }>({});
 
+  const { theme } = useUIStore();
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -70,19 +74,19 @@ export function PriceChart({
       width: containerRef.current.clientWidth || 600,
       height: Number(height) || 500,
       layout: {
-        background: { color: '#ffffff' },
-        textColor: '#333333',
+        background: { color: theme === 'dark' ? '#141414' : '#ffffff' },
+        textColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.85)' : '#333333',
       },
       grid: {
-        vertLines: { color: '#f0f0f0' },
-        horzLines: { color: '#f0f0f0' },
+        vertLines: { color: theme === 'dark' ? '#424242' : '#f0f0f0' },
+        horzLines: { color: theme === 'dark' ? '#424242' : '#f0f0f0' },
       },
       rightPriceScale: {
         visible: true,
-        borderColor: '#f0f0f0',
+        borderColor: theme === 'dark' ? '#424242' : '#f0f0f0',
       },
       timeScale: {
-        borderColor: '#f0f0f0',
+        borderColor: theme === 'dark' ? '#424242' : '#f0f0f0',
         timeVisible: true,
       },
     });
@@ -144,7 +148,7 @@ export function PriceChart({
       chartRef.current = null;
       seriesRef.current = {};
     };
-  }, [symbolKey, interval, height]); // 當這些改變時重建整個圖表
+  }, [symbolKey, interval, height, theme]); // 當這些改變時重建整個圖表
 
   // 4. 響應指標狀態變化，增刪 Series 或更新數據
   useEffect(() => {
@@ -405,10 +409,10 @@ export function PriceChart({
         ref={containerRef}
         style={{
           height,
-          border: '1px solid #f0f0f0',
+          border: '1px solid var(--ant-color-border-secondary)',
           borderRadius: 4,
           overflow: 'hidden',
-          backgroundColor: '#fff'
+          backgroundColor: 'var(--ant-color-bg-container)'
         }}
       />
     </div>

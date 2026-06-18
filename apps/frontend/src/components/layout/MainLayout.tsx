@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Layout, Menu, Button, Dropdown, Avatar, theme, Breadcrumb, Drawer, Grid, Flex } from 'antd';
+import { Layout, Menu, Button, Dropdown, Avatar, theme, Breadcrumb, Drawer, Grid, Flex, Switch } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   PieChartOutlined,
@@ -15,6 +15,8 @@ import {
   BookOutlined,
   DashboardOutlined,
   KeyOutlined,
+  SunOutlined,
+  MoonOutlined
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -26,7 +28,7 @@ export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, isAdmin } = useAuthStore();
-  const { siderCollapsed, toggleSider } = useUIStore();
+  const { siderCollapsed, toggleSider, theme: uiTheme, setTheme } = useUIStore();
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
@@ -212,12 +214,20 @@ export const MainLayout: React.FC = () => {
             />
             <Breadcrumb items={[{ title: '首頁' }, ...breadcrumbItems]} style={{ marginLeft: 16 }} />
           </Flex>
-          <Dropdown menu={userMenu} placement="bottomRight">
+          <Flex align="center" gap={16}>
+            <Switch
+              checked={uiTheme === 'dark'}
+              onChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+              checkedChildren={<MoonOutlined />}
+              unCheckedChildren={<SunOutlined />}
+            />
+            <Dropdown menu={userMenu} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', borderRadius: 6, transition: 'background 0.3s' }} className="user-dropdown-trigger">
                <Avatar src={user?.pictureUrl} icon={<UserOutlined />} style={{ backgroundColor: '#1677ff' }} />
                <span style={{ fontWeight: 500 }}>{user?.displayName || 'User'}</span>
             </div>
           </Dropdown>
+          </Flex>
         </Header>
         <Content
           style={{

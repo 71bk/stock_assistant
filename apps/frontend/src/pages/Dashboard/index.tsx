@@ -8,10 +8,13 @@ import { formatCurrency } from '../../utils/format';
 import { PageContainer } from '../../components/layout/PageContainer';
 import type { Trade } from '../../api/portfolios.api';
 
+import { useUIStore } from '../../stores/ui.store';
+
 const { Title } = Typography;
 
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
+  const { theme } = useUIStore();
   const { summary, positions, recentTrades, valuations, isLoading, fetchPortfolioData, fetchRecentTrades, fetchPortfolioValuations } = usePortfolioStore();
   const baseCurrency = user?.baseCurrency || 'TWD';
 
@@ -36,10 +39,15 @@ const Dashboard: React.FC = () => {
     angleField: 'value',
     colorField: 'ticker',
     radius: 0.8,
+    theme: theme === 'dark' ? 'classicDark' : 'classic',
     label: {
       text: (d: { ticker: string; value: number }) =>
         `${d.ticker}\n${(d.value / Number(summary?.totalMarketValue || 1) * 100).toFixed(1)}%`,
-      position: 'spider',
+      position: 'outside',
+      layout: [
+        { type: 'pie-spider' },
+        { type: 'hide-overlap' },
+      ],
     },
     legend: {
       color: {
@@ -57,6 +65,7 @@ const Dashboard: React.FC = () => {
     })),
     xField: 'date',
     yField: 'value',
+    theme: theme === 'dark' ? 'classicDark' : 'classic',
     style: {
       fill: 'linear-gradient(-90deg, white 0%, #1677ff 100%)',
     },
