@@ -300,7 +300,8 @@ public class PortfolioController {
                 parseDecimal(request.getFee()),
                 parseDecimal(request.getTax()),
                 request.getAccountId() != null ? parseId(request.getAccountId()) : null,
-                SOURCE_MANUAL);
+                SOURCE_MANUAL,
+                null);
     }
 
     private TradeCommand toTradeCommand(UpdateTradeRequest request) {
@@ -315,6 +316,7 @@ public class PortfolioController {
                 parseDecimal(request.getFee()),
                 parseDecimal(request.getTax()),
                 request.getAccountId() != null ? parseId(request.getAccountId()) : null,
-                SOURCE_MANUAL);
+                SOURCE_MANUAL,
+                null);
     }
 }

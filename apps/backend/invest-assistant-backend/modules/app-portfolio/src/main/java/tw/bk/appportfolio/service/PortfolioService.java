@@ -422,20 +422,16 @@ public class PortfolioService {
         if (from != null && to != null) {
             trades = tradeRepository.findByUserIdAndPortfolioIdAndTradeDateBetween(userId, portfolioId, from, to,
                     pageable);
-            return trades.map(this::toTradeView);
-        }
-        if (from != null) {
+        } else if (from != null) {
             trades = tradeRepository.findByUserIdAndPortfolioIdAndTradeDateGreaterThanEqual(userId, portfolioId, from,
                     pageable);
-            return trades.map(this::toTradeView);
-        }
-        if (to != null) {
+        } else if (to != null) {
             trades = tradeRepository.findByUserIdAndPortfolioIdAndTradeDateLessThanEqual(userId, portfolioId, to,
                     pageable);
-            return trades.map(this::toTradeView);
+        } else {
+            trades = tradeRepository.findByUserIdAndPortfolioId(userId, portfolioId, pageable);
         }
-        trades = tradeRepository.findByUserIdAndPortfolioId(userId, portfolioId, pageable);
-        return trades.map(this::toTradeView);
+        return toTradeViewPage(trades);
     }
 
     public List<UserPositionEntity> listPositions(Long userId, Long portfolioId) {
@@ -581,7 +577,7 @@ public class PortfolioService {
         }
 
         rebuildPosition(userId, portfolioId, command.instrumentId());
-        return toTradeView(trade);
+        return toTradeView(trade, instrument);
     }
 
     @Transactional
@@ -608,7 +604,7 @@ public class PortfolioService {
             rebuildPosition(userId, portfolioId, originalInstrumentId);
         }
         rebuildPosition(userId, portfolioId, command.instrumentId());
-        return toTradeView(trade);
+        return toTradeView(trade, instrument);
     }
 
     @Transactional
@@ -641,6 +637,7 @@ public class PortfolioService {
         trade.setTax(tax);
         trade.setAccountId(command.accountId());
         trade.setSource(command.source() == null ? SOURCE_MANUAL : command.source());
+        trade.setSourceRefId(command.sourceRefId());
 
         BigDecimal gross = price.multiply(quantity).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
         BigDecimal fees = fee.add(tax).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
@@ -823,10 +820,25 @@ public class PortfolioService {
                 entity.getBaseCurrency());
     }
 
+    private Page<TradeView> toTradeViewPage(Page<StockTradeEntity> trades) {
+        Map<Long, InstrumentEntity> instrumentById = loadInstrumentsById(trades.getContent().stream()
+                .map(StockTradeEntity::getInstrumentId)
+                .toList());
+        return trades.map(trade -> toTradeView(trade, instrumentById.get(trade.getInstrumentId())));
+    }
+
     private TradeView toTradeView(StockTradeEntity entity) {
+        return toTradeView(entity, null);
+    }
+
+    private TradeView toTradeView(StockTradeEntity entity, InstrumentEntity instrument) {
         return new TradeView(
                 entity.getId(),
                 entity.getInstrumentId(),
+                instrument != null ? instrument.getSymbolKey() : null,
+                instrument != null ? instrument.getTicker() : null,
+                instrument != null ? instrument.getNameZh() : null,
+                instrument != null ? instrument.getNameEn() : null,
                 entity.getTradeDate(),
                 entity.getSettlementDate(),
                 entity.getSideEnum(),

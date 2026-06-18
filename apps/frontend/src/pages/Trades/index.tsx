@@ -5,11 +5,8 @@ import { usePortfolioStore } from '../../stores/portfolio.store';
 import { formatCurrency } from '../../utils/format';
 import { AddTradeModal } from '../Portfolio/components/AddTradeModal';
 import { PageContainer } from '../../components/layout/PageContainer';
-import { stocksApi } from '../../api/stocks.api';
 import { ErrorState } from '../../components/common/ErrorState';
-import { logger } from '../../utils/logger';
 import type { Trade } from '../../api/portfolios.api';
-import type { Instrument } from '../../api/stocks.api';
 
 const { Title } = Typography;
 
@@ -17,45 +14,10 @@ const Trades: React.FC = () => {
   const { trades, isLoading, error, fetchTrades, deleteTrade } = usePortfolioStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [instruments, setInstruments] = useState<Record<string, Instrument>>({});
 
   useEffect(() => {
     fetchTrades();
   }, [fetchTrades]);
-
-  useEffect(() => {
-    const fetchInstruments = async () => {
-      const idsToFetch = new Set<string>();
-      trades.forEach((t) => {
-        if (!instruments[t.instrumentId]) {
-          idsToFetch.add(t.instrumentId);
-        }
-      });
-
-      if (idsToFetch.size === 0) return;
-
-      const fetchedMap: Record<string, Instrument> = {};
-      await Promise.all(
-        Array.from(idsToFetch).map(async (id) => {
-          try {
-            const res = await stocksApi.getInstrumentById(id);
-            const data = res;
-            if (data) {
-              fetchedMap[id] = data;
-            }
-          } catch (e) {
-            logger.error(`Failed to fetch instrument ${id}`, e);
-          }
-        })
-      );
-
-      setInstruments((prev) => ({ ...prev, ...fetchedMap }));
-    };
-
-    if (trades.length > 0) {
-      fetchInstruments();
-    }
-  }, [trades, instruments]);
 
   const handleEdit = (trade: Trade) => {
     setEditingTrade(trade);
@@ -108,11 +70,12 @@ const Trades: React.FC = () => {
                 title: '代號',
                 dataIndex: 'instrumentId',
                 render: (text, record) => {
-                  const inst = instruments[record.instrumentId];
+                  const ticker = record.ticker || text;
+                  const name = record.nameZh || record.nameEn;
                   return (
                     <div>
-                      <div style={{ fontWeight: 'bold' }}>{inst ? inst.ticker : text}</div>
-                      {inst && <div style={{ fontSize: 12, color: '#888' }}>{inst.nameZh || inst.nameEn}</div>}
+                      <div style={{ fontWeight: 'bold' }}>{ticker}</div>
+                      {name && <div style={{ fontSize: 12, color: '#888' }}>{name}</div>}
                     </div>
                   );
                 },

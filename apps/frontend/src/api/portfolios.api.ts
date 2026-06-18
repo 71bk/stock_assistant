@@ -3,6 +3,10 @@ import { http } from '../utils/http';
 export interface Trade {
   tradeId: string;
   instrumentId: string;
+  symbolKey?: string | null;
+  ticker?: string | null;
+  nameZh?: string | null;
+  nameEn?: string | null;
   tradeDate: string;
   settlementDate?: string | null;
   side: string;

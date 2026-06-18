@@ -16,6 +16,10 @@ public class TradeResponse {
 
     private String tradeId;
     private String instrumentId;
+    private String symbolKey;
+    private String ticker;
+    private String nameZh;
+    private String nameEn;
     private String tradeDate;
     private String settlementDate;
     private TradeSide side;
@@ -33,6 +37,10 @@ public class TradeResponse {
         return TradeResponse.builder()
                 .tradeId(String.valueOf(entity.id()))
                 .instrumentId(String.valueOf(entity.instrumentId()))
+                .symbolKey(entity.symbolKey())
+                .ticker(entity.ticker())
+                .nameZh(entity.nameZh())
+                .nameEn(entity.nameEn())
                 .tradeDate(entity.tradeDate() != null ? entity.tradeDate().toString() : null)
                 .settlementDate(entity.settlementDate() != null ? entity.settlementDate().toString() : null)
                 .side(entity.side())

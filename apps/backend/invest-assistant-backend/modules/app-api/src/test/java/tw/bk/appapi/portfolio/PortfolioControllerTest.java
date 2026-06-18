@@ -117,6 +117,8 @@ class PortfolioControllerTest {
         assertEquals(100, result.getData().getSize());
         assertEquals(1, result.getData().getItems().size());
         assertEquals("31", result.getData().getItems().get(0).getTradeId());
+        assertEquals("AAPL", result.getData().getItems().get(0).getTicker());
+        assertEquals("Apple", result.getData().getItems().get(0).getNameZh());
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(portfolioService).listTrades(eq(5L), eq(11L), eq(null), eq(null), pageableCaptor.capture());
@@ -201,6 +203,10 @@ class PortfolioControllerTest {
         return new TradeView(
                 tradeId,
                 1001L,
+                "AAPL.US",
+                "AAPL",
+                "Apple",
+                "Apple Inc.",
                 LocalDate.parse("2026-02-01"),
                 LocalDate.parse("2026-02-03"),
                 TradeSide.BUY,

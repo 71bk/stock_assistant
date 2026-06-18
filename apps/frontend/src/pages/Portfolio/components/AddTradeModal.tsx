@@ -34,6 +34,20 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ open, onCancel, on
           price: Number(trade.price),
           fee: Number(trade.fee || 0),
         });
+        if (trade.ticker || trade.nameZh || trade.nameEn || trade.symbolKey) {
+          setSelectedInstrument({
+            instrumentId: trade.instrumentId,
+            ticker: trade.ticker || 'Unknown',
+            currency: trade.currency,
+            nameZh: trade.nameZh || '',
+            nameEn: trade.nameEn || '',
+            exchange: '',
+            market: '',
+            assetType: '',
+            symbolKey: trade.symbolKey || '',
+          });
+          return;
+        }
         // Fetch instrument details
         stocksApi.getInstrumentById(trade.instrumentId).then((inst) => {
           setSelectedInstrument(inst);

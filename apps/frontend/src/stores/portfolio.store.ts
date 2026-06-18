@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { message, notification } from 'antd';
 import { portfoliosApi } from '../api/portfolios.api';
 import type { Position, PortfolioSummary, Trade, PortfolioValuation } from '../api/portfolios.api';
+import { logger } from '../utils/logger';
 
 interface PortfolioState {
   summary: PortfolioSummary | null;
@@ -49,7 +50,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         return pid;
       }
     } catch (e) {
-      console.error('Failed to init portfolio', e);
+      logger.error('Failed to init portfolio', e);
     }
 
     notification.warning({
@@ -79,14 +80,14 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       if (summaryResult.status === 'fulfilled') {
         set({ summary: summaryResult.value });
       } else {
-        console.error('Failed to fetch summary', summaryResult.reason);
+        logger.error('Failed to fetch summary', summaryResult.reason);
         message.error('無法載入投資組合摘要');
       }
 
       if (positionsResult.status === 'fulfilled') {
         set({ positions: positionsResult.value });
       } else {
-        console.error('Failed to fetch positions', positionsResult.reason);
+        logger.error('Failed to fetch positions', positionsResult.reason);
         message.error('無法載入持倉資料');
       }
 
@@ -134,7 +135,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         recentTrades: res.items,
       });
     } catch (err) {
-      console.error('Failed to fetch recent trades', err);
+      logger.error('Failed to fetch recent trades', err);
     }
   },
 
@@ -148,7 +149,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         valuations: res,
       });
     } catch (err) {
-      console.error('Failed to fetch valuations', err);
+      logger.error('Failed to fetch valuations', err);
     }
   },
 
@@ -164,7 +165,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         tradesTotal: pageData.total,
       });
     } catch (err) {
-      console.error('Failed to fetch trades', err);
+      logger.error('Failed to fetch trades', err);
     } finally {
       set({ isLoading: false });
     }
@@ -200,7 +201,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         await get().fetchPortfolioData(pid);
       }
     } catch (err) {
-      console.error('Update trade failed', err);
+      logger.error('Update trade failed', err);
       message.error('更新失敗');
       throw err;
     } finally {
@@ -219,12 +220,11 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         await get().fetchPortfolioData(pid);
       }
     } catch (error) {
-      console.error('Delete trade failed', error);
+      logger.error('Delete trade failed', error);
       message.error('刪除失敗');
     } finally {
       set({ isLoading: false });
     }
   },
 }));
-
 

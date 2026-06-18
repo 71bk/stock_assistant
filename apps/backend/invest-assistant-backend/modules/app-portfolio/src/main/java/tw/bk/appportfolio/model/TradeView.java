@@ -8,6 +8,10 @@ import tw.bk.appcommon.enums.TradeSource;
 public record TradeView(
         Long id,
         Long instrumentId,
+        String symbolKey,
+        String ticker,
+        String nameZh,
+        String nameEn,
         LocalDate tradeDate,
         LocalDate settlementDate,
         TradeSide side,

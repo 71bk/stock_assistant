@@ -16,5 +16,6 @@ public record TradeCommand(
                 BigDecimal fee,
                 BigDecimal tax,
                 Long accountId,
-                String source) {
+                String source,
+                Long sourceRefId) {
 }
