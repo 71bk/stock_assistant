@@ -37,6 +37,7 @@ import tw.bk.appstocks.model.TickerItem;
 import tw.bk.appstocks.model.TickerList;
 import tw.bk.appstocks.model.TickerQuery;
 import tw.bk.appstocks.port.StockMarketClient;
+import tw.bk.appstocks.service.CandleAggregator;
 import tw.bk.appstocks.service.ExternalApiRateLimiter;
 import tw.bk.appstocks.service.StockMetricsRecorder;
 
@@ -56,6 +57,7 @@ public class FugleClient implements StockMarketClient {
     private final ObjectMapper objectMapper;
     private final ExternalApiRateLimiter rateLimiter;
     private final StockMetricsRecorder metricsRecorder;
+    private final CandleAggregator candleAggregator;
     private final RestClient restClient = RestClient.create();
 
     @Override
@@ -180,6 +182,9 @@ public class FugleClient implements StockMarketClient {
             }
 
             candles.sort(Comparator.comparing(Candle::getTimestamp));
+            if (candleAggregator.isAggregateInterval(interval)) {
+                return candleAggregator.aggregate(interval, candles);
+            }
             return candles;
         } catch (RestClientResponseException ex) {
             return handleRestClientErrorList(ticker, ENDPOINT_CANDLES, interval, startedAt, ex);
