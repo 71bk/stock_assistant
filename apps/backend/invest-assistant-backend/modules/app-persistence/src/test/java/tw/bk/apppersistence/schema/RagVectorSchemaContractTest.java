@@ -1,6 +1,7 @@
 package tw.bk.apppersistence.schema;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
@@ -102,10 +103,13 @@ class RagVectorSchemaContractTest {
 
             assertTrue(
                     indexNames.containsAll(Set.of(
-                            "idx_rag_chunks_embedding",
+                            "idx_rag_chunks_embedding_ivfflat",
                             "idx_rag_chunks_user",
                             "idx_rag_chunks_embedding_model")),
                     "vector.rag_chunks indexes: " + indexNames);
+            assertFalse(
+                    indexNames.contains("idx_rag_chunks_embedding"),
+                    "V19 should drop the duplicate vector index: " + indexNames);
         }
     }
 
