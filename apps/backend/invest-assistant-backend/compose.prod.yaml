@@ -117,8 +117,10 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    # Bind to localhost only: public traffic arrives via the Cloudflare Tunnel
+    # (cloudflared -> nginx over the docker network), not this published port.
     ports:
-      - '${NGINX_HTTP_PORT:-80}:80'
+      - '127.0.0.1:${NGINX_HTTP_PORT:-80}:80'
     volumes:
       - ../../../infra/nginx/api.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -131,6 +133,19 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # Cloudflare Tunnel: outbound-only connection to Cloudflare's edge, so the host
+  # needs no public IP, no port forwarding and no DNS A record. Create the tunnel in
+  # the Cloudflare Zero Trust dashboard, set the public hostname
+  # api.stock.71bk.dev -> http://nginx:80, and paste the token into CLOUDFLARE_TUNNEL_TOKEN.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+    depends_on:
+      - nginx
+    networks:
+      - app-net
 
 volumes:
   postgres_data:
