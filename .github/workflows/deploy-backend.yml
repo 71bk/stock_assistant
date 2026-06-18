@@ -1,0 +1,42 @@
+name: Deploy Backend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: DEPLOY_PATH,GHCR_TOKEN,GHCR_USERNAME
+          script: |
+            set -e
+
+            DEPLOY_DIR="${DEPLOY_PATH:-$HOME/stock_assistant}"
+            cd "$DEPLOY_DIR"
+
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+
+            if [ -n "${GHCR_TOKEN:-}" ]; then
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-71bk}" --password-stdin
+            fi
+
+            cd apps/backend/invest-assistant-backend
+            docker compose -f compose.prod.yaml --env-file .env.prod pull
+            docker compose -f compose.prod.yaml --env-file .env.prod up -d
+            docker image prune -f
