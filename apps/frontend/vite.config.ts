@@ -27,6 +27,20 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'antd-vendor': ['antd', '@ant-design/icons'],
+          'chart-vendor': ['@ant-design/plots', 'lightweight-charts'],
+          'sentry-vendor': ['@sentry/react'],
+          'markdown-vendor': ['react-markdown', 'remark-gfm', 'rehype-sanitize']
+        }
+      }
+    }
+  },
   test: {
     globals: true,
     environment: 'jsdom',
