@@ -43,6 +43,8 @@ public class OcrService {
     private static final String STATUS_CONFIRMED = StatementStatus.CONFIRMED.name();
     private static final String STATUS_SUPERSEDED = StatementStatus.SUPERSEDED.name();
     private static final String JOB_QUEUED = OcrJobStatus.QUEUED.name();
+    private static final String JOB_PASSWORD_REQUIRED = OcrJobStatus.PASSWORD_REQUIRED.name();
+    private static final String JOB_PASSWORD_INVALID = OcrJobStatus.PASSWORD_INVALID.name();
     private static final String JOB_RUNNING = OcrJobStatus.RUNNING.name();
     private static final String JOB_DONE = OcrJobStatus.DONE.name();
     private static final String JOB_FAILED = OcrJobStatus.FAILED.name();
@@ -56,6 +58,7 @@ public class OcrService {
     private final PortfolioService portfolioService;
     private final OcrQueueService queueService;
     private final OcrDedupeService dedupeService;
+    private final OcrPdfPasswordVault pdfPasswordVault;
     private final StockTradeRepository stockTradeRepository;
     private final OcrJobProcessor jobProcessor;
     private final OcrDraftService ocrDraftService;
@@ -160,6 +163,42 @@ public class OcrService {
      */
     public void processJob(Long userId, Long jobId) {
         jobProcessor.processJob(userId, jobId);
+    }
+
+    @Transactional
+    public OcrJobView submitPdfPassword(Long userId, Long jobId, String pdfPassword) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
+        }
+        if (pdfPassword == null || pdfPassword.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "PDF password is required");
+        }
+
+        OcrJobEntity job = getJobEntity(userId, jobId);
+        String status = job.getStatus();
+        if (JOB_DONE.equals(status)) {
+            return viewMapper.toJobView(job);
+        }
+        if (JOB_CANCELLED.equals(status)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "OCR job is cancelled");
+        }
+        if (JOB_RUNNING.equals(status)) {
+            OffsetDateTime updatedAt = job.getUpdatedAt();
+            if (updatedAt != null && updatedAt.isAfter(OffsetDateTime.now().minusMinutes(maxRunningMinutes))) {
+                throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
+            }
+        }
+        if (!JOB_PASSWORD_REQUIRED.equals(status) && !JOB_PASSWORD_INVALID.equals(status)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "OCR job does not require a PDF password");
+        }
+
+        job.setStatus(JOB_QUEUED);
+        job.setProgress(5);
+        job.setErrorMessage(null);
+        OcrJobEntity saved = ocrJobRepository.save(job);
+        pdfPasswordVault.put(userId, jobId, pdfPassword);
+        queueService.enqueue(saved);
+        return viewMapper.toJobView(saved);
     }
 
     @Transactional(readOnly = true)

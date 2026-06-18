@@ -942,6 +942,10 @@ Response（節錄）
       {
         "tradeId": "9001",
         "instrumentId": "1001",
+        "symbolKey": "US:XNAS:AAPL",
+        "ticker": "AAPL",
+        "nameZh": "蘋果",
+        "nameEn": "Apple Inc.",
         "tradeDate": "2026-01-07",
         "side": "BUY",
         "quantity": "10",

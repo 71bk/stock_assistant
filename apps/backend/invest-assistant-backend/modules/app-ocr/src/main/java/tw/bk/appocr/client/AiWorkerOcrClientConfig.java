@@ -21,7 +21,7 @@ public class AiWorkerOcrClientConfig {
     }
 
     private Duration timeout(AiWorkerProperties properties) {
-        int timeoutSeconds = properties.getTimeoutSeconds() != null ? properties.getTimeoutSeconds() : 120;
+        int timeoutSeconds = properties.getTimeoutSeconds() != null ? properties.getTimeoutSeconds() : 300;
         return Duration.ofSeconds(Math.max(1, timeoutSeconds));
     }
 }

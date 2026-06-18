@@ -25,7 +25,7 @@ export interface DraftTrade {
 
 export interface OcrJob {
   jobId: string;
-  status: 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';
+  status: 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED' | 'PASSWORD_REQUIRED' | 'PASSWORD_INVALID';
   progress: number;
   errorMessage?: string | null;
   statementId?: string;
@@ -138,4 +138,9 @@ export const ocrApi = {
 
   cancelJob: (jobId: string, force = false) =>
     http.post<OcrJob>(`/ocr/jobs/${jobId}/cancel`, {}, { params: { force } }),
+
+  providePassword: (jobId: string, password: string) =>
+    http.post<OcrJob>(`/ocr/jobs/${jobId}/password`, { password }, {
+      timeout: 30000,
+    }),
 };

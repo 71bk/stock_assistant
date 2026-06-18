@@ -58,6 +58,8 @@ class OcrServiceConfirmTest {
     @Mock
     private OcrDedupeService dedupeService;
     @Mock
+    private OcrPdfPasswordVault pdfPasswordVault;
+    @Mock
     private StockTradeRepository stockTradeRepository;
     @Mock
     private OcrJobProcessor jobProcessor;
@@ -83,6 +85,7 @@ class OcrServiceConfirmTest {
                 portfolioService,
                 queueService,
                 dedupeService,
+                pdfPasswordVault,
                 stockTradeRepository,
                 jobProcessor,
                 ocrDraftService,
@@ -113,7 +116,7 @@ class OcrServiceConfirmTest {
         StatementEntity statement = statement(statementId, userId, portfolioId);
         StatementTradeEntity draft1 = draft(11L, statementId, 1001L);
         StatementTradeEntity draft2 = draft(12L, statementId, 1002L);
-        TradeCommand command = new TradeCommand(null, null, null, null, null, null, null, null, null, null, "OCR");
+        TradeCommand command = new TradeCommand(null, null, null, null, null, null, null, null, null, null, "OCR", 12L);
 
         when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
         when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));
@@ -143,7 +146,7 @@ class OcrServiceConfirmTest {
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.DONE.name(), statementId);
         StatementEntity statement = statement(statementId, userId, portfolioId);
         StatementTradeEntity draft = draft(21L, statementId, 1003L);
-        TradeCommand command = new TradeCommand(null, null, null, null, null, null, null, null, null, null, "OCR");
+        TradeCommand command = new TradeCommand(null, null, null, null, null, null, null, null, null, null, "OCR", 21L);
 
         when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
         when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));

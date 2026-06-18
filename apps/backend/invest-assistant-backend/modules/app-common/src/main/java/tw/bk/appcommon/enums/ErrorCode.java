@@ -10,6 +10,8 @@ public enum ErrorCode {
     NOT_FOUND(404, "NOT_FOUND", "Resource not found"),
     CONFLICT(409, "CONFLICT", "Conflict"),
     OCR_PARSE_FAILED(422, "OCR_PARSE_FAILED", "OCR parse failed"),
+    PDF_PASSWORD_REQUIRED(422, "PDF_PASSWORD_REQUIRED", "PDF password required"),
+    PDF_PASSWORD_INVALID(422, "PDF_PASSWORD_INVALID", "PDF password invalid"),
     RATE_LIMITED(429, "RATE_LIMITED", "Too many requests"),
     NOT_IMPLEMENTED(501, "NOT_IMPLEMENTED", "Not implemented"),
     INTERNAL_ERROR(500, "INTERNAL_ERROR", "Internal server error");

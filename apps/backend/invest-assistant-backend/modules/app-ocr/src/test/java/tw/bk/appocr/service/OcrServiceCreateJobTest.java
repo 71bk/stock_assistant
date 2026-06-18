@@ -53,6 +53,8 @@ class OcrServiceCreateJobTest {
     @Mock
     private OcrDedupeService dedupeService;
     @Mock
+    private OcrPdfPasswordVault pdfPasswordVault;
+    @Mock
     private StockTradeRepository stockTradeRepository;
     @Mock
     private OcrJobProcessor jobProcessor;
@@ -78,6 +80,7 @@ class OcrServiceCreateJobTest {
                 portfolioService,
                 queueService,
                 dedupeService,
+                pdfPasswordVault,
                 stockTradeRepository,
                 jobProcessor,
                 ocrDraftService,

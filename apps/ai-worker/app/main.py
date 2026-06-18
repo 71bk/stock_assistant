@@ -70,6 +70,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         service=settings.service_name,
         environment=settings.environment,
     )
+    python_base_prefix = getattr(sys, "base_prefix", sys.prefix)
+    logger.info(
+        "Python runtime",
+        python_executable=sys.executable,
+        python_prefix=sys.prefix,
+        python_base_prefix=python_base_prefix,
+        in_virtualenv=sys.prefix != python_base_prefix,
+    )
     expected_dim = settings.resolve_expected_embedding_dimension()
     validate_configured_embedding_dimension(expected_dim, settings.embedding_dimension)
     init_ocr_limits(settings.ocr_concurrency)

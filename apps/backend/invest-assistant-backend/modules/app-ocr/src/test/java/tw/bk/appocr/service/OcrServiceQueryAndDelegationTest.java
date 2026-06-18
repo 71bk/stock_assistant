@@ -2,6 +2,7 @@ package tw.bk.appocr.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,9 +17,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.appcommon.enums.StatementStatus;
 import tw.bk.appcommon.enums.TradeSide;
+import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.OcrDraftUpdate;
 import tw.bk.appocr.model.OcrDraftView;
 import tw.bk.appocr.model.OcrJobView;
@@ -55,6 +58,8 @@ class OcrServiceQueryAndDelegationTest {
     @Mock
     private OcrDedupeService dedupeService;
     @Mock
+    private OcrPdfPasswordVault pdfPasswordVault;
+    @Mock
     private StockTradeRepository stockTradeRepository;
     @Mock
     private OcrJobProcessor jobProcessor;
@@ -80,6 +85,7 @@ class OcrServiceQueryAndDelegationTest {
                 portfolioService,
                 queueService,
                 dedupeService,
+                pdfPasswordVault,
                 stockTradeRepository,
                 jobProcessor,
                 ocrDraftService,
@@ -93,6 +99,46 @@ class OcrServiceQueryAndDelegationTest {
         service.processJob(7L, 101L);
 
         verify(jobProcessor).processJob(7L, 101L);
+    }
+
+    @Test
+    void submitPdfPassword_shouldStorePasswordAndRequeueJob() {
+        Long userId = 7L;
+        Long jobId = 101L;
+        OcrJobEntity job = job(jobId, userId, OcrJobStatus.PASSWORD_REQUIRED.name(), 201L);
+        OcrJobView expected = new OcrJobView(jobId, 201L, OcrJobStatus.QUEUED, 5, null);
+
+        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.save(job)).thenReturn(job);
+        when(viewMapper.toJobView(job)).thenReturn(expected);
+
+        OcrJobView view = service.submitPdfPassword(userId, jobId, "secret");
+
+        assertEquals(expected, view);
+        assertEquals(OcrJobStatus.QUEUED.name(), job.getStatus());
+        assertEquals(5, job.getProgress());
+        assertEquals(null, job.getErrorMessage());
+        verify(pdfPasswordVault).put(userId, jobId, "secret");
+        verify(queueService).enqueue(job);
+        verify(jobProcessor, never()).processJob(userId, jobId, "secret");
+    }
+
+    @Test
+    void submitPdfPassword_shouldRejectJobThatDoesNotNeedPassword() {
+        Long userId = 7L;
+        Long jobId = 101L;
+        OcrJobEntity job = job(jobId, userId, OcrJobStatus.QUEUED.name(), 201L);
+
+        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> service.submitPdfPassword(userId, jobId, "secret"));
+
+        assertEquals(ErrorCode.CONFLICT, ex.getErrorCode());
+        verify(jobProcessor, never()).processJob(userId, jobId, "secret");
+        verify(pdfPasswordVault, never()).put(userId, jobId, "secret");
+        verify(queueService, never()).enqueue(any());
     }
 
     @Test

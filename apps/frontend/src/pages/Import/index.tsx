@@ -7,7 +7,7 @@ import {
 import {
   InboxOutlined, CheckCircleOutlined,
   ExclamationCircleOutlined, DeleteOutlined, SaveOutlined,
-  ReloadOutlined, UploadOutlined, ImportOutlined, FileImageOutlined
+  ReloadOutlined, UploadOutlined, ImportOutlined, FileImageOutlined, LockOutlined
 } from '@ant-design/icons';
 import { useImportFlow } from '../../hooks/useImportFlow';
 import { filesApi } from '../../api/files.api';
@@ -53,53 +53,104 @@ const UploadStep: React.FC = () => {
 
 // --- Step 1: Processing ---
 const ProcessingStep: React.FC = () => {
-const { progress, jobStatus, reset, reprocessJob, cancelJob, errorMessage } = useImportFlow();
+const { progress, jobStatus, reset, reprocessJob, cancelJob, errorMessage, providePassword, isLoading } = useImportFlow();
+const [password, setPassword] = useState('');
 
 // 若 jobStatus 為 CANCELLED，也視為一種失敗狀態，讓使用者可以重試或重傳
 const isFailedOrCancelled = jobStatus === 'FAILED' || jobStatus === 'CANCELLED';
+const isPasswordRequired = jobStatus === 'PASSWORD_REQUIRED' || jobStatus === 'PASSWORD_INVALID';
 
 let title = '文件解析中...';
 if (jobStatus === 'FAILED') title = '解析失敗';
 if (jobStatus === 'CANCELLED') title = '任務已取消';
+if (isPasswordRequired) title = '需要密碼以解鎖 PDF';
+
+const handlePasswordSubmit = () => {
+  if (isLoading || !isPasswordRequired) {
+    return;
+  }
+  if (password.trim()) {
+    providePassword(password.trim());
+  }
+};
 
 return (
-  <Card style={{ textAlign: 'center', padding: 60 }}>
-    <Title level={4}>{title}</Title>
-    <Progress
-      type="circle"
-      percent={progress}
-      status={isFailedOrCancelled ? 'exception' : undefined}
-    />
-    <div style={{ marginTop: 20 }}>
-      {isFailedOrCancelled ? (
-        <Flex vertical gap="middle" align="center">
-          <Text type={jobStatus === 'FAILED' ? "danger" : "secondary"}>
-            {jobStatus === 'FAILED' ? (errorMessage || 'OCR 解析失敗，請嘗試其他影像或重試。') : '您已取消此任務。'}
-          </Text>
-          <Flex gap="small">
-            <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
-              重新嘗試
-            </Button>
-            <Button type="primary" icon={<UploadOutlined />} onClick={reset}>
-              重新上傳
-            </Button>
+  <>
+    <Card style={{ textAlign: 'center', padding: 60 }}>
+      <Title level={4}>{title}</Title>
+      <Progress
+        type="circle"
+        percent={isPasswordRequired ? 0 : progress}
+        status={isFailedOrCancelled ? 'exception' : (isPasswordRequired ? 'normal' : undefined)}
+      />
+      <div style={{ marginTop: 20 }}>
+        {isFailedOrCancelled ? (
+          <Flex vertical gap="middle" align="center">
+            <Text type={jobStatus === 'FAILED' ? "danger" : "secondary"}>
+              {jobStatus === 'FAILED' ? (errorMessage || 'OCR 解析失敗，請嘗試其他影像或重試。') : '您已取消此任務。'}
+            </Text>
+            <Flex gap="small">
+              <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
+                重新嘗試
+              </Button>
+              <Button type="primary" icon={<UploadOutlined />} onClick={reset}>
+                重新上傳
+              </Button>
+            </Flex>
           </Flex>
-        </Flex>
-      ) : (
-        <Flex vertical gap="middle" align="center">
-          <Text type="secondary">正在辨識日期、代號與金額...</Text>
-          <Flex gap="small">
-            <Button icon={<ReloadOutlined />} onClick={reprocessJob} size="small">
-              重新解析
-            </Button>
-            <Button danger onClick={() => cancelJob()} size="small">
-              取消任務
-            </Button>
+        ) : (
+          <Flex vertical gap="middle" align="center">
+            <Text type="secondary">{isPasswordRequired ? '正在等待輸入密碼...' : '正在辨識日期、代號與金額...'}</Text>
+            <Flex gap="small">
+              {!isPasswordRequired && (
+                <Button icon={<ReloadOutlined />} onClick={reprocessJob} size="small">
+                  重新解析
+                </Button>
+              )}
+              <Button danger onClick={() => cancelJob()} size="small">
+                取消任務
+              </Button>
+            </Flex>
           </Flex>
-        </Flex>
-      )}
-    </div>
-  </Card>
+        )}
+      </div>
+    </Card>
+
+    <Modal
+      title="需要 PDF 密碼"
+      open={isPasswordRequired}
+      closable={false}
+      maskClosable={false}
+      footer={[
+        <Button key="cancel" onClick={cancelJob} disabled={isLoading}>取消任務</Button>,
+        <Button
+          key="submit"
+          type="primary"
+          onClick={handlePasswordSubmit}
+          loading={isLoading}
+          disabled={!password.trim() || !isPasswordRequired}
+        >
+          確認
+        </Button>
+      ]}
+    >
+      <Flex vertical gap="middle">
+        <Alert message="此文件受到密碼保護，請輸入密碼以繼續解析。" type="warning" showIcon />
+        {jobStatus === 'PASSWORD_INVALID' && (
+          <Alert message={errorMessage || "PDF 密碼錯誤，請重新輸入"} type="error" showIcon />
+        )}
+        <Input.Password
+          placeholder="請輸入密碼"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onPressEnter={handlePasswordSubmit}
+          prefix={<LockOutlined />}
+          disabled={isLoading}
+          autoFocus
+        />
+      </Flex>
+    </Modal>
+  </>
 );
 };
 
@@ -173,6 +224,7 @@ const ReviewStep: React.FC = () => {
       render: (_: unknown, record: DraftTrade) => {
         const formatMessage = (msg: string) => {
           if (msg === 'SETTLEMENT_BEFORE_TRADE') return '交割日不可早於成交日';
+          if (msg === 'OCR_VERTICAL_TEXT_LAYER_FALLBACK') return '請確認資訊';
           return msg;
         };
 
@@ -203,8 +255,14 @@ const ReviewStep: React.FC = () => {
         // 3. 顯示一般警告
         if (record.status === 'WARNING') {
           const isSettlementError = record.warnings.includes('SETTLEMENT_BEFORE_TRADE');
+          const isFallbackWarning = record.warnings.some(w => w === 'OCR_VERTICAL_TEXT_LAYER_FALLBACK' || w === 'Vertical text-layer fallback parse; please review before confirming.');
+          
           let label = '警告';
-          if (isSettlementError) label = '日期錯誤';
+          if (isSettlementError) {
+            label = '日期錯誤';
+          } else if (isFallbackWarning && !record.warnings.some(w => w !== 'OCR_VERTICAL_TEXT_LAYER_FALLBACK' && w !== 'Vertical text-layer fallback parse; please review before confirming.')) {
+            label = '請確認資訊';
+          }
 
           return (
             <Tooltip title={formattedWarnings.join(', ')}>
@@ -395,6 +453,19 @@ const ReviewStep: React.FC = () => {
     confirmTrades(selectedRowKeys as string[]);
   };
 
+  const isFallbackWarning = (w: string) => w === 'OCR_VERTICAL_TEXT_LAYER_FALLBACK' || w === 'Vertical text-layer fallback parse; please review before confirming.';
+
+  const isAbnormal = (t: DraftTrade) => {
+    if (t.status === 'ERROR') return true;
+    if (t.duplicate) return true;
+    if (t.status === 'WARNING') {
+      return t.warnings.some(w => !isFallbackWarning(w));
+    }
+    return false;
+  };
+
+  const abnormalTrades = draftTrades.filter(isAbnormal);
+
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
@@ -403,10 +474,10 @@ const ReviewStep: React.FC = () => {
         </Button>
       </div>
 
-      {draftTrades.some(t => t.status !== 'VALID') ? (
+      {abnormalTrades.length > 0 ? (
         <Alert
           title="發現異常資料"
-          description={`在 ${draftTrades.length} 筆交易中，有 ${draftTrades.filter(t => t.status !== 'VALID').length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
+          description={`在 ${draftTrades.length} 筆交易中，有 ${abnormalTrades.length} 筆資料可能重複或有誤，請仔細檢查標紅區域。`}
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
@@ -434,7 +505,10 @@ const ReviewStep: React.FC = () => {
         rowClassName={(record) => {
           if (record.status === 'ERROR') return 'row-error';
           if (record.duplicate) return 'row-warning row-duplicate';
-          if (record.status === 'WARNING') return 'row-warning';
+          // 如果只是 fallback warning，不要把整行標黃色
+          if (record.status === 'WARNING') {
+            return isAbnormal(record) ? 'row-warning' : '';
+          }
           return '';
         }}
       />

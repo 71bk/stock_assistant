@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.models.schemas import OcrRequest, OcrResponse, ParsedTrade
-from app.services.ocr_service import OcrService
+from app.services.ocr_service import OcrService, PdfPasswordInvalidError, PdfPasswordRequiredError
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -17,6 +17,7 @@ async def process_ocr(
     file: Annotated[UploadFile, File(description="Image or PDF file to process")],
     user_id: Annotated[str, Form(description="User ID for tracking")],
     broker: Annotated[str | None, Form(description="Broker name hint")] = None,
+    pdf_password: Annotated[str | None, Form(description="PDF password if required")] = None,
 ) -> OcrResponse:
     """
     Process an image or PDF file with OCR to extract trade data.
@@ -37,7 +38,13 @@ async def process_ocr(
     - `confidence`: Overall confidence score (0.0-1.0)
     - `warnings`: Any parsing warnings or issues
     """
-    logger.info("OCR request received", user_id=user_id, filename=file.filename, broker=broker)
+    logger.info(
+        "OCR request received",
+        user_id=user_id,
+        filename=file.filename,
+        broker=broker,
+        password_provided=bool(pdf_password),
+    )
 
     # Validate file type
     if file.content_type not in [
@@ -63,6 +70,7 @@ async def process_ocr(
             filename=file.filename or "unknown",
             content_type=file.content_type or "application/octet-stream",
             broker=broker,
+            pdf_password=pdf_password,
         )
 
         result = await ocr_service.process(content, request)
@@ -75,6 +83,26 @@ async def process_ocr(
         )
 
         return result
+
+    except PdfPasswordRequiredError as e:
+        logger.info("PDF password required", user_id=user_id, filename=file.filename)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PDF_PASSWORD_REQUIRED",
+                "message": "此 PDF 需要密碼，請輸入密碼後繼續處理",
+            },
+        ) from e
+
+    except PdfPasswordInvalidError as e:
+        logger.info("PDF password invalid", user_id=user_id, filename=file.filename)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PDF_PASSWORD_INVALID",
+                "message": "PDF 密碼錯誤，請重新輸入",
+            },
+        ) from e
 
     except Exception as e:
         import traceback

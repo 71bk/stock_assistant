@@ -2,6 +2,47 @@ import { create } from 'zustand';
 import { ocrApi } from '../api/ocr.api';
 import type { DraftTrade, OcrJob } from '../api/ocr.api';
 import { msg, mdl } from '../utils/antd-globals';
+import { logger } from '../utils/logger';
+
+type ApiErrorInfo = {
+  status?: number;
+  code?: string;
+  message?: string;
+};
+
+type ApiErrorLike = {
+  response?: {
+    status?: number;
+    data?: {
+      error?: {
+        code?: string;
+        message?: string;
+      };
+      message?: string;
+    };
+  };
+  cause?: {
+    error?: {
+      code?: string;
+      message?: string;
+    };
+    message?: string;
+  };
+  message?: string;
+};
+
+const extractApiErrorInfo = (error: unknown): ApiErrorInfo => {
+  const err = error as ApiErrorLike;
+  return {
+    status: err?.response?.status,
+    code: err?.response?.data?.error?.code ?? err?.cause?.error?.code,
+    message: err?.response?.data?.error?.message
+      ?? err?.response?.data?.message
+      ?? err?.cause?.error?.message
+      ?? err?.cause?.message
+      ?? err?.message,
+  };
+};
 
 interface ImportState {
   currentStep: number;
@@ -26,6 +67,7 @@ interface ImportState {
   deleteDraftTrade: (id: string) => Promise<void>;
   confirmTrades: (selectedIds: string[]) => Promise<void>;
   setStep: (step: number) => void;
+  providePassword: (password: string) => Promise<void>;
 }
 
 export const useImportStore = create<ImportState>((set, get) => ({
@@ -73,7 +115,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
       set({ activeJobId: jobId, isPolling: true });
       get().pollJob(jobId);
     } catch (error) {
-      console.error('Upload file failed', error);
+      logger.error('Upload file failed', error);
       set({ jobStatus: 'FAILED', isPolling: false });
       msg.error('Upload failed');
     } finally {
@@ -107,7 +149,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
       set({ activeJobId: jobId });
       get().pollJob(jobId);
     } catch (error) {
-      console.error('Reprocess job failed', error);
+      logger.error('Reprocess job failed', error);
       set({ jobStatus: 'FAILED', isPolling: false });
       msg.error('重新辨識失敗');
     } finally {
@@ -127,7 +169,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
       set({ jobStatus: 'CANCELLED', isPolling: false, pollingIntervalId: null, activePollingJobId: null });
       msg.info('任務已取消');
     } catch (error) {
-      console.error('Cancel job failed', error);
+      logger.error('Cancel job failed', error);
       msg.error('取消失敗');
     }
   },
@@ -152,7 +194,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
   
         set({ jobStatus: job.status, progress: job.progress, errorMessage: job.errorMessage });
   
-        if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED') {
+        if (job.status === 'DONE' || job.status === 'FAILED' || job.status === 'CANCELLED' || job.status === 'PASSWORD_REQUIRED' || job.status === 'PASSWORD_INVALID') {
           clearInterval(interval);
           set({ isPolling: false, pollingIntervalId: null, activePollingJobId: null });
           if (job.status === 'DONE') {
@@ -165,13 +207,13 @@ export const useImportStore = create<ImportState>((set, get) => ({
               });
               msg.success('OCR Processing Complete');
             } catch (err) {
-              console.error('Failed to fetch drafts', err);
+              logger.error('Failed to fetch drafts', err);
               msg.error('Failed to load drafts');
             }
           }
         }
       } catch (error) {
-        console.error('Polling job failed', error);
+        logger.error('Polling job failed', error);
         clearInterval(interval);
         set({ isPolling: false, jobStatus: 'FAILED', pollingIntervalId: null });
       }
@@ -191,7 +233,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
         ),
       }));
     } catch (error) {
-      console.error('Update draft failed', error);
+      logger.error('Update draft failed', error);
       msg.error('Failed to update draft');
     } finally {
       set({ isLoading: false });
@@ -208,7 +250,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
       }));
       msg.success('草稿已刪除');
     } catch (error) {
-      console.error('Delete draft failed', error);
+      logger.error('Delete draft failed', error);
       msg.error('刪除草稿失敗');
     } finally {
       set({ isLoading: false });
@@ -277,8 +319,57 @@ export const useImportStore = create<ImportState>((set, get) => ({
         }
       }
     } catch (e) {
-      console.error('Import confirmation failed', e);
+      logger.error('Import confirmation failed', e);
       msg.error('匯入確認失敗，請確保已選取項目的標的代號正確');
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  providePassword: async (password: string) => {
+    const { activeJobId, jobStatus } = get();
+    if (!activeJobId) return;
+    if (jobStatus !== 'PASSWORD_REQUIRED' && jobStatus !== 'PASSWORD_INVALID') {
+      get().pollJob(activeJobId);
+      return;
+    }
+
+    set({ isLoading: true });
+    try {
+      const job = await ocrApi.providePassword(activeJobId, password);
+      set({
+        jobStatus: job.status,
+        progress: job.progress,
+        errorMessage: job.errorMessage ?? null,
+      });
+
+      if (job.status === 'PASSWORD_INVALID') {
+        set({ errorMessage: job.errorMessage || '密碼錯誤，請重新輸入' });
+        return;
+      }
+
+      if (job.status === 'PASSWORD_REQUIRED' || job.status === 'FAILED' || job.status === 'CANCELLED') {
+        return;
+      }
+
+      // 後端已 enqueue，開始 polling 等待結果
+      msg.info('密碼已送出，正在重新解析...');
+      set({ isPolling: true, errorMessage: null });
+      get().pollJob(activeJobId);
+    } catch (error: unknown) {
+      logger.error('Provide password failed', error);
+      const apiError = extractApiErrorInfo(error);
+      const message = apiError.message || '送出密碼失敗';
+      const lowerMessage = message.toLowerCase();
+
+      const isInvalid = apiError.code === 'PDF_PASSWORD_INVALID'
+        || lowerMessage.includes('pdf_password_invalid')
+        || lowerMessage.includes('invalid')
+        || message.includes('密碼錯誤');
+      set({
+        jobStatus: isInvalid ? 'PASSWORD_INVALID' : 'PASSWORD_REQUIRED',
+        errorMessage: isInvalid ? '密碼錯誤，請重新輸入' : message,
+      });
     } finally {
       set({ isLoading: false });
     }

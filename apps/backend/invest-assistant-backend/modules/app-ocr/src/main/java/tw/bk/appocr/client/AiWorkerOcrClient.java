@@ -1,11 +1,14 @@
 package tw.bk.appocr.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
@@ -24,12 +27,15 @@ public class AiWorkerOcrClient {
 
     private final AiWorkerProperties properties;
     private final WebClient webClient;
+    private final ObjectMapper objectMapper;
 
     public AiWorkerOcrClient(
             AiWorkerProperties properties,
-            @Qualifier("aiWorkerOcrWebClient") WebClient webClient) {
+            @Qualifier("aiWorkerOcrWebClient") WebClient webClient,
+            ObjectMapper objectMapper) {
         this.properties = properties;
         this.webClient = webClient;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -41,6 +47,10 @@ public class AiWorkerOcrClient {
      * @return OCR response with parsed trades
      */
     public AiWorkerOcrResponse processFile(Long userId, FileEntity file, byte[] content) {
+        return processFile(userId, file, content, null);
+    }
+
+    public AiWorkerOcrResponse processFile(Long userId, FileEntity file, byte[] content, String pdfPassword) {
         if (content == null || content.length == 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File content is empty");
         }
@@ -66,6 +76,9 @@ public class AiWorkerOcrClient {
         if (broker != null) {
             body.add("broker", broker);
         }
+        if (pdfPassword != null && !pdfPassword.isBlank()) {
+            body.add("pdf_password", pdfPassword);
+        }
 
         try {
             AiWorkerOcrResponse response = webClient.post()
@@ -73,6 +86,9 @@ public class AiWorkerOcrClient {
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(BodyInserters.fromMultipartData(body))
                     .retrieve()
+                    .onStatus(HttpStatusCode::isError, clientResponse -> clientResponse.bodyToMono(String.class)
+                            .defaultIfEmpty("")
+                            .map(bodyText -> mapAiWorkerError(clientResponse.statusCode(), bodyText)))
                     .bodyToMono(AiWorkerOcrResponse.class)
                     .block(requestTimeout());
 
@@ -88,6 +104,97 @@ public class AiWorkerOcrClient {
                     : "AI Worker OCR failed: " + ex.getMessage();
             throw new BusinessException(ErrorCode.OCR_PARSE_FAILED, message);
         }
+    }
+
+    private BusinessException mapAiWorkerError(HttpStatusCode status, String bodyText) {
+        String code = extractErrorCode(bodyText);
+        String message = extractErrorMessage(bodyText);
+        if ("PDF_PASSWORD_REQUIRED".equals(code) || containsCode(bodyText, "PDF_PASSWORD_REQUIRED")) {
+            return new BusinessException(
+                    ErrorCode.PDF_PASSWORD_REQUIRED,
+                    defaultIfBlank(message, "此 PDF 需要密碼，請輸入密碼後繼續處理"));
+        }
+        if ("PDF_PASSWORD_INVALID".equals(code) || containsCode(bodyText, "PDF_PASSWORD_INVALID")) {
+            return new BusinessException(
+                    ErrorCode.PDF_PASSWORD_INVALID,
+                    defaultIfBlank(message, "PDF 密碼錯誤，請重新輸入"));
+        }
+
+        String detail = defaultIfBlank(message, bodyText);
+        String statusMessage = "AI Worker OCR failed: " + status.value();
+        if (detail != null && !detail.isBlank()) {
+            statusMessage += " " + detail;
+        }
+        return new BusinessException(ErrorCode.OCR_PARSE_FAILED, trimMessage(statusMessage));
+    }
+
+    private String extractErrorCode(String bodyText) {
+        JsonNode detail = readDetail(bodyText);
+        if (detail != null && detail.isObject()) {
+            JsonNode code = detail.get("code");
+            if (code != null && code.isTextual()) {
+                return code.asText();
+            }
+        }
+        JsonNode root = readJson(bodyText);
+        if (root != null) {
+            JsonNode code = root.get("code");
+            if (code != null && code.isTextual()) {
+                return code.asText();
+            }
+        }
+        return null;
+    }
+
+    private String extractErrorMessage(String bodyText) {
+        JsonNode detail = readDetail(bodyText);
+        if (detail != null) {
+            if (detail.isTextual()) {
+                return detail.asText();
+            }
+            if (detail.isObject()) {
+                JsonNode message = detail.get("message");
+                if (message != null && message.isTextual()) {
+                    return message.asText();
+                }
+            }
+        }
+        return null;
+    }
+
+    private JsonNode readDetail(String bodyText) {
+        JsonNode root = readJson(bodyText);
+        if (root == null) {
+            return null;
+        }
+        return root.get("detail");
+    }
+
+    private JsonNode readJson(String bodyText) {
+        if (bodyText == null || bodyText.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(bodyText);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private boolean containsCode(String bodyText, String code) {
+        return bodyText != null && bodyText.contains(code);
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String trimMessage(String message) {
+        if (message == null) {
+            return null;
+        }
+        String trimmed = message.trim();
+        return trimmed.length() > 500 ? trimmed.substring(0, 500) : trimmed;
     }
 
     /**
@@ -125,7 +232,7 @@ public class AiWorkerOcrClient {
     }
 
     private Duration requestTimeout() {
-        int timeoutSeconds = properties.getTimeoutSeconds() != null ? properties.getTimeoutSeconds() : 120;
+        int timeoutSeconds = properties.getTimeoutSeconds() != null ? properties.getTimeoutSeconds() : 300;
         return Duration.ofSeconds(Math.max(1, timeoutSeconds));
     }
 

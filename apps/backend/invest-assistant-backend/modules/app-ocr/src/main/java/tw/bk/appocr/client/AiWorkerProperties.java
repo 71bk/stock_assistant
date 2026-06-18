@@ -9,5 +9,5 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.ocr.ai-worker")
 public class AiWorkerProperties {
     private String baseUrl = "http://localhost:8001";
-    private Integer timeoutSeconds = 120;
+    private Integer timeoutSeconds = 300;
 }

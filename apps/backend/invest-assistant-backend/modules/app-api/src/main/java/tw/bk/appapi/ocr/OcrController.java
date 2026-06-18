@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.ocr.dto.ConfirmOcrRequest;
 import tw.bk.appapi.ocr.dto.CreateOcrJobRequest;
+import tw.bk.appapi.ocr.dto.SubmitOcrPasswordRequest;
 import tw.bk.appapi.ocr.dto.UpdateOcrDraftRequest;
 import tw.bk.appapi.ocr.vo.OcrConfirmResponse;
 import tw.bk.appapi.ocr.vo.OcrConfirmResponse.DraftError;
@@ -70,6 +71,18 @@ public class OcrController {
     public Result<OcrJobResponse> getJob(@PathVariable String jobId) {
         Long userId = requireUserId();
         OcrJobView job = ocrService.getJob(userId, parseId(jobId));
+        return Result.ok(OcrJobResponse.from(job));
+    }
+
+    @PostMapping("/jobs/{jobId}/password")
+    @Operation(summary = "Submit PDF password for OCR job")
+    public Result<OcrJobResponse> submitPassword(
+            @PathVariable String jobId,
+            @Valid @RequestBody SubmitOcrPasswordRequest request) {
+        Long userId = requireUserId();
+        Long parsedJobId = parseId(jobId);
+        log.info("Submit OCR PDF password: jobId={}, passwordProvided=true", parsedJobId);
+        OcrJobView job = ocrService.submitPdfPassword(userId, parsedJobId, request.getPassword());
         return Result.ok(OcrJobResponse.from(job));
     }
 

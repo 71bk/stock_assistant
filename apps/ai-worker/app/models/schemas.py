@@ -38,6 +38,7 @@ class OcrRequest(BaseModel):
     filename: str
     content_type: str
     broker: str | None = None
+    pdf_password: str | None = Field(default=None, repr=False, exclude=True)
 
 
 class ParsedTrade(BaseModel):

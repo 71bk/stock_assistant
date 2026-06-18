@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tw.bk.appapi.ocr.dto.SubmitOcrPasswordRequest;
 import tw.bk.appapi.ocr.vo.OcrJobResponse;
 import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.appcommon.result.Result;
@@ -70,5 +71,22 @@ class OcrControllerTest {
         assertEquals("321", result.getData().getJobId());
         assertEquals("654", result.getData().getStatementId());
         verify(ocrService).retryJob(7L, 321L, false);
+    }
+
+    @Test
+    void submitPassword_shouldCallServiceWithoutExposingPassword() {
+        OcrJobView job = new OcrJobView(123L, 456L, OcrJobStatus.RUNNING, 5, null);
+        SubmitOcrPasswordRequest request = new SubmitOcrPasswordRequest("secret");
+
+        when(currentUserProvider.getUserId()).thenReturn(Optional.of(99L));
+        when(ocrService.submitPdfPassword(99L, 123L, "secret")).thenReturn(job);
+
+        Result<OcrJobResponse> result = controller.submitPassword("123", request);
+
+        assertTrue(result.isSuccess());
+        assertNotNull(result.getData());
+        assertEquals("123", result.getData().getJobId());
+        assertEquals(OcrJobStatus.RUNNING, result.getData().getStatus());
+        verify(ocrService).submitPdfPassword(99L, 123L, "secret");
     }
 }

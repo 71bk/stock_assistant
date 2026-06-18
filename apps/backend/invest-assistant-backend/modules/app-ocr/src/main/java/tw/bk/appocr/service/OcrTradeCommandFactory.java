@@ -60,7 +60,8 @@ public class OcrTradeCommandFactory {
                 normalizeAmount(draft.getFee()),
                 normalizeAmount(draft.getTax()),
                 null,
-                SOURCE_OCR);
+                SOURCE_OCR,
+                draft.getId());
     }
 
     private BigDecimal normalizeAmount(BigDecimal amount) {

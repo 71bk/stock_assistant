@@ -27,6 +27,8 @@ import tw.bk.apppersistence.repository.StatementRepository;
 @RequiredArgsConstructor
 public class OcrJobProcessor {
     private static final String JOB_QUEUED = OcrJobStatus.QUEUED.name();
+    private static final String JOB_PASSWORD_REQUIRED = OcrJobStatus.PASSWORD_REQUIRED.name();
+    private static final String JOB_PASSWORD_INVALID = OcrJobStatus.PASSWORD_INVALID.name();
     private static final String JOB_RUNNING = OcrJobStatus.RUNNING.name();
     private static final String JOB_DONE = OcrJobStatus.DONE.name();
     private static final String JOB_FAILED = OcrJobStatus.FAILED.name();
@@ -39,11 +41,16 @@ public class OcrJobProcessor {
     private final ObjectMapper objectMapper;
     private final OcrFileService ocrFileService;
     private final OcrDraftService ocrDraftService;
+    private final OcrPdfPasswordVault pdfPasswordVault;
 
     @Value("${app.ocr.queue.max-running-minutes:30}")
     private long maxRunningMinutes;
 
     public void processJob(Long userId, Long jobId) {
+        processJob(userId, jobId, null);
+    }
+
+    public void processJob(Long userId, Long jobId, String pdfPassword) {
         if (userId == null || jobId == null) {
             return;
         }
@@ -54,6 +61,13 @@ public class OcrJobProcessor {
         }
         if (JOB_CANCELLED.equals(job.getStatus())) {
             log.info("OCR job cancelled, skip: jobId={}", jobId);
+            return;
+        }
+        boolean hasProvidedPdfPassword = pdfPassword != null && !pdfPassword.isBlank();
+        boolean hasPdfPassword = hasProvidedPdfPassword || pdfPasswordVault.contains(userId, jobId);
+        if (!hasPdfPassword
+                && (JOB_PASSWORD_REQUIRED.equals(job.getStatus()) || JOB_PASSWORD_INVALID.equals(job.getStatus()))) {
+            log.info("OCR job waiting for PDF password, skip queue processing: jobId={}", jobId);
             return;
         }
         // Note: We don't check for JOB_DONE here because of race conditions.
@@ -76,10 +90,15 @@ public class OcrJobProcessor {
                 JOB_CANCELLED,
                 JOB_RUNNING,
                 staleBefore,
-                List.of(JOB_QUEUED, JOB_FAILED));
+                claimableStatuses(hasPdfPassword));
         if (claimed == 0) {
             log.info("OCR job already claimed or cancelled, skip: jobId={}", jobId);
             return;
+        }
+
+        String effectivePdfPassword = pdfPassword;
+        if (!hasProvidedPdfPassword) {
+            effectivePdfPassword = pdfPasswordVault.consume(userId, jobId).orElse(null);
         }
 
         try {
@@ -91,7 +110,7 @@ public class OcrJobProcessor {
             byte[] content = ocrFileService.loadFileBytes(file);
 
             log.info("Calling AI worker OCR...");
-            AiWorkerOcrResponse response = aiWorkerOcrClient.processFile(userId, file, content);
+            AiWorkerOcrResponse response = aiWorkerOcrClient.processFile(userId, file, content, effectivePdfPassword);
             if (response == null) {
                 throw new BusinessException(ErrorCode.OCR_PARSE_FAILED, "Empty OCR response");
             }
@@ -129,17 +148,55 @@ public class OcrJobProcessor {
             }
             log.info("OCR job completed: jobId={}", jobId);
 
-        } catch (Exception ex) {
-            log.error("OCR job failed: jobId={}, error={}", jobId, ex.getMessage(), ex);
-            try {
-                int updated = ocrJobRepository.updateStatusIfNotCancelled(
-                        jobId, JOB_FAILED, 100, trimMessage(ex.getMessage()), JOB_CANCELLED);
-                if (updated == 0) {
-                    log.info("OCR job cancelled before failure update, skip FAILED: jobId={}", jobId);
-                }
-            } catch (Exception saveEx) {
-                log.error("Failed to persist OCR job failure: jobId={}, error={}", jobId, saveEx.getMessage());
+        } catch (BusinessException ex) {
+            if (ex.getErrorCode() == ErrorCode.PDF_PASSWORD_REQUIRED) {
+                updatePasswordStatus(
+                        jobId,
+                        JOB_PASSWORD_REQUIRED,
+                        "此 PDF 需要密碼，請輸入密碼後繼續處理");
+                return;
             }
+            if (ex.getErrorCode() == ErrorCode.PDF_PASSWORD_INVALID) {
+                updatePasswordStatus(
+                        jobId,
+                        JOB_PASSWORD_INVALID,
+                        "PDF 密碼錯誤，請重新輸入");
+                return;
+            }
+            persistFailure(jobId, ex);
+        } catch (Exception ex) {
+            persistFailure(jobId, ex);
+        } finally {
+            pdfPasswordVault.discard(userId, jobId);
+        }
+    }
+
+    private List<String> claimableStatuses(boolean hasPdfPassword) {
+        if (hasPdfPassword) {
+            return List.of(JOB_QUEUED, JOB_FAILED, JOB_PASSWORD_REQUIRED, JOB_PASSWORD_INVALID);
+        }
+        return List.of(JOB_QUEUED, JOB_FAILED);
+    }
+
+    private void updatePasswordStatus(Long jobId, String status, String message) {
+        log.info("OCR job needs PDF password handling: jobId={}, status={}", jobId, status);
+        int updated = ocrJobRepository.updateStatusIfNotCancelled(
+                jobId, status, 0, message, JOB_CANCELLED);
+        if (updated == 0) {
+            log.info("OCR job cancelled before password status update: jobId={}", jobId);
+        }
+    }
+
+    private void persistFailure(Long jobId, Exception ex) {
+        log.error("OCR job failed: jobId={}, error={}", jobId, ex.getMessage(), ex);
+        try {
+            int updated = ocrJobRepository.updateStatusIfNotCancelled(
+                    jobId, JOB_FAILED, 100, trimMessage(ex.getMessage()), JOB_CANCELLED);
+            if (updated == 0) {
+                log.info("OCR job cancelled before failure update, skip FAILED: jobId={}", jobId);
+            }
+        } catch (Exception saveEx) {
+            log.error("Failed to persist OCR job failure: jobId={}, error={}", jobId, saveEx.getMessage());
         }
     }
 

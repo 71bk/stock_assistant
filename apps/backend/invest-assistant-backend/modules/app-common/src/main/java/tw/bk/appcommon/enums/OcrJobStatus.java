@@ -8,6 +8,8 @@ import java.util.Locale;
 public enum OcrJobStatus {
     /** 排隊中 */
     QUEUED,
+    PASSWORD_REQUIRED,
+    PASSWORD_INVALID,
     RUNNING,
     /** 失敗 */
     FAILED,
