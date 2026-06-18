@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { stocksApi } from "../api/stocks.api";
 import type { Instrument, Quote } from "../api/stocks.api";
+import { logger } from "../utils/logger";
 
 interface StocksState {
   instruments: Instrument[];
@@ -56,7 +57,7 @@ export const useStocksStore = create<StocksState>((set) => ({
         },
       }));
     } catch (e) {
-      console.error(e);
+      logger.error('Failed to fetch quote', e);
     } finally {
       // set({ isLoading: false });
     }

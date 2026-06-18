@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { User } from '../types/domain';
 import { authApi, type LoginRequest } from '../api/auth.api';
+import { logger } from '../utils/logger';
 
 const ADMIN_SESSION_HINT_KEY = 'admin_session_hint';
 
@@ -66,7 +67,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await authApi.logout();
     } catch (e) {
-      console.error('Logout failed', e);
+      logger.error('Logout failed', e);
     } finally {
       // Always clean up state even if API fails
       writeAdminSessionHint(false);
@@ -88,7 +89,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAdmin: isRoleAdmin || adminHint,
       });
     } catch (error) {
-      console.error(error);
+      logger.error('Auth check failed', error);
       // If 401/403, we are not authenticated
       writeAdminSessionHint(false);
       set({ user: null, isAuthenticated: false, isAdmin: false });

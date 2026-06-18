@@ -25,6 +25,21 @@ const instance = axios.create({
   },
 });
 
+// Single-flight refresh token variables
+let isRefreshing = false;
+let failedQueue: { resolve: (value?: unknown) => void, reject: (reason?: unknown) => void }[] = [];
+
+const processQueue = (error: unknown, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 /**
  * 客製化 Axios 實例
  * 
@@ -84,10 +99,51 @@ instance.interceptors.response.use(
     return res as unknown as AxiosResponse;
   },
   async (error: AxiosError) => {
-    const config = error.config as InternalAxiosRequestConfig & { retryCount?: number };
+    const config = error.config as InternalAxiosRequestConfig & { retryCount?: number, _retry?: boolean };
     const status = error.response?.status;
     
-    // Retry logic
+    // 判斷是否為不需要 refresh 的 API
+    const isAuthUrl = config?.url?.includes('/auth/login') || 
+                      config?.url?.includes('/auth/admin/login') || 
+                      config?.url?.includes('/auth/logout') || 
+                      config?.url?.includes('/auth/csrf') ||
+                      config?.url?.includes('/auth/refresh');
+
+    if (status === 401 && config && !config._retry && !isAuthUrl) {
+      if (isRefreshing) {
+        // 如果正在 refresh，把目前的請求加入 Queue 等待
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(() => {
+          return instance(config);
+        }).catch((err) => {
+          return Promise.reject(err);
+        });
+      }
+
+      config._retry = true;
+      isRefreshing = true;
+
+      try {
+        // 呼叫 refresh API (使用獨立的 axios 避免觸發 interceptor 的邏輯，或者只要 isAuthUrl 能防堵即可)
+        await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+        
+        processQueue(null);
+        return instance(config);
+      } catch (refreshError) {
+        processQueue(refreshError);
+        
+        // Refresh 失敗，導回登入頁
+        if (!window.location.pathname.includes('/auth/login')) {
+          window.location.href = '/auth/login?expired=true';
+        }
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    // Retry logic for 5xx and network errors
     const MAX_RETRIES = 3;
     const isNetworkError = !error.response && error.code !== 'ECONNABORTED'; // Network error (no response) but not timeout (unless we want to retry timeout too)
     const isRetryableStatus = status === 408 || (status && status >= 500 && status < 600); // 408 Timeout, 5xx Server Error
@@ -103,10 +159,8 @@ instance.interceptors.response.use(
     const data = error.response?.data as { error?: { message?: string }; message?: string } | undefined;
 
     if (status === 401) {
-      // 避免在登入頁無限重整
-      if (!window.location.pathname.includes('/auth/login')) {
-        window.location.href = '/auth/login?expired=true';
-      }
+      // 這裡處理 /auth/me 本身或是 refresh 失敗後的 401
+      // 不做任何事，因為已經在上方處理過了或是即將被踢回登入頁
     } else if (status === 429) {
       notification.warning({
         message: '請稍後再試',

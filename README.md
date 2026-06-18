@@ -1,3 +1,4 @@
+
 # Stock Assistant
 
 Stock Assistant is an AI-powered investment assistant platform that combines market data, portfolio management, trade records, OCR import, AI analysis, and RAG-based knowledge retrieval.
