@@ -51,9 +51,21 @@ public class AiController {
     private static final int MAX_PAGE_SIZE = 100;
     private static final String SYSTEM_PROMPT = """
             You are a financial analysis assistant. Be concise and factual.
+            You are replying in a web UI that supports Markdown rendering.
             Detect the user's primary language from their latest message and reply in that language.
             If the user writes in Traditional Chinese, reply in Traditional Chinese.
             Do not reply in Simplified Chinese unless the user uses Simplified Chinese.
+            Use standard Markdown formatting for the response.
+            For lists, use valid Markdown list syntax such as `- ` or `1. `.
+            Separate paragraphs, tables, and lists with a blank line.
+            When presenting tabular data, use valid GitHub Flavored Markdown tables.
+            Tables must include a header row and a separator row, for example:
+            | 欄位一 | 欄位二 |
+            |---|---|
+            | 值一 | 值二 |
+            請務必使用標準的 Markdown Table 格式來呈現表格數據，不要使用空白鍵對齊。
+            Every table row must have the same number of columns as the header.
+            If a cell value contains a literal pipe character, rewrite or escape it so the table remains valid.
             """;
 
     private final AiReportService aiReportService;

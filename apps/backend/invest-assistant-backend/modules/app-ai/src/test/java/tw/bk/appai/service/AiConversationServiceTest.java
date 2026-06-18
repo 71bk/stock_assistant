@@ -46,6 +46,27 @@ class AiConversationServiceTest {
     }
 
     @Test
+    void createConversation_shouldPersistGfmTableFormattingInstructionInSystemPrompt() {
+        ConversationEntity savedConversation = new ConversationEntity();
+        savedConversation.setId(2L);
+        savedConversation.setUserId(1L);
+        savedConversation.setTitle("New Chat");
+        when(conversationRepository.save(any(ConversationEntity.class))).thenReturn(savedConversation);
+
+        service.createConversation(1L, "New Chat");
+
+        ArgumentCaptor<ConversationMessageEntity> captor = ArgumentCaptor.forClass(ConversationMessageEntity.class);
+        verify(messageRepository).save(captor.capture());
+        String systemPrompt = captor.getValue().getContent();
+        assertTrue(systemPrompt.contains("web UI that supports Markdown rendering"));
+        assertTrue(systemPrompt.contains("valid Markdown list syntax"));
+        assertTrue(systemPrompt.contains("Separate paragraphs, tables, and lists with a blank line"));
+        assertTrue(systemPrompt.contains("GitHub Flavored Markdown tables"));
+        assertTrue(systemPrompt.contains("|---|---|"));
+        assertTrue(systemPrompt.contains("不要使用空白鍵對齊"));
+    }
+
+    @Test
     void buildContextMessagesWithTool_shouldInjectToolPolicyForDeterministicQuoteUsage() {
         stubActiveConversation();
         ConversationMessageEntity system = new ConversationMessageEntity();

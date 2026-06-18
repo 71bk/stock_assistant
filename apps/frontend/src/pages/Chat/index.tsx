@@ -76,7 +76,7 @@ const ChatPage: React.FC = () => {
   };
 
   return (
-    <Layout style={{ height: 'calc(100vh - 160px)', background: '#fff', borderRadius: 8, overflow: 'hidden' }}>
+    <Layout style={{ height: 'calc(100vh - 160px)', background: 'var(--ant-color-bg-container)', borderRadius: 8, overflow: 'hidden' }}>
       <Sider
         width={260}
         theme="light"
@@ -84,7 +84,7 @@ const ChatPage: React.FC = () => {
         collapsed={siderCollapsed}
         onCollapse={setSiderCollapsed}
         trigger={null}
-        style={{ borderRight: '1px solid #f0f0f0' }}
+        style={{ borderRight: '1px solid var(--ant-color-border-secondary)' }}
       >
         <div style={{ padding: siderCollapsed ? '16px 0' : 16, display: 'flex', justifyContent: 'center' }}>
           {siderCollapsed ? (
@@ -204,7 +204,7 @@ const ChatPage: React.FC = () => {
 
       <Content style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* Header */}
-        <div style={{ padding: '12px 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--ant-color-border-secondary)', display: 'flex', alignItems: 'center', gap: 16 }}>
           <Button
             type="text"
             icon={siderCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
@@ -224,7 +224,7 @@ const ChatPage: React.FC = () => {
         {/* Messages */}
         <div 
           ref={scrollRef}
-          style={{ flex: 1, overflowY: 'auto', padding: '24px 0', background: '#f9f9f9' }}
+          style={{ flex: 1, overflowY: 'auto', padding: '24px 0', background: 'var(--ant-color-bg-layout)' }}
         >
           <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px' }}>
             {isLoadingConversation ? (
@@ -267,8 +267,8 @@ const ChatPage: React.FC = () => {
                     />
                     <div style={{
                       maxWidth: '85%',
-                      backgroundColor: msg.role === 'user' ? '#1677ff' : '#fff',
-                      color: msg.role === 'user' ? '#fff' : 'inherit',
+                      backgroundColor: msg.role === 'user' ? 'var(--ant-color-primary)' : 'var(--ant-color-bg-container)',
+                      color: msg.role === 'user' ? '#fff' : 'var(--ant-color-text)',
                       padding: '12px 16px',
                       borderRadius: 12,
                       boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
@@ -308,7 +308,7 @@ const ChatPage: React.FC = () => {
         </div>
 
         {/* Input */}
-        <div style={{ padding: '24px', borderTop: '1px solid #f0f0f0' }}>
+        <div style={{ padding: '24px', borderTop: '1px solid var(--ant-color-border-secondary)' }}>
           <div style={{ maxWidth: 800, margin: '0 auto', position: 'relative' }}>
             <TextArea
               value={inputValue}

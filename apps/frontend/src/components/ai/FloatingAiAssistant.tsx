@@ -3,6 +3,7 @@ import { FloatButton, Drawer, Input, Button, List, Avatar, Spin, Space, Typograp
 import { RobotOutlined, SendOutlined, UserOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import { useUIStore } from '../../stores/ui.store';
 import { useChatStore } from '../../stores/chat.store';
 
@@ -85,7 +86,7 @@ export const FloatingAiAssistant: React.FC = () => {
           },
         }}
       >
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', background: '#fff' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--ant-color-border-secondary)', background: 'var(--ant-color-bg-container)' }}>
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
             <div
               style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
@@ -176,8 +177,8 @@ export const FloatingAiAssistant: React.FC = () => {
                       style={{
                         padding: '8px 12px',
                         borderRadius: '12px',
-                        background: item.role === 'user' ? '#1677ff' : '#fff',
-                        color: item.role === 'user' ? '#fff' : '#000',
+                        background: item.role === 'user' ? 'var(--ant-color-primary)' : 'var(--ant-color-bg-container)',
+                        color: item.role === 'user' ? '#fff' : 'var(--ant-color-text)',
                         boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
                         whiteSpace: 'normal',
                       }}
@@ -186,7 +187,7 @@ export const FloatingAiAssistant: React.FC = () => {
                         <div style={{ whiteSpace: 'pre-wrap' }}>{item.content}</div>
                       ) : (
                         <div className="markdown-content">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
                             {item.content}
                           </ReactMarkdown>
                         </div>
@@ -206,7 +207,7 @@ export const FloatingAiAssistant: React.FC = () => {
           )}
         </div>
 
-        <div style={{ padding: '16px', borderTop: '1px solid #f0f0f0', background: '#fff' }}>
+        <div style={{ padding: '16px', borderTop: '1px solid var(--ant-color-border-secondary)', background: 'var(--ant-color-bg-container)' }}>
           <Space.Compact style={{ width: '100%' }}>
             <Input
               placeholder="輸入訊息..."

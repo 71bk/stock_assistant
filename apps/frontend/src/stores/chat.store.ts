@@ -4,6 +4,7 @@ import { chatApi } from '../api/chat.api';
 import type { ConversationMessage, ConversationSummary } from '../api/chat.api';
 import { fetchSseWithRetry } from '../utils/sse';
 import { env } from '../app/env';
+import { logger } from '../utils/logger';
 
 interface ChatState {
   conversations: ConversationSummary[];
@@ -64,7 +65,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         await get().selectConversation(data[0].conversationId);
       }
     } catch (e) {
-      console.error('Failed to load conversations', e);
+      logger.error('Failed to load conversations', e);
     } finally {
       set({ isLoadingList: false });
     }
@@ -80,7 +81,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       return conversation.conversationId;
     } catch (e) {
-      console.error('Failed to create conversation', e);
+      logger.error('Failed to create conversation', e);
       uiMessage.error('建立對話失敗');
       return null;
     }
@@ -96,7 +97,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       uiMessage.success('標題已更新');
     } catch (e) {
-      console.error('Failed to update title', e);
+      logger.error('Failed to update title', e);
       uiMessage.error('更新標題失敗');
     }
   },
@@ -124,7 +125,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         await get().selectConversation(currentConversationId);
       }
     } catch (e) {
-      console.error('Failed to delete conversation', e);
+      logger.error('Failed to delete conversation', e);
       uiMessage.error('刪除對話失敗');
     }
   },
@@ -142,7 +143,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: toUiMessages(detail.messages),
       });
     } catch (e) {
-      console.error('Failed to load conversation', e);
+      logger.error('Failed to load conversation', e);
       uiMessage.error('載入對話失敗');
     } finally {
       set({ isLoadingConversation: false });
@@ -256,7 +257,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ isStreaming: false, streamingConversationId: null });
       await get().loadConversations();
     } catch (e) {
-      console.error('Chat SSE error', e);
+      logger.error('Chat SSE error', e);
       if ((e as Error).name !== 'AbortError') {
         uiMessage.error('AI 回覆失敗');
       }

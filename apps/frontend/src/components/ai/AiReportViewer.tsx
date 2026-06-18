@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -84,7 +85,7 @@ export const AiReportViewer: React.FC<AiReportViewerProps> = ({ content = "" }) 
   if (!isParsedSuccessfully) {
     return (
       <Card className="ai-report-fallback">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>{content}</ReactMarkdown>
       </Card>
     );
   }

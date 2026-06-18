@@ -4,6 +4,7 @@ import type { AiReportSummary } from '../api/ai.api';
 import { message } from 'antd';
 import { fetchSseWithRetry } from '../utils/sse';
 import { env } from '../app/env';
+import { logger } from '../utils/logger';
 
 interface AiState {
   reports: AiReportSummary[];
@@ -32,7 +33,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       const res = await aiApi.getReports(page, size);
       set({ reports: res.items, totalReports: res.total });
     } catch (e) {
-      console.error('Failed to fetch reports', e);
+      logger.error('Failed to fetch reports', e);
       set({ error: e instanceof Error ? e.message : '無法載入報告' });
     } finally {
       set({ isLoading: false });
@@ -54,7 +55,7 @@ export const useAiStore = create<AiState>((set, get) => ({
           set((state) => ({ analysisStream: state.analysisStream + text }));
         },
         onError: (err) => {
-          console.error('SSE Error', err);
+          logger.error('SSE Error', err);
           message.error('分析出錯，請稍後再試');
         },
         onDone: () => {
@@ -63,7 +64,7 @@ export const useAiStore = create<AiState>((set, get) => ({
         }
       });
     } catch (e) {
-      console.error('Analysis start failed', e);
+      logger.error('Analysis start failed', e);
       message.error('無法開始分析');
       set({ isAnalyzing: false });
     }
