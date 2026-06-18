@@ -1,13 +1,6 @@
 name: Docker Publish
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - apps/backend/invest-assistant-backend/**
-      - apps/ai-worker/**
-      - .github/workflows/docker-publish.yml
   workflow_dispatch:
 
 permissions:
