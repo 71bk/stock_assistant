@@ -44,6 +44,25 @@ export const RequireAuth: React.FC<GuardProps> = ({ children }) => {
   return <>{children}</>;
 };
 
+export const RequireAdmin: React.FC<GuardProps> = ({ children }) => {
+  const { isAuthenticated, isAdmin, isLoading } = useAuthStore();
+  const location = useLocation();
+
+  if (isLoading) {
+    return <Spin fullscreen size="large" tip="載入中..." />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/auth/admin/login" state={{ from: location }} replace />;
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 export const PublicOnly: React.FC<GuardProps> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuthStore();
   const location = useLocation();

@@ -3,7 +3,7 @@ import type { RouteObject } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
-import { RequireAuth, PublicOnly } from "@/utils/guards";
+import { RequireAuth, RequireAdmin, PublicOnly } from "@/utils/guards";
 
 // Pages (Lazy Loading)
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
@@ -121,9 +121,11 @@ export const routeConfig: RouteObject[] = [
           {
             path: "admin/dashboard",
             element: (
-              <LazyWrapper>
-                <AdminDashboard />
-              </LazyWrapper>
+              <RequireAdmin>
+                <LazyWrapper>
+                  <AdminDashboard />
+                </LazyWrapper>
+              </RequireAdmin>
             ),
           },
         ],
