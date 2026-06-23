@@ -18,6 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -372,6 +373,9 @@ public class PortfolioService {
             return PortfolioSummary.empty();
         }
 
+        // 平行預抓報價，後續迴圈只做 map 查表，避免逐檔序列等待累加成 timeout
+        QuoteProvider resolvedQuotes = prefetchQuotes(positions, quoteProvider);
+
         BigDecimal totalCost = BigDecimal.ZERO;
         BigDecimal totalMarketValue = BigDecimal.ZERO;
 
@@ -386,10 +390,10 @@ public class PortfolioService {
 
             // Get real-time price from quote provider, fallback to avgCost if unavailable
             BigDecimal currentPrice = avgCost;
-            if (quoteProvider != null) {
+            if (resolvedQuotes != null) {
                 InstrumentEntity instrument = instrumentRepository.findById(position.getInstrumentId()).orElse(null);
                 if (instrument != null && instrument.getSymbolKey() != null) {
-                    currentPrice = quoteProvider.getCurrentPrice(instrument.getSymbolKey())
+                    currentPrice = resolvedQuotes.getCurrentPrice(instrument.getSymbolKey())
                             .orElse(avgCost);
                 }
             }
@@ -495,9 +499,39 @@ public class PortfolioService {
         requirePortfolioEntity(userId, portfolioId);
         List<UserPositionEntity> positions = positionRepository.findByPortfolioId(portfolioId);
 
+        // 平行預抓報價，下方 buildPositionWithQuote 的報價查詢改為即時 map 查表
+        QuoteProvider resolvedQuotes = prefetchQuotes(positions, quoteProvider);
+
         return positions.stream()
-                .map(pos -> buildPositionWithQuote(pos, quoteProvider))
+                .map(pos -> buildPositionWithQuote(pos, resolvedQuotes))
                 .toList();
+    }
+
+    /**
+     * 平行預抓所有持倉的即時報價，回傳一個改由記憶體 map 即時回應的 QuoteProvider。
+     *
+     * <p>原本 summary/positions 會「逐檔」呼叫外部報價，N 檔就是 N 次序列等待；
+     * 改成一次平行抓好放進 map，後續計算只做 map 查表，避免單檔變慢時累加成前端 timeout。
+     * 報價查詢為純 HTTP（不碰 JPA），可安全地在 parallel stream 中執行。
+     */
+    private QuoteProvider prefetchQuotes(List<UserPositionEntity> positions, QuoteProvider delegate) {
+        if (delegate == null || positions.isEmpty()) {
+            return delegate;
+        }
+        List<Long> instrumentIds = positions.stream()
+                .map(UserPositionEntity::getInstrumentId)
+                .distinct()
+                .toList();
+        List<String> symbolKeys = new ArrayList<>();
+        for (InstrumentEntity instrument : instrumentRepository.findAllById(instrumentIds)) {
+            if (instrument.getSymbolKey() != null) {
+                symbolKeys.add(instrument.getSymbolKey());
+            }
+        }
+        Map<String, Optional<BigDecimal>> priceCache = new ConcurrentHashMap<>();
+        symbolKeys.stream().distinct().parallel()
+                .forEach(key -> priceCache.put(key, delegate.getCurrentPrice(key)));
+        return symbolKey -> priceCache.getOrDefault(symbolKey, Optional.empty());
     }
 
     private Set<Long> resolveRebuildTargets(Long userId, Long portfolioId, Long instrumentId) {
