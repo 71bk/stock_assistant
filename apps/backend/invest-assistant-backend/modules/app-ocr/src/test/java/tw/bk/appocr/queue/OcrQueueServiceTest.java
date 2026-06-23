@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisStreamCommands;
+import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.PendingMessage;
 import org.springframework.data.redis.connection.stream.PendingMessages;
 import org.springframework.data.redis.connection.stream.ReadOffset;
@@ -162,12 +163,9 @@ class OcrQueueServiceTest {
     }
 
     @Test
-    void readPending_shouldClaimStaleMessagesBeforeReading() {
+    @SuppressWarnings("unchecked")
+    void readPending_shouldClaimAndReturnOnlyStaleMessages() {
         when(redisTemplate.hasKey(properties.getStreamKey())).thenReturn(true);
-        when(streamOperations.read(
-                any(org.springframework.data.redis.connection.stream.Consumer.class),
-                any(StreamReadOptions.class),
-                any(StreamOffset.class))).thenReturn(List.of());
 
         PendingMessages pendingMessages = org.mockito.Mockito.mock(PendingMessages.class);
         PendingMessage pendingMessage = org.mockito.Mockito.mock(PendingMessage.class);
@@ -183,27 +181,37 @@ class OcrQueueServiceTest {
                 eq(Long.valueOf(properties.getPendingClaimLimit())),
                 eq(properties.getPendingClaimMinIdle()))).thenReturn(pendingMessages);
 
-        service.readPending();
+        MapRecord<String, String, String> claimedRecord = org.mockito.Mockito.mock(MapRecord.class);
+        when(streamOperations.claim(
+                eq(properties.getStreamKey()),
+                eq(properties.getGroup()),
+                eq(properties.getConsumer()),
+                eq(properties.getPendingClaimMinIdle()),
+                any(RecordId[].class))).thenReturn(List.of(claimedRecord));
 
+        List<MapRecord<String, String, String>> result = service.readPending();
+
+        assertEquals(1, result.size());
         ArgumentCaptor<RecordId[]> idsCaptor = ArgumentCaptor.forClass(RecordId[].class);
-        verify(redisStreamCommands).xClaim(
-                any(byte[].class),
+        verify(streamOperations).claim(
+                eq(properties.getStreamKey()),
                 eq(properties.getGroup()),
                 eq(properties.getConsumer()),
                 eq(properties.getPendingClaimMinIdle()),
                 idsCaptor.capture());
         assertEquals(1, idsCaptor.getValue().length);
         assertEquals("1-0", idsCaptor.getValue()[0].getValue());
+        // The buggy "re-read own pending from offset 0 every poll" must be gone.
+        verify(streamOperations, never()).read(
+                any(org.springframework.data.redis.connection.stream.Consumer.class),
+                any(StreamReadOptions.class),
+                any(StreamOffset.class));
     }
 
     @Test
     void readPending_shouldSkipClaimWhenMinIdleDisabled() {
         properties.setPendingClaimMinIdle(Duration.ZERO);
         when(redisTemplate.hasKey(properties.getStreamKey())).thenReturn(true);
-        when(streamOperations.read(
-                any(org.springframework.data.redis.connection.stream.Consumer.class),
-                any(StreamReadOptions.class),
-                any(StreamOffset.class))).thenReturn(List.of());
 
         service.readPending();
 

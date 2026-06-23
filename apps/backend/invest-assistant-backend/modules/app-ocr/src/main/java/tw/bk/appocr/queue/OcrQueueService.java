@@ -69,14 +69,16 @@ public class OcrQueueService {
     public List<MapRecord<String, String, String>> readPending() {
         try {
             ensureGroup();
-            claimStalePending();
-            return doReadPending();
+            // 只回收 idle 超過 minIdle 的訊息（亦即真正卡住的，例如 consumer 崩潰後未 ACK）。
+            // 仍在處理中的 in-flight 訊息不會被回收，避免之前「每秒重讀 offset 0」造成的
+            // 重複併發處理與提前 ACK。
+            return claimStalePending();
         } catch (Exception ex) {
             if (isNoGroup(ex)) {
                 log.warn("Consumer group missing when reading pending, recreating...");
                 groupReady = false;
                 ensureGroup();
-                return doReadPending();
+                return claimStalePending();
             }
             return List.of();
         }
@@ -149,19 +151,6 @@ public class OcrQueueService {
                 StreamOffset.create(properties.getStreamKey(), ReadOffset.lastConsumed()));
     }
 
-    private List<MapRecord<String, String, String>> doReadPending() {
-        StreamOperations<String, String, String> ops = redisTemplate.opsForStream();
-        StreamReadOptions options = StreamReadOptions.empty()
-                .count(properties.getBatchSize());
-
-        return ops.read(
-                org.springframework.data.redis.connection.stream.Consumer.from(
-                        properties.getGroup(),
-                        properties.getConsumer()),
-                options,
-                StreamOffset.create(properties.getStreamKey(), ReadOffset.from("0")));
-    }
-
     private boolean isBusyGroup(Exception ex) {
         return containsMessage(ex, "BUSYGROUP");
     }
@@ -182,46 +171,51 @@ public class OcrQueueService {
         ops.add(StreamRecords.newRecord().in(streamKey).ofMap(Map.of(INIT_FIELD, INIT_VALUE)));
     }
 
-    private void claimStalePending() {
+    private List<MapRecord<String, String, String>> claimStalePending() {
         Duration minIdle = properties.getPendingClaimMinIdle();
         if (minIdle == null || minIdle.isZero() || minIdle.isNegative()) {
-            return;
+            return List.of();
         }
         int claimLimit = Math.min(Math.max(properties.getPendingClaimLimit(), 1), MAX_PENDING_CLAIM_LIMIT);
-        redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Void>) connection -> {
-            RedisStreamCommands streamCommands = connection.streamCommands();
-            if (streamCommands == null) {
-                return null;
+
+        // XPENDING with idle filter: only messages stuck longer than minIdle are candidates.
+        PendingMessages pendingMessages = redisTemplate.execute(
+                (org.springframework.data.redis.core.RedisCallback<PendingMessages>) connection -> {
+                    RedisStreamCommands streamCommands = connection.streamCommands();
+                    if (streamCommands == null) {
+                        return null;
+                    }
+                    return streamCommands.xPending(
+                            serializeStreamKey(properties.getStreamKey()),
+                            properties.getGroup(),
+                            Range.unbounded(),
+                            Long.valueOf(claimLimit),
+                            minIdle);
+                });
+        if (pendingMessages == null || pendingMessages.isEmpty()) {
+            return List.of();
+        }
+        List<RecordId> staleIds = new ArrayList<>();
+        for (PendingMessage pending : pendingMessages) {
+            if (pending == null || pending.getId() == null) {
+                continue;
             }
-            byte[] streamKey = serializeStreamKey(properties.getStreamKey());
-            PendingMessages pendingMessages = streamCommands.xPending(
-                    streamKey,
-                    properties.getGroup(),
-                    Range.unbounded(),
-                    Long.valueOf(claimLimit),
-                    minIdle);
-            if (pendingMessages == null || pendingMessages.isEmpty()) {
-                return null;
-            }
-            List<RecordId> staleIds = new ArrayList<>();
-            for (PendingMessage pending : pendingMessages) {
-                if (pending == null || pending.getId() == null) {
-                    continue;
-                }
-                staleIds.add(pending.getId());
-            }
-            if (staleIds.isEmpty()) {
-                return null;
-            }
-            streamCommands.xClaim(
-                    streamKey,
-                    properties.getGroup(),
-                    properties.getConsumer(),
-                    minIdle,
-                    staleIds.toArray(new RecordId[0]));
-            log.debug("Claimed {} stale pending OCR records for consumer={}", staleIds.size(), properties.getConsumer());
-            return null;
-        });
+            staleIds.add(pending.getId());
+        }
+        if (staleIds.isEmpty()) {
+            return List.of();
+        }
+
+        // XCLAIM transfers ownership to this consumer and returns the claimed records to reprocess.
+        StreamOperations<String, String, String> ops = redisTemplate.opsForStream();
+        List<MapRecord<String, String, String>> claimed = ops.claim(
+                properties.getStreamKey(),
+                properties.getGroup(),
+                properties.getConsumer(),
+                minIdle,
+                staleIds.toArray(new RecordId[0]));
+        log.debug("Claimed {} stale pending OCR records for consumer={}", staleIds.size(), properties.getConsumer());
+        return claimed != null ? claimed : List.of();
     }
 
     private byte[] serializeStreamKey(String streamKey) {
