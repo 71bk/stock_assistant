@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -19,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -58,7 +60,18 @@ public class FugleClient implements StockMarketClient {
     private final ExternalApiRateLimiter rateLimiter;
     private final StockMetricsRecorder metricsRecorder;
     private final CandleAggregator candleAggregator;
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient = buildRestClient();
+
+    /**
+     * 建立帶有連線/讀取逾時的 RestClient，避免外部報價來源變慢時整個請求 hang 住
+     * （portfolio summary/positions 會逐檔抓報價，沒有逾時會累加成前端 timeout）。
+     */
+    private static RestClient buildRestClient() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(3));
+        factory.setReadTimeout(Duration.ofSeconds(5));
+        return RestClient.builder().requestFactory(factory).build();
+    }
 
     @Override
     public Optional<Quote> getQuote(String ticker) {
