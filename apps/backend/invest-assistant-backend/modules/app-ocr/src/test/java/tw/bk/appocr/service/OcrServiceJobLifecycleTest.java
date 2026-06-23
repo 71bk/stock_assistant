@@ -65,7 +65,7 @@ class OcrServiceJobLifecycleTest {
     @Mock
     private OcrDedupeContentKeyResolver dedupeContentKeyResolver;
     @Mock
-    private OcrTradeCommandFactory tradeCommandFactory;
+    private OcrImportTxService importTxService;
     @Mock
     private OcrViewMapper viewMapper;
 
@@ -79,7 +79,6 @@ class OcrServiceJobLifecycleTest {
                 statementTradeRepository,
                 ocrJobRepository,
                 portfolioRepository,
-                portfolioService,
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
@@ -87,7 +86,7 @@ class OcrServiceJobLifecycleTest {
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,
-                tradeCommandFactory,
+                importTxService,
                 viewMapper);
         ReflectionTestUtils.setField(service, "maxRunningMinutes", 30L);
     }

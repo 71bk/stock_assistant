@@ -19,8 +19,6 @@ import tw.bk.appocr.model.ConfirmResult;
 import tw.bk.appocr.model.OcrDraftView;
 import tw.bk.appocr.model.OcrDraftUpdate;
 import tw.bk.appocr.model.OcrJobView;
-import tw.bk.appportfolio.model.TradeCommand;
-import tw.bk.appportfolio.service.PortfolioService;
 import tw.bk.apppersistence.entity.FileEntity;
 import tw.bk.apppersistence.entity.OcrJobEntity;
 import tw.bk.apppersistence.entity.StatementEntity;
@@ -55,7 +53,6 @@ public class OcrService {
     private final StatementTradeRepository statementTradeRepository;
     private final OcrJobRepository ocrJobRepository;
     private final PortfolioRepository portfolioRepository;
-    private final PortfolioService portfolioService;
     private final OcrQueueService queueService;
     private final OcrDedupeService dedupeService;
     private final OcrPdfPasswordVault pdfPasswordVault;
@@ -63,7 +60,7 @@ public class OcrService {
     private final OcrJobProcessor jobProcessor;
     private final OcrDraftService ocrDraftService;
     private final OcrDedupeContentKeyResolver dedupeContentKeyResolver;
-    private final OcrTradeCommandFactory tradeCommandFactory;
+    private final OcrImportTxService importTxService;
     private final OcrViewMapper viewMapper;
 
     @Value("${app.ocr.queue.max-running-minutes:30}")
@@ -102,8 +99,13 @@ public class OcrService {
                 if (existing != null) {
                     log.info("既存 Job 狀態: {}", existing.getStatus());
 
-                    // 如果 job 失敗或仍在 QUEUED 狀態，重新加入 queue
-                    if (JOB_FAILED.equals(existing.getStatus()) || JOB_QUEUED.equals(existing.getStatus())) {
+                    // 失敗 / 已取消 / 仍在 QUEUED 的 job：重置 statement 後重新入列。
+                    // 特別是「使用者取消後重新上傳同一檔案」會走到這裡 —— 必須能重新辨識，
+                    // 而不是把那個已取消的 job 直接回傳（dedupe key 預設保留 7 天）。
+                    if (JOB_FAILED.equals(existing.getStatus())
+                            || JOB_QUEUED.equals(existing.getStatus())
+                            || JOB_CANCELLED.equals(existing.getStatus())) {
+                        resetStatementForReprocess(existing.getStatementId(), userId);
                         existing.setStatus(JOB_QUEUED);
                         existing.setProgress(0);
                         existing.setErrorMessage(null);
@@ -209,6 +211,25 @@ public class OcrService {
     private OcrJobEntity getJobEntity(Long userId, Long jobId) {
         return ocrJobRepository.findByIdAndUserId(jobId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "OCR job not found"));
+    }
+
+    /**
+     * 重置 statement 以便重新辨識：清掉舊草稿與解析結果、狀態設回 DRAFT。
+     * 已確認（CONFIRMED）的 statement 不動，避免覆蓋已匯入的資料。
+     */
+    private void resetStatementForReprocess(Long statementId, Long userId) {
+        if (statementId == null) {
+            return;
+        }
+        StatementEntity statement = statementRepository.findByIdAndUserId(statementId, userId).orElse(null);
+        if (statement == null || STATUS_CONFIRMED.equals(statement.getStatus())) {
+            return;
+        }
+        statementTradeRepository.deleteByStatementId(statementId);
+        statement.setRawText(null);
+        statement.setParsedJson("{}");
+        statement.setStatus(STATUS_DRAFT);
+        statementRepository.save(statement);
     }
 
     @Transactional(readOnly = true)
@@ -389,7 +410,6 @@ public class OcrService {
 
         // Validate and import drafts
         int importedCount = 0;
-        List<Long> importedIds = new ArrayList<>();
         List<ConfirmResult.DraftError> errors = new ArrayList<>();
 
         for (StatementTradeEntity draft : draftsToImport) {
@@ -412,18 +432,11 @@ public class OcrService {
                 continue;
             }
 
-            // Import the draft
+            // Import each draft in its own (REQUIRES_NEW) transaction so a single
+            // failure (currency mismatch, missing instrument, dedupe constraint, ...)
+            // only rolls back that draft instead of poisoning the whole batch.
             try {
-                TradeCommand command = tradeCommandFactory.toTradeCommand(draft);
-                if (command == null) {
-                    errors.add(ConfirmResult.DraftError.builder()
-                            .draftId(draft.getId())
-                            .reason("買賣方向無效 (side)")
-                            .build());
-                    continue;
-                }
-                portfolioService.createTrade(userId, statement.getPortfolioId(), command);
-                importedIds.add(draft.getId());
+                importTxService.importDraft(userId, statement.getPortfolioId(), draft);
                 importedCount++;
             } catch (BusinessException ex) {
                 log.warn("Failed to import draft: draftId={}, error={}", draft.getId(), ex.getMessage());
@@ -434,10 +447,6 @@ public class OcrService {
             }
         }
 
-        // Delete only imported drafts
-        for (Long draftId : importedIds) {
-            statementTradeRepository.deleteById(draftId);
-        }
         log.info("已匯入並刪除草稿: statementId={}, importedCount={}, errorCount={}",
                 statement.getId(), importedCount, errors.size());
 

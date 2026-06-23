@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.OcrJobStatus;
+import tw.bk.appcommon.enums.StatementStatus;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.OcrJobView;
 import tw.bk.appocr.queue.OcrDedupeService;
@@ -63,7 +64,7 @@ class OcrServiceCreateJobTest {
     @Mock
     private OcrDedupeContentKeyResolver dedupeContentKeyResolver;
     @Mock
-    private OcrTradeCommandFactory tradeCommandFactory;
+    private OcrImportTxService importTxService;
     @Mock
     private OcrViewMapper viewMapper;
 
@@ -77,7 +78,6 @@ class OcrServiceCreateJobTest {
                 statementTradeRepository,
                 ocrJobRepository,
                 portfolioRepository,
-                portfolioService,
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
@@ -85,7 +85,7 @@ class OcrServiceCreateJobTest {
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,
-                tradeCommandFactory,
+                importTxService,
                 viewMapper);
     }
 
@@ -350,5 +350,72 @@ class OcrServiceCreateJobTest {
         verify(dedupeService, never()).reserve(eq(userId), any(String.class), eq(portfolioId));
         verify(dedupeService, never()).store(eq(userId), any(String.class), eq(portfolioId), any(Long.class));
         verify(queueService).enqueue(any(OcrJobEntity.class));
+    }
+
+    @Test
+    void createJob_shouldRequeueAndResetStatementForCancelledJob() {
+        // Re-uploading the same file after cancelling must reprocess (reset + re-queue),
+        // not silently return the cancelled job (dedupe key lives for days).
+        Long userId = 7L;
+        Long fileId = 81L;
+        Long portfolioId = 82L;
+        Long statementId = 88L;
+
+        FileEntity file = new FileEntity();
+        file.setId(fileId);
+        file.setUserId(userId);
+        file.setSha256("cafebabe");
+
+        PortfolioEntity portfolio = new PortfolioEntity();
+        portfolio.setId(portfolioId);
+        portfolio.setUserId(userId);
+
+        OcrJobEntity existing = new OcrJobEntity();
+        existing.setId(904L);
+        existing.setStatus(OcrJobStatus.CANCELLED.name());
+        existing.setProgress(100);
+        existing.setErrorMessage("Cancelled by user");
+        existing.setFileId(fileId);
+        existing.setStatementId(statementId);
+
+        StatementEntity statement = new StatementEntity();
+        statement.setId(statementId);
+        statement.setUserId(userId);
+        statement.setPortfolioId(portfolioId);
+        statement.setStatus(StatementStatus.DRAFT.name());
+        statement.setRawText("old raw text");
+        statement.setParsedJson("{\"old\":true}");
+
+        when(fileRepository.findByIdAndUserId(fileId, userId)).thenReturn(Optional.of(file));
+        when(portfolioRepository.findByIdAndUserId(portfolioId, userId)).thenReturn(Optional.of(portfolio));
+        when(dedupeContentKeyResolver.resolve(file)).thenReturn("sha:cafebabe");
+        when(dedupeService.findJobId(userId, "sha:cafebabe", portfolioId)).thenReturn(Optional.of(904L));
+        when(ocrJobRepository.findByIdAndUserId(904L, userId)).thenReturn(Optional.of(existing));
+        when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));
+        when(viewMapper.toJobView(existing)).thenAnswer(invocation -> {
+            OcrJobEntity job = invocation.getArgument(0);
+            return new OcrJobView(
+                    job.getId(),
+                    job.getStatementId(),
+                    job.getStatusEnum(),
+                    job.getProgress(),
+                    job.getErrorMessage());
+        });
+
+        OcrJobView result = service.createJob(userId, fileId, portfolioId, false);
+
+        assertEquals(OcrJobStatus.QUEUED, result.status());
+        assertEquals(0, result.progress());
+        assertEquals(null, result.errorMessage());
+        // Statement reset for a clean re-parse.
+        verify(statementTradeRepository).deleteByStatementId(statementId);
+        verify(statementRepository).save(statement);
+        assertEquals(StatementStatus.DRAFT.name(), statement.getStatus());
+        assertEquals(null, statement.getRawText());
+        assertEquals("{}", statement.getParsedJson());
+        // Re-queued, and no new reservation/job created.
+        verify(ocrJobRepository).save(existing);
+        verify(queueService).enqueue(existing);
+        verify(dedupeService, never()).reserve(eq(userId), any(String.class), eq(portfolioId));
     }
 }

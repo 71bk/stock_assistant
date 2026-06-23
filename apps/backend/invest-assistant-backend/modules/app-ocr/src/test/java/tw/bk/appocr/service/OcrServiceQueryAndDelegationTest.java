@@ -68,7 +68,7 @@ class OcrServiceQueryAndDelegationTest {
     @Mock
     private OcrDedupeContentKeyResolver dedupeContentKeyResolver;
     @Mock
-    private OcrTradeCommandFactory tradeCommandFactory;
+    private OcrImportTxService importTxService;
     @Mock
     private OcrViewMapper viewMapper;
 
@@ -82,7 +82,6 @@ class OcrServiceQueryAndDelegationTest {
                 statementTradeRepository,
                 ocrJobRepository,
                 portfolioRepository,
-                portfolioService,
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
@@ -90,7 +89,7 @@ class OcrServiceQueryAndDelegationTest {
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,
-                tradeCommandFactory,
+                importTxService,
                 viewMapper);
     }
 

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -26,8 +27,6 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.ConfirmResult;
 import tw.bk.appocr.queue.OcrDedupeService;
 import tw.bk.appocr.queue.OcrQueueService;
-import tw.bk.appportfolio.model.TradeCommand;
-import tw.bk.appportfolio.service.PortfolioService;
 import tw.bk.apppersistence.entity.OcrJobEntity;
 import tw.bk.apppersistence.entity.StatementEntity;
 import tw.bk.apppersistence.entity.StatementTradeEntity;
@@ -52,8 +51,6 @@ class OcrServiceConfirmTest {
     @Mock
     private PortfolioRepository portfolioRepository;
     @Mock
-    private PortfolioService portfolioService;
-    @Mock
     private OcrQueueService queueService;
     @Mock
     private OcrDedupeService dedupeService;
@@ -68,7 +65,7 @@ class OcrServiceConfirmTest {
     @Mock
     private OcrDedupeContentKeyResolver dedupeContentKeyResolver;
     @Mock
-    private OcrTradeCommandFactory tradeCommandFactory;
+    private OcrImportTxService importTxService;
     @Mock
     private OcrViewMapper viewMapper;
 
@@ -82,7 +79,6 @@ class OcrServiceConfirmTest {
                 statementTradeRepository,
                 ocrJobRepository,
                 portfolioRepository,
-                portfolioService,
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
@@ -90,7 +86,7 @@ class OcrServiceConfirmTest {
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,
-                tradeCommandFactory,
+                importTxService,
                 viewMapper);
     }
 
@@ -116,22 +112,19 @@ class OcrServiceConfirmTest {
         StatementEntity statement = statement(statementId, userId, portfolioId);
         StatementTradeEntity draft1 = draft(11L, statementId, 1001L);
         StatementTradeEntity draft2 = draft(12L, statementId, 1002L);
-        TradeCommand command = new TradeCommand(null, null, null, null, null, null, null, null, null, null, "OCR", 12L);
 
         when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
         when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));
         when(statementTradeRepository.findByStatementIdOrderByIdAsc(statementId))
                 .thenReturn(List.of(draft1, draft2), List.of(draft1));
         when(ocrDraftService.isDuplicateDraft(draft2, portfolioId)).thenReturn(false);
-        when(tradeCommandFactory.toTradeCommand(draft2)).thenReturn(command);
 
         ConfirmResult result = service.confirm(userId, jobId, Set.of(12L));
 
         assertEquals(1, result.getImportedCount());
         assertEquals(0, result.getErrors().size());
-        verify(portfolioService).createTrade(userId, portfolioId, command);
-        verify(statementTradeRepository).deleteById(12L);
-        verify(statementTradeRepository, never()).deleteById(11L);
+        verify(importTxService).importDraft(userId, portfolioId, draft2);
+        verify(importTxService, never()).importDraft(userId, portfolioId, draft1);
         verify(statementRepository, never()).save(any(StatementEntity.class));
         verify(ocrJobRepository, never()).updateStatusIfNotCancelled(
                 anyLong(), anyString(), anyInt(), any(), anyString());
@@ -146,14 +139,12 @@ class OcrServiceConfirmTest {
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.DONE.name(), statementId);
         StatementEntity statement = statement(statementId, userId, portfolioId);
         StatementTradeEntity draft = draft(21L, statementId, 1003L);
-        TradeCommand command = new TradeCommand(null, null, null, null, null, null, null, null, null, null, "OCR", 21L);
 
         when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
         when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));
         when(statementTradeRepository.findByStatementIdOrderByIdAsc(statementId))
                 .thenReturn(List.of(draft), List.of());
         when(ocrDraftService.isDuplicateDraft(draft, portfolioId)).thenReturn(false);
-        when(tradeCommandFactory.toTradeCommand(draft)).thenReturn(command);
         when(ocrJobRepository.updateStatusIfNotCancelled(
                 jobId, OcrJobStatus.DONE.name(), 100, null, OcrJobStatus.CANCELLED.name()))
                 .thenReturn(1);
@@ -161,7 +152,7 @@ class OcrServiceConfirmTest {
         ConfirmResult result = service.confirm(userId, jobId, null);
 
         assertEquals(1, result.getImportedCount());
-        verify(statementTradeRepository).deleteById(21L);
+        verify(importTxService).importDraft(userId, portfolioId, draft);
         ArgumentCaptor<StatementEntity> statementCaptor = ArgumentCaptor.forClass(StatementEntity.class);
         verify(statementRepository).save(statementCaptor.capture());
         assertEquals(StatementStatus.CONFIRMED.name(), statementCaptor.getValue().getStatus());
@@ -190,8 +181,43 @@ class OcrServiceConfirmTest {
         assertEquals(1, result.getErrors().size());
         assertEquals(31L, result.getErrors().get(0).getDraftId());
         verify(ocrDraftService, never()).isDuplicateDraft(any(StatementTradeEntity.class), anyLong());
-        verify(portfolioService, never()).createTrade(anyLong(), anyLong(), any(TradeCommand.class));
-        verify(statementTradeRepository, never()).deleteById(anyLong());
+        verify(importTxService, never()).importDraft(anyLong(), anyLong(), any(StatementTradeEntity.class));
+    }
+
+    @Test
+    void confirm_shouldIsolateFailedDraftAndStillImportOthers() {
+        // Regression guard for the rollback-only contamination bug: a single draft
+        // failing its (REQUIRES_NEW) import must be recorded as a per-draft error
+        // without aborting the rest of the batch.
+        Long userId = 7L;
+        Long jobId = 105L;
+        Long statementId = 205L;
+        Long portfolioId = 306L;
+        OcrJobEntity job = job(jobId, userId, OcrJobStatus.DONE.name(), statementId);
+        StatementEntity statement = statement(statementId, userId, portfolioId);
+        StatementTradeEntity failing = draft(41L, statementId, 1004L);
+        StatementTradeEntity ok = draft(42L, statementId, 1005L);
+
+        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));
+        // After processing, the failed draft remains; the imported one is gone.
+        when(statementTradeRepository.findByStatementIdOrderByIdAsc(statementId))
+                .thenReturn(List.of(failing, ok), List.of(failing));
+        when(ocrDraftService.isDuplicateDraft(failing, portfolioId)).thenReturn(false);
+        when(ocrDraftService.isDuplicateDraft(ok, portfolioId)).thenReturn(false);
+        doThrow(new BusinessException(ErrorCode.CONFLICT, "幣別不符"))
+                .when(importTxService).importDraft(userId, portfolioId, failing);
+
+        ConfirmResult result = service.confirm(userId, jobId, null);
+
+        assertEquals(1, result.getImportedCount());
+        assertEquals(1, result.getErrors().size());
+        assertEquals(41L, result.getErrors().get(0).getDraftId());
+        assertEquals("幣別不符", result.getErrors().get(0).getReason());
+        verify(importTxService).importDraft(userId, portfolioId, failing);
+        verify(importTxService).importDraft(userId, portfolioId, ok);
+        // Not all drafts imported -> statement must NOT be marked confirmed.
+        verify(statementRepository, never()).save(any(StatementEntity.class));
     }
 
     private OcrJobEntity job(Long id, Long userId, String status, Long statementId) {
