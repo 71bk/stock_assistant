@@ -167,10 +167,25 @@ instance.interceptors.response.use(
         description: data?.error?.message || data?.message || '請求過於頻繁，請稍後再試',
       });
     } else if (status === 403) {
-      notification.error({
-        message: '無權限存取',
-        description: '您沒有權限存取此資源。',
-      });
+      const isAdminEndpoint = config?.url?.includes('/admin/');
+      if (isAdminEndpoint) {
+        // 角色可能在伺服器端被變更，但目前持有的 token 仍是舊角色。
+        // 403 不會觸發自動 refresh，因此提示使用者重新登入以取得最新角色的 token。
+        notification.warning({
+          message: '權限已變更',
+          description: '您的管理員權限可能已更新，請重新登入後再試。',
+        });
+        if (!window.location.pathname.includes('/auth/')) {
+          setTimeout(() => {
+            window.location.href = '/auth/admin/login?relogin=true';
+          }, 1500);
+        }
+      } else {
+        notification.error({
+          message: '無權限存取',
+          description: '您沒有權限存取此資源。',
+        });
+      }
     } else if (status && status >= 500) {
       notification.error({
         message: '伺服器錯誤',
