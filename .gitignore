@@ -1,6 +1,7 @@
 # === IDE / Editor ===
 .idea/
 .run/
+.claude/
 *.iml
 *.ipr
 *.iws
@@ -34,6 +35,7 @@ lerna-debug.log*
 node_modules/
 dist/
 dist-ssr/
+apps/frontend/src/version.ts
 .npm/
 .pnpm-store/
 .yarn/cache/
