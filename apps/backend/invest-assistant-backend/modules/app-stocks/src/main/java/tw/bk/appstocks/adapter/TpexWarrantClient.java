@@ -2,13 +2,17 @@ package tw.bk.appstocks.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import tw.bk.appcommon.enums.ErrorCode;
@@ -27,20 +31,50 @@ public class TpexWarrantClient {
     private static final java.util.regex.Pattern CODE_PATTERN = java.util.regex.Pattern.compile("^\\d{6}$");
     private static final java.util.regex.Pattern CODE_EXTRACT_PATTERN = java.util.regex.Pattern.compile("\\d{6}");
 
+    private static final int MAX_FETCH_ATTEMPTS = 2; // 初次 + 重試一次
+
     private final StockMarketProperties properties;
     private final ObjectMapper objectMapper;
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient = buildRestClient();
+
+    /**
+     * 用 SimpleClientHttpRequestFactory（JDK，每次開新連線）+ 逾時建立 RestClient，
+     * 避免 reactor-netty 連線池重用 TPEx 已關閉的 keep-alive 連線而出現 PrematureCloseException。
+     */
+    private static RestClient buildRestClient() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(5));
+        factory.setReadTimeout(Duration.ofSeconds(15));
+        return RestClient.builder().requestFactory(factory).build();
+    }
+
+    /**
+     * 對連線層暫時性錯誤（例如 TPEx 提前關閉連線）重試一次。HTTP 狀態錯誤不重試。
+     */
+    static String fetchWithRetry(Supplier<String> call) {
+        ResourceAccessException last = null;
+        for (int attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
+            try {
+                return call.get();
+            } catch (ResourceAccessException ex) {
+                last = ex;
+                log.warn("TPEx warrant fetch attempt {}/{} failed: {}",
+                        attempt, MAX_FETCH_ATTEMPTS, ex.getMessage());
+            }
+        }
+        throw last;
+    }
 
     public List<TpexWarrantItem> fetchWarrants() {
         try {
             String url = buildUrl("/tpex_warrant_issue");
-            String body = restClient.get().uri(url)
+            String body = fetchWithRetry(() -> restClient.get().uri(url)
                     .header("accept", "application/json")
                     .header("If-Modified-Since", "Mon, 26 Jul 1997 05:00:00 GMT")
                     .header("Cache-Control", "no-cache")
                     .header("Pragma", "no-cache")
                     .retrieve()
-                    .body(String.class);
+                    .body(String.class));
             if (body == null || body.isBlank()) {
                 return List.of();
             }
@@ -83,11 +117,11 @@ public class TpexWarrantClient {
             }
             return results;
         } catch (RestClientResponseException ex) {
-            log.error("Failed to fetch TPEx warrants: status={}, body={}",
+            log.warn("Failed to fetch TPEx warrants: status={}, body={}",
                     ex.getStatusCode().value(), ex.getResponseBodyAsString());
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "TPEx warrant fetch failed");
         } catch (Exception ex) {
-            log.error("Failed to fetch TPEx warrants", ex);
+            log.warn("Failed to fetch TPEx warrants: {}", ex.getMessage());
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "TPEx warrant fetch failed");
         }
     }
