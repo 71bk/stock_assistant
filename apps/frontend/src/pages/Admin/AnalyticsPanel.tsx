@@ -120,7 +120,7 @@ export const AnalyticsPanel: React.FC = () => {
   );
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space orientation="vertical" size={16} style={{ width: '100%' }}>
       <Space wrap>
         <Text strong>統計期間</Text>
         <RangePicker
@@ -144,43 +144,43 @@ export const AnalyticsPanel: React.FC = () => {
         />
       </Space>
 
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
 
       {loading && !summary ? (
         <Skeleton active paragraph={{ rows: 10 }} />
       ) : (
         <>
           <Row gutter={[16, 16]}>
-            <Col xs={12} md={6}><Card><Statistic title="總註冊使用者" value={summary?.totalUsers || 0} /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="期間新增" value={summary?.newUsers || 0} /></Card></Col>
-            <Col xs={12} md={4}><Card><Statistic title="DAU" value={summary?.dau || 0} /></Card></Col>
-            <Col xs={12} md={4}><Card><Statistic title="WAU" value={summary?.wau || 0} /></Card></Col>
-            <Col xs={12} md={4}><Card><Statistic title="MAU" value={summary?.mau || 0} /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="頁面瀏覽" value={summary?.pageViews || 0} /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="工作階段" value={summary?.sessions || 0} /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="API 請求" value={apiTraffic?.requestCount || 0} /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="API 錯誤率" value={apiTraffic?.errorRatePercent || 0} precision={2} suffix="%" /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="API 4xx" value={apiTraffic?.clientErrorCount || 0} /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="API 5xx" value={apiTraffic?.serverErrorCount || 0} /></Card></Col>
-            <Col xs={12} md={6}><Card><Statistic title="API p95 延遲" value={apiTraffic?.p95LatencyMs || 0} precision={0} suffix="ms" /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="總註冊使用者" value={summary?.totalUsers || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="期間新增" value={summary?.newUsers || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="DAU" value={summary?.dau || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="WAU" value={summary?.wau || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="MAU" value={summary?.mau || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="頁面瀏覽" value={summary?.pageViews || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="工作階段" value={summary?.sessions || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="API 請求" value={apiTraffic?.requestCount || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="API 錯誤率" value={apiTraffic?.errorRatePercent || 0} precision={2} suffix="%" /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="API 4xx" value={apiTraffic?.clientErrorCount || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="API 5xx" value={apiTraffic?.serverErrorCount || 0} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card><Statistic title="API p95 延遲" value={apiTraffic?.p95LatencyMs || 0} precision={0} suffix="ms" /></Card></Col>
           </Row>
 
           {apiTraffic && !apiTraffic.available && (
             <Alert
               type="warning"
               showIcon
-              message="API 流量資料目前不可用"
+              title="API 流量資料目前不可用"
               description={apiTraffic.warning || 'Prometheus 尚未設定或暫時無法查詢'}
             />
           )}
 
           <Card title="AI 與 OCR 用量">
-            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={16} style={{ width: '100%' }}>
               {aiUsage && !aiUsage.available && (
                 <Alert
                   type="warning"
                   showIcon
-                  message="AI 用量資料目前不可用"
+                  title="AI 用量資料目前不可用"
                   description={aiUsage.warning || 'Prometheus 尚未收到 AI metrics'}
                 />
               )}

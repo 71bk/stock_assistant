@@ -60,7 +60,7 @@ export const AdminLogin: React.FC = () => {
 
         {errorMsg && (
           <Alert
-            message={errorMsg}
+            title={errorMsg}
             type="error"
             showIcon
             style={{ marginBottom: 24 }}

@@ -150,7 +150,7 @@ const DocumentManager: React.FC = () => {
   return (
     <div className="space-y-6">
       <Alert
-        message="關於文件管理"
+        title="關於文件管理"
         description="您可以上傳 PDF/Markdown 文件或直接輸入文字筆記。系統會自動將其切分並存入向量資料庫，供 AI 助理檢索使用。"
         type="info"
         showIcon

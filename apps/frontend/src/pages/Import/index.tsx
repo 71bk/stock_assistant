@@ -141,10 +141,10 @@ return (
       ]}
     >
       <Flex vertical gap="middle">
-        <Alert message="此文件受到密碼保護，請輸入密碼以繼續解析。" type="warning" showIcon />
+        <Alert title="此文件受到密碼保護，請輸入密碼以繼續解析。" type="warning" showIcon />
         {jobStatus === 'PASSWORD_INVALID' && (
           <Alert
-            message={formatOcrMessage(errorMessage || 'PDF 密碼錯誤，請重新輸入', 'error')}
+            title={formatOcrMessage(errorMessage || 'PDF 密碼錯誤，請重新輸入', 'error')}
             type="error"
             showIcon
           />

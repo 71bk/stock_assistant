@@ -45,7 +45,7 @@ const OfflineAlert: React.FC = () => {
   if (isOnline) return null;
   return (
     <Alert
-      message="網路連線已中斷"
+      title="網路連線已中斷"
       description="您目前處於離線狀態，部分功能可能無法使用。"
       type="warning"
       showIcon

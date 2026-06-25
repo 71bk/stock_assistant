@@ -158,9 +158,9 @@ export const AiReportViewer: React.FC<AiReportViewerProps> = ({ content = "" }) 
               </Descriptions.Item>
             </Descriptions>
             
-            <Alert 
-              message="操作建議" 
-              description="目前處於強勢多頭，但 RSI 接近 70，建議分批佈局，不宜追高。" 
+            <Alert
+              title="操作建議"
+              description="目前處於強勢多頭，但 RSI 接近 70，建議分批佈局，不宜追高。"
               type="success" 
               showIcon 
               icon={<BulbOutlined />}
