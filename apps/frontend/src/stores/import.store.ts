@@ -3,6 +3,7 @@ import { ocrApi } from '../api/ocr.api';
 import type { DraftTrade, OcrJob } from '../api/ocr.api';
 import { msg, mdl } from '../utils/antd-globals';
 import { logger } from '../utils/logger';
+import { formatOcrMessage } from '../utils/ocrMessages';
 
 type ApiErrorInfo = {
   status?: number;
@@ -117,7 +118,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
     } catch (error) {
       logger.error('Upload file failed', error);
       set({ jobStatus: 'FAILED', isPolling: false });
-      msg.error('Upload failed');
+      msg.error('檔案上傳失敗');
     } finally {
       set({ isLoading: false });
     }
@@ -205,10 +206,10 @@ export const useImportStore = create<ImportState>((set, get) => ({
                 draftTrades: trades,
                 statementId: job.statementId || null,
               });
-              msg.success('OCR Processing Complete');
+              msg.success('OCR 解析完成');
             } catch (err) {
               logger.error('Failed to fetch drafts', err);
-              msg.error('Failed to load drafts');
+              msg.error('載入解析結果失敗');
             }
           }
         }
@@ -234,7 +235,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
       }));
     } catch (error) {
       logger.error('Update draft failed', error);
-      msg.error('Failed to update draft');
+      msg.error('更新交易草稿失敗');
     } finally {
       set({ isLoading: false });
     }
@@ -302,7 +303,9 @@ export const useImportStore = create<ImportState>((set, get) => ({
         if (errors.length > 0) {
           mdl.error({
             title: '部分交易匯入失敗',
-            content: errors.map((err: { reason: string }) => err.reason).join('\n'),
+            content: errors
+              .map((err: { reason: string }) => formatOcrMessage(err.reason, 'error'))
+              .join('\n'),
             destroyOnHidden: true,
           });
         }

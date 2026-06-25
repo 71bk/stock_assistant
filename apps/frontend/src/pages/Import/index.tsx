@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Steps, Card, Upload, Typography, Button, Progress, Table,
   Tag, Tooltip, Space, Popconfirm, InputNumber, DatePicker, Select,
-  Alert, Result, message, Input, Image, Empty, Spin, Flex, Modal
+  Alert, Result, message, Input, Flex, Modal
 } from 'antd';
 import {
   InboxOutlined, CheckCircleOutlined,
@@ -10,13 +10,17 @@ import {
   ReloadOutlined, UploadOutlined, ImportOutlined, FileImageOutlined, LockOutlined
 } from '@ant-design/icons';
 import { useImportFlow } from '../../hooks/useImportFlow';
-import { filesApi } from '../../api/files.api';
 import type { DraftTrade } from '../../api/ocr.api';
 import type { GetProp, UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { PageContainer } from '../../components/layout/PageContainer';
-import { logger } from '../../utils/logger';
+import { DocumentPreviewModal } from './components/DocumentPreviewModal';
+import {
+  formatOcrMessage,
+  formatOcrMessages,
+  isInformationalOcrWarning,
+} from '../../utils/ocrMessages';
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
 
@@ -87,7 +91,9 @@ return (
         {isFailedOrCancelled ? (
           <Flex vertical gap="middle" align="center">
             <Text type={jobStatus === 'FAILED' ? "danger" : "secondary"}>
-              {jobStatus === 'FAILED' ? (errorMessage || 'OCR 解析失敗，請嘗試其他影像或重試。') : '您已取消此任務。'}
+              {jobStatus === 'FAILED'
+                ? formatOcrMessage(errorMessage || 'OCR 解析失敗，請嘗試其他影像或重試。', 'error')
+                : '您已取消此任務。'}
             </Text>
             <Flex gap="small">
               <Button icon={<ReloadOutlined />} onClick={reprocessJob}>
@@ -137,7 +143,11 @@ return (
       <Flex vertical gap="middle">
         <Alert message="此文件受到密碼保護，請輸入密碼以繼續解析。" type="warning" showIcon />
         {jobStatus === 'PASSWORD_INVALID' && (
-          <Alert message={errorMessage || "PDF 密碼錯誤，請重新輸入"} type="error" showIcon />
+          <Alert
+            message={formatOcrMessage(errorMessage || 'PDF 密碼錯誤，請重新輸入', 'error')}
+            type="error"
+            showIcon
+          />
         )}
         <Input.Password
           placeholder="請輸入密碼"
@@ -157,33 +167,7 @@ return (
 // --- Step 2: Review ---
 const ReviewStep: React.FC = () => {
   const { draftTrades, fileId, updateDraftTrade, deleteDraftTrade, confirmTrades, reprocessJob, isLoading, currentStep } = useImportFlow();
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
   const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
-
-  useEffect(() => {
-    const fetchPreview = async () => {
-      if (!fileId) return;
-      setLoadingPreview(true);
-      try {
-        const res = await filesApi.getDownloadUrl(fileId);
-        if (res?.url) {
-          setPreviewUrl(res.url);
-          // Simple heuristic for file type based on URL or generic assumption
-          // If we had contentType from fileId metadata, that would be better.
-          // For now, assume image unless URL ends in pdf
-          const isPdf = res.url.toLowerCase().includes('.pdf') || res.url.toLowerCase().includes('response-content-type=application%2fpdf');
-          setFileType(isPdf ? 'pdf' : 'image');
-        }
-      } catch (e) {
-        logger.error('Failed to load preview', e);
-      } finally {
-        setLoadingPreview(false);
-      }
-    };
-    fetchPreview();
-  }, [fileId]);
 
   // 預設選取邏輯：狀態為 VALID 且 非重複 的草稿
   // 若使用者想匯入重複或警告的交易，需手動勾選
@@ -222,17 +206,11 @@ const ReviewStep: React.FC = () => {
       key: 'status',
       width: 110,
       render: (_: unknown, record: DraftTrade) => {
-        const formatMessage = (msg: string) => {
-          if (msg === 'SETTLEMENT_BEFORE_TRADE') return '交割日不可早於成交日';
-          if (msg === 'OCR_VERTICAL_TEXT_LAYER_FALLBACK') return '請確認資訊';
-          return msg;
-        };
-
         const warnings = [...(record.warnings || [])];
         if (record.duplicate) warnings.push('該交易可能已存在於資料庫中 (重複交易)');
         
-        const formattedWarnings = warnings.map(formatMessage);
-        const formattedErrors = (record.errors || []).map(formatMessage);
+        const formattedWarnings = formatOcrMessages(warnings);
+        const formattedErrors = formatOcrMessages(record.errors, 'error');
 
         // 1. 優先顯示明確的錯誤
         if (record.status === 'ERROR') {
@@ -255,12 +233,13 @@ const ReviewStep: React.FC = () => {
         // 3. 顯示一般警告
         if (record.status === 'WARNING') {
           const isSettlementError = record.warnings.includes('SETTLEMENT_BEFORE_TRADE');
-          const isFallbackWarning = record.warnings.some(w => w === 'OCR_VERTICAL_TEXT_LAYER_FALLBACK' || w === 'Vertical text-layer fallback parse; please review before confirming.');
+          const onlyInformationalWarnings = record.warnings.length > 0
+            && record.warnings.every(isInformationalOcrWarning);
           
           let label = '警告';
           if (isSettlementError) {
             label = '日期錯誤';
-          } else if (isFallbackWarning && !record.warnings.some(w => w !== 'OCR_VERTICAL_TEXT_LAYER_FALLBACK' && w !== 'Vertical text-layer fallback parse; please review before confirming.')) {
+          } else if (onlyInformationalWarnings) {
             label = '請確認資訊';
           }
 
@@ -453,13 +432,11 @@ const ReviewStep: React.FC = () => {
     confirmTrades(selectedRowKeys as string[]);
   };
 
-  const isFallbackWarning = (w: string) => w === 'OCR_VERTICAL_TEXT_LAYER_FALLBACK' || w === 'Vertical text-layer fallback parse; please review before confirming.';
-
   const isAbnormal = (t: DraftTrade) => {
     if (t.status === 'ERROR') return true;
     if (t.duplicate) return true;
     if (t.status === 'WARNING') {
-      return t.warnings.some(w => !isFallbackWarning(w));
+      return t.warnings.some(w => !isInformationalOcrWarning(w));
     }
     return false;
   };
@@ -525,26 +502,11 @@ const ReviewStep: React.FC = () => {
         </Space>
       </div>
 
-      <Modal
-        title="原始文件預覽"
+      <DocumentPreviewModal
+        fileId={fileId}
         open={isPreviewModalVisible}
-        onCancel={() => setIsPreviewModalVisible(false)}
-        footer={null}
-        width={800}
-        styles={{ body: { height: 600, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f5f5f5' } }}
-      >
-        {loadingPreview ? (
-          <Spin tip="載入預覽中..." />
-        ) : previewUrl ? (
-          fileType === 'pdf' ? (
-            <iframe src={previewUrl} style={{ width: '100%', height: '100%', border: 'none', minHeight: 550 }} title="PDF Preview" />
-          ) : (
-            <Image src={previewUrl} style={{ maxWidth: '100%' }} />
-          )
-        ) : (
-          <Empty description="無法預覽文件" />
-        )}
-      </Modal>
+        onClose={() => setIsPreviewModalVisible(false)}
+      />
     </div>
   );
 };
