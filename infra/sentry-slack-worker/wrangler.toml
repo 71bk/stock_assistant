@@ -1,0 +1,11 @@
+name = "sentry-slack-relay"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+# Secrets are NOT stored here. Set them once with:
+#   wrangler secret put SENTRY_CLIENT_SECRET
+#   wrangler secret put SLACK_WEBHOOK_PROD
+#   wrangler secret put SLACK_WEBHOOK_DEV
+#
+# Uses only Web-standard APIs (fetch, crypto.subtle, TextEncoder) — no
+# nodejs_compat flag required.
