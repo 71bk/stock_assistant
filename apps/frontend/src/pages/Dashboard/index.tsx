@@ -67,7 +67,9 @@ const Dashboard: React.FC = () => {
     yField: 'value',
     theme: theme === 'dark' ? 'classicDark' : 'classic',
     style: {
-      fill: 'linear-gradient(-90deg, white 0%, #1677ff 100%)',
+      fill: theme === 'dark'
+        ? 'linear-gradient(-90deg, rgba(22,119,255,0) 0%, #1677ff 100%)'
+        : 'linear-gradient(-90deg, white 0%, #1677ff 100%)',
     },
     // Add tooltip formatting
     tooltip: {
@@ -165,6 +167,7 @@ const Dashboard: React.FC = () => {
               dataSource={recentTrades}
               rowKey="tradeId"
               pagination={false}
+              scroll={{ x: 'max-content' }}
               columns={[
                 { title: '日期', dataIndex: 'tradeDate' },
                 {

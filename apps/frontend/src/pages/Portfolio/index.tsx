@@ -157,9 +157,9 @@ const Portfolio: React.FC = () => {
 
   return (
     <PageContainer>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>我的投資組合</Title>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button
             icon={<RobotOutlined />}
             onClick={handleStartAiAnalysis}
@@ -181,6 +181,7 @@ const Portfolio: React.FC = () => {
           rowKey="instrumentId"
           loading={isLoading}
           pagination={false}
+          scroll={{ x: 'max-content' }}
         />
       </Card>
 

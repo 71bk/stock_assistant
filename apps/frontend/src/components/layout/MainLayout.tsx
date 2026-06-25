@@ -31,7 +31,7 @@ export const MainLayout: React.FC = () => {
   const { user, logout, isAdmin } = useAuthStore();
   const { siderCollapsed, toggleSider, theme: uiTheme, setTheme } = useUIStore();
   const {
-    token: { colorBgContainer, borderRadiusLG },
+    token: { colorBgContainer, borderRadiusLG, colorBorderSecondary },
   } = theme.useToken();
   
   const screens = Grid.useBreakpoint();
@@ -165,7 +165,7 @@ export const MainLayout: React.FC = () => {
 
   const MenuContent = (
     <Menu
-      theme="light"
+      theme={uiTheme}
       mode="inline"
       selectedKeys={[getSelectedKey()]}
       onClick={handleMenuClick}
@@ -178,7 +178,7 @@ export const MainLayout: React.FC = () => {
     <Layout style={{ minHeight: '100vh' }}>
       <AnalyticsPageTracker />
       {!isMobile && (
-        <Sider trigger={null} collapsible collapsed={siderCollapsed} theme="light" style={{ borderRight: '1px solid #f0f0f0' }}>
+        <Sider trigger={null} collapsible collapsed={siderCollapsed} theme={uiTheme} style={{ borderRight: `1px solid ${colorBorderSecondary}` }}>
           <div className="demo-logo-vertical" style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: 18, color: '#1677ff' }}>
              {siderCollapsed ? 'SA' : 'Invest Assistant'}
           </div>
@@ -202,7 +202,7 @@ export const MainLayout: React.FC = () => {
       )}
 
       <Layout>
-        <Header style={{ padding: '0 16px', background: colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0' }}>
+        <Header style={{ padding: '0 16px', background: colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${colorBorderSecondary}` }}>
           <Flex align="center">
             <Button
               type="text"
@@ -222,11 +222,14 @@ export const MainLayout: React.FC = () => {
               onChange={(checked) => setTheme(checked ? 'dark' : 'light')}
               checkedChildren={<MoonOutlined />}
               unCheckedChildren={<SunOutlined />}
+              aria-label="切換深色／亮色模式"
             />
             <Dropdown menu={userMenu} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', borderRadius: 6, transition: 'background 0.3s' }} className="user-dropdown-trigger">
-               <Avatar src={user?.pictureUrl} icon={<UserOutlined />} style={{ backgroundColor: '#1677ff' }} />
-               <span style={{ fontWeight: 500 }}>{user?.displayName || 'User'}</span>
+               <Avatar src={user?.pictureUrl} icon={<UserOutlined />} style={{ backgroundColor: '#1677ff', flexShrink: 0 }} />
+               {!isMobile && (
+                 <span style={{ fontWeight: 500, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.displayName || 'User'}</span>
+               )}
             </div>
           </Dropdown>
           </Flex>

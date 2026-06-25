@@ -57,6 +57,7 @@ const Trades: React.FC = () => {
           <Table
             dataSource={trades}
             rowKey="tradeId"
+            scroll={{ x: 'max-content' }}
             columns={[
               { title: '日期', dataIndex: 'tradeDate' },
               {

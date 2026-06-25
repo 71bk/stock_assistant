@@ -102,6 +102,7 @@ const Reports: React.FC = () => {
             dataSource={reports}
             columns={columns}
             rowKey="reportId"
+            scroll={{ x: 'max-content' }}
             pagination={{
               total: totalReports,
               pageSize: 20,
