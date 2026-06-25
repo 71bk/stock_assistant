@@ -19,11 +19,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import tw.bk.appapi.admin.config.AdminProperties;
 import tw.bk.appapi.admin.dto.ValuationSnapshotRequest;
+import tw.bk.appapi.admin.security.AdminKeyGuard;
 import tw.bk.appapi.admin.vo.ValuationSnapshotResponse;
 import tw.bk.appcommon.result.Result;
-import tw.bk.appcommon.security.CurrentUserProvider;
 import tw.bk.appportfolio.model.PortfolioValuationSnapshotResult;
 import tw.bk.appportfolio.service.PortfolioService;
 import tw.bk.appportfolio.service.QuoteProvider;
@@ -38,28 +37,23 @@ class AdminPortfolioControllerTest {
     private PortfolioService portfolioService;
 
     @Mock
-    private CurrentUserProvider currentUserProvider;
+    private AdminKeyGuard adminKeyGuard;
 
     @Mock
     private StockQuoteService stockQuoteService;
 
-    private AdminProperties adminProperties;
     private AdminPortfolioController controller;
 
     @BeforeEach
     void setUp() {
-        adminProperties = new AdminProperties();
-        adminProperties.setApiKey("");
         controller = new AdminPortfolioController(
                 portfolioService,
-                adminProperties,
-                currentUserProvider,
+                adminKeyGuard,
                 stockQuoteService);
     }
 
     @Test
     void snapshotValuations_shouldMapServiceResult() {
-        when(currentUserProvider.getUserId()).thenReturn(Optional.of(1L));
         when(portfolioService.snapshotValuations(any(), any(), any(), any()))
                 .thenReturn(new PortfolioValuationSnapshotResult(
                         LocalDate.parse("2026-02-09"),
@@ -90,7 +84,6 @@ class AdminPortfolioControllerTest {
 
     @Test
     void snapshotValuations_quoteProviderShouldUseHistoricalCloseForPastDate() {
-        when(currentUserProvider.getUserId()).thenReturn(Optional.of(1L));
         when(portfolioService.snapshotValuations(any(), any(), any(), any()))
                 .thenReturn(new PortfolioValuationSnapshotResult(
                         LocalDate.parse("2026-02-09"),

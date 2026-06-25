@@ -2,17 +2,14 @@ package tw.bk.appapi.admin;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import tw.bk.appapi.admin.config.AdminProperties;
+import tw.bk.appapi.admin.security.AdminKeyGuard;
 import tw.bk.appapi.admin.vo.InstrumentSyncResponse;
-import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
-import tw.bk.appcommon.security.CurrentUserProvider;
 import tw.bk.appstocks.service.InstrumentSyncService;
 
 @RestController
@@ -20,17 +17,13 @@ import tw.bk.appstocks.service.InstrumentSyncService;
 @RequiredArgsConstructor
 @Tag(name = "Admin", description = "Admin operations")
 public class AdminInstrumentController {
-    private static final String ADMIN_HEADER = "X-Admin-Key";
-
     private final InstrumentSyncService instrumentSyncService;
-    private final AdminProperties adminProperties;
-    private final CurrentUserProvider currentUserProvider;
+    private final AdminKeyGuard adminKeyGuard;
 
     @PostMapping("/sync")
     @Operation(summary = "Sync TW instruments (EQUITY only)")
-    public Result<InstrumentSyncResponse> sync(
-            @RequestHeader(value = ADMIN_HEADER, required = false) String adminKey) {
-        requireAdminKey(adminKey);
+    public Result<InstrumentSyncResponse> sync(HttpServletRequest request) {
+        adminKeyGuard.require(request);
         InstrumentSyncService.SyncResult result = instrumentSyncService.syncTwEquityInstruments();
         return Result.ok(InstrumentSyncResponse.builder()
                 .added(result.added())
@@ -40,26 +33,12 @@ public class AdminInstrumentController {
 
     @PostMapping("/sync-warrants")
     @Operation(summary = "Sync TW Warrants from TWSE and TPEx")
-    public Result<InstrumentSyncResponse> syncWarrants(
-            @RequestHeader(value = ADMIN_HEADER, required = false) String adminKey) {
-        requireAdminKey(adminKey);
+    public Result<InstrumentSyncResponse> syncWarrants(HttpServletRequest request) {
+        adminKeyGuard.require(request);
         InstrumentSyncService.SyncResult result = instrumentSyncService.syncTwWarrantInstruments();
         return Result.ok(InstrumentSyncResponse.builder()
                 .added(result.added())
                 .skipped(result.skipped())
                 .build());
-    }
-
-    private void requireAdminKey(String provided) {
-        String expected = adminProperties.getApiKey();
-        if (expected == null || expected.isBlank()) {
-            if (currentUserProvider.getUserId().isEmpty()) {
-                throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
-            }
-            return;
-        }
-        if (provided == null || provided.isBlank() || !expected.equals(provided)) {
-            throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, "Admin key invalid");
-        }
     }
 }

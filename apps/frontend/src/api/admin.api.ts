@@ -5,55 +5,45 @@ export interface SyncResult {
   skipped: number;
 }
 
+export interface AdminKeyStatus {
+  /** Whether the backend requires an admin key (one is configured server-side). */
+  required: boolean;
+  /** Whether the browser currently holds a valid admin key cookie. */
+  active: boolean;
+}
+
 export const adminApi = {
-  syncInstruments: (adminKey?: string) => {
-    const headers: Record<string, string> = {};
-    if (adminKey) {
-      headers['X-Admin-Key'] = adminKey;
-    }
-    return http.post<SyncResult>('/admin/instruments/sync', {}, {
-      headers,
-      timeout: 120000, // Sync can take over 60s, setting 2m timeout
-    });
-  },
+  // Admin key is exchanged for an HttpOnly cookie; it is never stored in JS-readable storage.
+  getKeyStatus: () => http.get<AdminKeyStatus>('/admin/session/key'),
 
-  syncWarrants: (adminKey?: string) => {
-    const headers: Record<string, string> = {};
-    if (adminKey) {
-      headers['X-Admin-Key'] = adminKey;
-    }
-    return http.post<SyncResult>('/admin/instruments/sync-warrants', {}, {
-      headers,
-      timeout: 120000,
-    });
-  },
+  setAdminKey: (apiKey: string) => http.post<AdminKeyStatus>('/admin/session/key', { apiKey }),
 
-  rebuildPositions: (portfolioId: number, instrumentId?: number, adminKey?: string) => {
-    const headers: Record<string, string> = {};
-    if (adminKey) {
-      headers['X-Admin-Key'] = adminKey;
-    }
-    return http.post<{
+  clearAdminKey: () => http.delete<void>('/admin/session/key'),
+
+  syncInstruments: () => http.post<SyncResult>('/admin/instruments/sync', {}, {
+    timeout: 120000, // Sync can take over 60s, setting 2m timeout
+  }),
+
+  syncWarrants: () => http.post<SyncResult>('/admin/instruments/sync-warrants', {}, {
+    timeout: 120000,
+  }),
+
+  rebuildPositions: (portfolioId: number, instrumentId?: number) =>
+    http.post<{
       portfolioId: number;
       userId: number;
       targetInstrumentCount: number;
       rebuiltInstrumentCount: number;
       failedInstrumentCount: number;
       failedInstrumentIds: number[];
-    }>('/admin/portfolios/positions-rebuild', { portfolioId, instrumentId }, { headers });
-  },
+    }>('/admin/portfolios/positions-rebuild', { portfolioId, instrumentId }),
 
-  snapshotValuations: (portfolioId?: number, userId?: number, asOfDate?: string, adminKey?: string) => {
-    const headers: Record<string, string> = {};
-    if (adminKey) {
-      headers['X-Admin-Key'] = adminKey;
-    }
-    return http.post<{
+  snapshotValuations: (portfolioId?: number, userId?: number, asOfDate?: string) =>
+    http.post<{
       asOfDate: string;
       total: number;
       succeeded: number;
       failed: number;
       failedPortfolioIds: number[];
-    }>('/admin/portfolios/valuations-snapshot', { portfolioId, userId, asOfDate }, { headers });
-  },
+    }>('/admin/portfolios/valuations-snapshot', { portfolioId, userId, asOfDate }),
 };

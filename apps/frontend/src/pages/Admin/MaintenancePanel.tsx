@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
-import { Card, Typography, Row, Col, Statistic, Button, message, Input, InputNumber, Space, Divider, Alert } from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Card, Typography, Row, Col, Statistic, Button, message, Input, InputNumber, Space, Divider, Alert, Popconfirm, Tag } from 'antd';
 import { SyncOutlined, ReloadOutlined, DatabaseOutlined, SaveOutlined, KeyOutlined } from '@ant-design/icons';
-import { adminApi, type SyncResult } from '../../api/admin.api';
+import { adminApi, type AdminKeyStatus, type SyncResult } from '../../api/admin.api';
 
 const { Title, Text } = Typography;
 
 export const MaintenancePanel: React.FC = () => {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('admin_api_key') || '');
+  const [keyInput, setKeyInput] = useState<string>('');
+  const [keyStatus, setKeyStatus] = useState<AdminKeyStatus | null>(null);
+  const [savingKey, setSavingKey] = useState(false);
   const [result, setResult] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -16,9 +18,45 @@ export const MaintenancePanel: React.FC = () => {
   const [rebuildPortfolioId, setRebuildPortfolioId] = useState<number | null>(null);
   const [rebuildInstrumentId, setRebuildInstrumentId] = useState<number | null>(null);
 
-  const saveApiKey = () => {
-    localStorage.setItem('admin_api_key', apiKey);
-    message.success('Admin API Key 已儲存');
+  const refreshKeyStatus = useCallback(async () => {
+    try {
+      setKeyStatus(await adminApi.getKeyStatus());
+    } catch {
+      // Status is best-effort; failures here shouldn't block the panel.
+      setKeyStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshKeyStatus();
+  }, [refreshKeyStatus]);
+
+  const saveApiKey = async () => {
+    if (!keyInput.trim()) return;
+    setSavingKey(true);
+    try {
+      const status = await adminApi.setAdminKey(keyInput.trim());
+      setKeyStatus(status);
+      setKeyInput(''); // Never keep the raw key in component state after it's exchanged for the cookie.
+      message.success('Admin Key 已驗證並寫入安全 cookie');
+    } catch {
+      message.error('Admin Key 驗證失敗，請確認金鑰是否正確');
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  const clearApiKey = async () => {
+    setSavingKey(true);
+    try {
+      await adminApi.clearAdminKey();
+      await refreshKeyStatus();
+      message.success('Admin Key 已清除');
+    } catch {
+      message.error('清除失敗，請稍後再試');
+    } finally {
+      setSavingKey(false);
+    }
   };
 
   const handleAction = async (action: string, apiCall: () => Promise<unknown>) => {
@@ -57,32 +95,59 @@ export const MaintenancePanel: React.FC = () => {
     }
   };
 
+  const keyRequired = keyStatus?.required ?? false;
+  const keyActive = keyStatus?.active ?? false;
+
   return (
     <>
       <Row gutter={[16, 16]}>
         <Col span={24}>
-          <Card title="API Key 設定 (若後端有啟用)" bordered={false}>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input.Password
-                prefix={<KeyOutlined />}
-                placeholder="輸入 Admin API Key (X-Admin-Key)"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
-              <Button type="primary" icon={<SaveOutlined />} onClick={saveApiKey}>
-                儲存
-              </Button>
-            </Space.Compact>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-              某些敏感操作可能需要額外的 API Key 驗證。此 Key 將儲存於瀏覽器 LocalStorage。
-            </Text>
+          <Card
+            title="Admin Key 驗證"
+            variant="borderless"
+            extra={
+              keyStatus
+                ? (keyRequired
+                    ? <Tag color={keyActive ? 'success' : 'warning'}>{keyActive ? '已設定' : '未設定'}</Tag>
+                    : <Tag color="default">後端未啟用</Tag>)
+                : null
+            }
+          >
+            {keyRequired ? (
+              <>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input.Password
+                    prefix={<KeyOutlined />}
+                    placeholder="輸入 Admin Key 進行驗證"
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    onPressEnter={saveApiKey}
+                  />
+                  <Button type="primary" icon={<SaveOutlined />} loading={savingKey} onClick={saveApiKey}>
+                    驗證並啟用
+                  </Button>
+                  {keyActive && (
+                    <Button danger loading={savingKey} onClick={clearApiKey}>
+                      清除
+                    </Button>
+                  )}
+                </Space.Compact>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                  金鑰驗證後僅寫入 HttpOnly cookie（JavaScript 無法讀取），不再存於瀏覽器 LocalStorage。關閉分頁或逾時後需重新驗證。
+                </Text>
+              </>
+            ) : (
+              <Text type="secondary">
+                後端未設定 Admin Key，已登入的管理員即可執行下列維護操作，無需額外驗證。
+              </Text>
+            )}
           </Card>
         </Col>
 
         {result && (
           <Col span={24}>
             <Alert
-              message={result.message}
+              title={result.message}
               description={result.details && <pre style={{ fontSize: 12, marginTop: 8 }}>{result.details}</pre>}
               type={result.type}
               showIcon
@@ -102,14 +167,21 @@ export const MaintenancePanel: React.FC = () => {
               title="股票主檔同步 (Fugle)"
               value="Sync"
               formatter={() => (
-                <Button
-                  type="primary"
-                  icon={<SyncOutlined spin={loading['syncInstruments']} />}
-                  loading={loading['syncInstruments']}
-                  onClick={() => handleAction('syncInstruments', () => adminApi.syncInstruments(apiKey))}
+                <Popconfirm
+                  title="開始同步股票主檔？"
+                  description="此操作會向 Fugle 抓取全部上市櫃股票/ETF 資料，耗時較長。"
+                  okText="開始同步"
+                  cancelText="取消"
+                  onConfirm={() => handleAction('syncInstruments', () => adminApi.syncInstruments())}
                 >
-                  開始同步股票
-                </Button>
+                  <Button
+                    type="primary"
+                    icon={<SyncOutlined spin={loading['syncInstruments']} />}
+                    loading={loading['syncInstruments']}
+                  >
+                    開始同步股票
+                  </Button>
+                </Popconfirm>
               )}
             />
             <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
@@ -124,14 +196,21 @@ export const MaintenancePanel: React.FC = () => {
               title="權證主檔同步 (TPEx + TWSE)"
               value="Sync"
               formatter={() => (
-                <Button
-                  type="primary"
-                  icon={<SyncOutlined spin={loading['syncWarrants']} />}
-                  loading={loading['syncWarrants']}
-                  onClick={() => handleAction('syncWarrants', () => adminApi.syncWarrants(apiKey))}
+                <Popconfirm
+                  title="開始同步權證主檔？"
+                  description="此操作會向 TPEx + TWSE 抓取全部權證資料與到期日，耗時較長。"
+                  okText="開始同步"
+                  cancelText="取消"
+                  onConfirm={() => handleAction('syncWarrants', () => adminApi.syncWarrants())}
                 >
-                  開始同步權證
-                </Button>
+                  <Button
+                    type="primary"
+                    icon={<SyncOutlined spin={loading['syncWarrants']} />}
+                    loading={loading['syncWarrants']}
+                  >
+                    開始同步權證
+                  </Button>
+                </Popconfirm>
               )}
             />
             <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
@@ -147,7 +226,7 @@ export const MaintenancePanel: React.FC = () => {
 
         <Col xs={24} sm={12}>
           <Card>
-            <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
+            <Space orientation="vertical" style={{ width: '100%', marginBottom: 12 }}>
               <InputNumber
                 style={{ width: '100%' }}
                 min={1}
@@ -177,7 +256,6 @@ export const MaintenancePanel: React.FC = () => {
                     () => adminApi.rebuildPositions(
                       Number(rebuildPortfolioId),
                       rebuildInstrumentId ?? undefined,
-                      apiKey,
                     ),
                   )}
                 >
@@ -200,7 +278,7 @@ export const MaintenancePanel: React.FC = () => {
                 <Button
                   icon={<DatabaseOutlined spin={loading['snapshotValuations']} />}
                   loading={loading['snapshotValuations']}
-                  onClick={() => handleAction('snapshotValuations', () => adminApi.snapshotValuations(undefined, undefined, undefined, apiKey))}
+                  onClick={() => handleAction('snapshotValuations', () => adminApi.snapshotValuations())}
                 >
                   觸發今日估值快照
                 </Button>

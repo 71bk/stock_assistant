@@ -2,6 +2,7 @@ package tw.bk.appapi.admin;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -11,18 +12,14 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import tw.bk.appapi.admin.config.AdminProperties;
 import tw.bk.appapi.admin.dto.PositionsRebuildRequest;
 import tw.bk.appapi.admin.dto.ValuationSnapshotRequest;
+import tw.bk.appapi.admin.security.AdminKeyGuard;
 import tw.bk.appapi.admin.vo.PositionsRebuildResponse;
 import tw.bk.appapi.admin.vo.ValuationSnapshotResponse;
-import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
-import tw.bk.appcommon.security.CurrentUserProvider;
 import tw.bk.appportfolio.model.PortfolioPositionsRebuildResult;
 import tw.bk.appportfolio.model.PortfolioValuationSnapshotResult;
 import tw.bk.appportfolio.service.PortfolioService;
@@ -36,20 +33,18 @@ import tw.bk.appstocks.service.StockQuoteService;
 @RequiredArgsConstructor
 @Tag(name = "Admin", description = "Admin operations")
 public class AdminPortfolioController {
-    private static final String ADMIN_HEADER = "X-Admin-Key";
     private static final int HISTORICAL_LOOKBACK_DAYS = 14;
 
     private final PortfolioService portfolioService;
-    private final AdminProperties adminProperties;
-    private final CurrentUserProvider currentUserProvider;
+    private final AdminKeyGuard adminKeyGuard;
     private final StockQuoteService stockQuoteService;
 
     @PostMapping("/positions-rebuild")
     @Operation(summary = "Rebuild positions for a portfolio")
     public Result<PositionsRebuildResponse> rebuildPositions(
-            @RequestHeader(value = ADMIN_HEADER, required = false) String adminKey,
+            HttpServletRequest httpRequest,
             @Valid @RequestBody PositionsRebuildRequest request) {
-        requireAdminKey(adminKey);
+        adminKeyGuard.require(httpRequest);
         PortfolioPositionsRebuildResult result = portfolioService.rebuildPositions(
                 request.getPortfolioId(),
                 request.getInstrumentId());
@@ -59,9 +54,9 @@ public class AdminPortfolioController {
     @PostMapping("/valuations-snapshot")
     @Operation(summary = "Snapshot portfolio valuations")
     public Result<ValuationSnapshotResponse> snapshotValuations(
-            @RequestHeader(value = ADMIN_HEADER, required = false) String adminKey,
+            HttpServletRequest httpRequest,
             @RequestBody(required = false) ValuationSnapshotRequest request) {
-        requireAdminKey(adminKey);
+        adminKeyGuard.require(httpRequest);
         Long userId = request != null ? request.getUserId() : null;
         Long portfolioId = request != null ? request.getPortfolioId() : null;
         java.time.LocalDate asOfDate = request != null ? request.getAsOfDate() : null;
@@ -72,19 +67,6 @@ public class AdminPortfolioController {
                 asOfDate,
                 createQuoteProvider());
         return Result.ok(ValuationSnapshotResponse.from(result));
-    }
-
-    private void requireAdminKey(String provided) {
-        String expected = adminProperties.getApiKey();
-        if (expected == null || expected.isBlank()) {
-            if (currentUserProvider.getUserId().isEmpty()) {
-                throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
-            }
-            return;
-        }
-        if (provided == null || provided.isBlank() || !expected.equals(provided)) {
-            throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, "Admin key invalid");
-        }
     }
 
     private Optional<BigDecimal> resolveCurrentPrice(String symbolKey) {
