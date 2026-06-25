@@ -2,10 +2,21 @@ name = "sentry-slack-relay"
 main = "src/index.ts"
 compatibility_date = "2025-06-01"
 
+# Optional AI triage model (Groq, OpenAI-compatible). Default if unset.
+[vars]
+GROQ_MODEL = "openai/gpt-oss-120b"
+TRIAGE_DAILY_BUDGET = "50"
+
+# KV for triage gating: per-issue dedup + daily budget counter.
+[[kv_namespaces]]
+binding = "TRIAGE_KV"
+id = "4bebf0b7cc1f48c9aeb5f7f6d6feda01"
+
 # Secrets are NOT stored here. Set them once with:
 #   wrangler secret put SENTRY_CLIENT_SECRET
 #   wrangler secret put SLACK_WEBHOOK_PROD
 #   wrangler secret put SLACK_WEBHOOK_DEV
+#   wrangler secret put GROQ_API_KEY        # enables AI triage; omit to disable
 #
 # Uses only Web-standard APIs (fetch, crypto.subtle, TextEncoder) — no
 # nodejs_compat flag required.

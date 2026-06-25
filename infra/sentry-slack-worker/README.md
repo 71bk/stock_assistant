@@ -6,8 +6,10 @@ Worker (via an Internal Integration), the Worker verifies the signature and
 posts a formatted message to the Slack channel for that environment
 (`prod` → prod channel, everything else → dev channel).
 
-It is also the planned trigger point for the Phase 3 AI triage agent (see the
-"Phase 3 seam" comment in `src/index.ts`).
+When `GROQ_API_KEY` + the `TRIAGE_KV` namespace are configured, it also runs a
+one-shot **AI triage** in the background and posts a second "🔍 AI Triage" message
+(root-cause hypothesis + suggested fix from the stack trace), gated by per-issue
+dedup and a daily budget. Omit `GROQ_API_KEY` to run as a plain relay.
 
 ## Flow
 
@@ -15,7 +17,8 @@ It is also the planned trigger point for the Phase 3 AI triage agent (see the
 Sentry alert rule
   → (Internal Integration webhook, signed)
   → Cloudflare Worker  ── verify signature → pick channel by environment
-                        → POST Slack incoming webhook → #prod / #dev
+       ├─ POST Slack incoming webhook → #prod / #dev          (🔴 alert)
+       └─ (background, optional) Groq triage → POST Slack      (🔍 AI Triage)
 ```
 
 ## One-time setup
@@ -55,6 +58,29 @@ Create two issue alert rules (or one per environment):
 
 The Worker picks the Slack channel from the event's `environment`, so both rules
 point at the same Worker.
+
+## AI triage (optional, Phase 3)
+Adds a "🔍 AI Triage" follow-up message via Groq. Skip this whole section to run
+as a plain relay.
+
+1. Create the KV namespace (once) and put its id in `wrangler.toml` under
+   `[[kv_namespaces]]` (binding `TRIAGE_KV`):
+   ```bash
+   npx wrangler kv namespace create TRIAGE_KV
+   ```
+2. Set the Groq key:
+   ```bash
+   npx wrangler secret put GROQ_API_KEY
+   ```
+3. Optional tuning in `wrangler.toml` `[vars]`: `GROQ_MODEL` (default
+   `openai/gpt-oss-120b`), `TRIAGE_DAILY_BUDGET` (default `50`).
+
+Guardrails: one triage per Sentry issue (KV dedup), a per-day budget cap, only
+in-app stack frames are sent, and emails/tokens are masked before the LLM call.
+Runs in `ctx.waitUntil` so it never delays Sentry's webhook response.
+
+> Note: Groq reasoning models (e.g. `gpt-oss`) spend tokens on hidden reasoning,
+> so `max_tokens` is set generously (1500) to avoid empty completions.
 
 ## Local development
 ```bash
