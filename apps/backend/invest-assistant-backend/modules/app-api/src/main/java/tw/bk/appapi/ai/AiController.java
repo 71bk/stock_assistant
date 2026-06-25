@@ -140,7 +140,7 @@ public class AiController {
             AtomicBoolean failed = new AtomicBoolean(false);
 
             try {
-                groqChatClient.streamChat(messages, context.getUserId())
+                groqChatClient.streamChat(messages, context.getUserId(), "analysis")
                         .doOnNext(delta -> {
                             buffer.append(delta);
                             try {

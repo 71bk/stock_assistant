@@ -14,6 +14,7 @@ import structlog
 from PIL import Image
 
 from app.config import LlmProvider, OcrProvider, get_settings
+from app.metrics import record_ocr_fallback
 from app.models.schemas import Currency, OcrRequest, OcrResponse, ParsedTrade, TradeSide
 from app.services.llm_service import LlmService
 from app.services.tesseract_service import TesseractService
@@ -282,6 +283,8 @@ class OcrService:
         )
 
         # Path A: Tesseract first (AUTO/TESSERACT)
+        if use_tesseract and not self.tesseract.is_available() and allow_vision:
+            record_ocr_fallback("tesseract_unavailable_to_vision")
         if use_tesseract and self.tesseract.is_available():
             try:
                 # For PDF, run Tesseract on each page and combine
@@ -315,10 +318,12 @@ class OcrService:
                         min_confidence=self.settings.ocr_min_confidence,
                         min_length=self.settings.ocr_min_text_length,
                     )
+                    record_ocr_fallback("tesseract_low_confidence_to_vision")
                     raw_text = ""  # Reset to trigger fallback
 
             except Exception as e:
                 logger.warning("Tesseract extraction failed", error=str(e))
+                record_ocr_fallback("tesseract_error_to_vision")
                 raw_text = ""
 
         # Path B: Vision LLM (AUTO fallback or explicit provider)
@@ -343,6 +348,7 @@ class OcrService:
                         "PDF page filter selected no pages; processing all pages with Vision",
                         pages=len(page_actions),
                     )
+                    record_ocr_fallback("page_filter_to_all_vision")
                     page_actions = [(PDF_PAGE_USE_VISION, "filter_selected_no_pages") for _ in page_actions]
 
                 for idx, pg_bytes in enumerate(page_images):
@@ -377,6 +383,7 @@ class OcrService:
                         image_base64=pg_base64,
                         prompt=VISION_EXTRACT_PROMPT,
                         media_type="image/png",
+                        operation="ocr_vision",
                     )
                     if pg_text and pg_text.strip():
                         page_texts.append(pg_text.strip())
@@ -405,6 +412,7 @@ class OcrService:
                     image_base64=image_base64,
                     prompt=VISION_EXTRACT_PROMPT,
                     media_type=media_type,
+                    operation="ocr_vision",
                 )
             extraction_confidence = 0.9  # Vision LLM generally high confidence
 
@@ -537,6 +545,7 @@ class OcrService:
                 trades_count=len(table_fallback_trades),
                 warnings=table_warnings,
             )
+            record_ocr_fallback("table_totals_mismatch_to_llm")
 
         parser_text = self.build_trade_parser_text(text, trade_lines)
         if trade_lines:
@@ -554,7 +563,13 @@ class OcrService:
             {"role": "user", "content": f"請解析以下交易資料：\n\n{parser_text}"},
         ]
 
-        response_text = await self.llm.chat(messages, temperature=0.1, max_tokens=8192, json_mode=True)
+        response_text = await self.llm.chat(
+            messages,
+            temperature=0.1,
+            max_tokens=8192,
+            json_mode=True,
+            operation="ocr_parse",
+        )
 
         # Parse LLM response
         try:
@@ -584,6 +599,7 @@ class OcrService:
             )
             fallback_trades = self.parse_trade_lines_fallback(trade_lines) if trade_lines else []
             if table_fallback_trades:
+                record_ocr_fallback("llm_json_to_table_parser")
                 logger.info(
                     "Broker statement table fallback used after JSON parse failure",
                     user_id=user_id,
@@ -602,6 +618,7 @@ class OcrService:
                     original_date_format="AD",
                 )
             if fallback_trades:
+                record_ocr_fallback("llm_json_to_rule_parser")
                 logger.info(
                     "Rule-based trade fallback used after JSON parse failure",
                     user_id=user_id,
@@ -646,6 +663,7 @@ class OcrService:
 
         warnings = result.get("warnings", [])
         if not trades and table_fallback_trades:
+            record_ocr_fallback("llm_empty_to_table_parser")
             trades = table_fallback_trades
             logger.info("Broker statement table fallback used", user_id=user_id, trades_count=len(trades))
             warnings = [
@@ -656,6 +674,7 @@ class OcrService:
         if not trades and trade_lines:
             trades = self.parse_trade_lines_fallback(trade_lines)
             if trades:
+                record_ocr_fallback("llm_empty_to_rule_parser")
                 logger.info("Rule-based trade fallback used", user_id=user_id, trades_count=len(trades))
                 warnings = [
                     *warnings,

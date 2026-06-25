@@ -65,6 +65,7 @@ services:
       SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_ID: ${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_ID:-}
       SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_SECRET: ${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_SECRET:-}
       APP_ADMIN_API_KEY: ${APP_ADMIN_API_KEY:-}
+      APP_ANALYTICS_PROMETHEUS_BASE_URL: http://prometheus:9090
     volumes:
       - backend_uploads:/app/data/uploads
     depends_on:
@@ -72,6 +73,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - app-net
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}
+    volumes:
+      - ../../../infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - backend
     networks:
       - app-net
 
@@ -151,6 +167,7 @@ volumes:
   postgres_data:
   redis_data:
   backend_uploads:
+  prometheus_data:
 
 networks:
   app-net:

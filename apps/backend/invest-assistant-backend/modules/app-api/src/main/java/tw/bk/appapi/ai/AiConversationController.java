@@ -183,7 +183,7 @@ public class AiConversationController {
                                 toolContext);
                 AtomicBoolean failed = new AtomicBoolean(false);
 
-                groqChatClient.streamChat(messages, userId)
+                groqChatClient.streamChat(messages, userId, "chat")
                         .doOnNext(delta -> {
                             buffer.append(delta);
                             sendDelta(session, delta);

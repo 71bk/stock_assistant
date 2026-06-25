@@ -1,9 +1,12 @@
 """Embedding Service - handles text embedding generation."""
 
+import time
+
 import structlog
 from openai import AsyncOpenAI
 
 from app.config import EmbeddingProvider, get_settings
+from app.metrics import record_call, record_tokens
 
 logger = structlog.get_logger()
 
@@ -48,12 +51,32 @@ class EmbeddingService:
         if self.provider == EmbeddingProvider.GEMINI:
             return await self._embed_gemini(text)
 
-        response = await self.client.embeddings.create(
-            model=self.settings.embedding_model_name,
-            input=text,
-        )
-
-        return response.data[0].embedding
+        model = self.settings.embedding_model_name
+        provider = self.provider.value
+        started_at = time.perf_counter()
+        success = False
+        try:
+            response = await self.client.embeddings.create(
+                model=model,
+                input=text,
+            )
+            if response.usage:
+                record_tokens(
+                    provider,
+                    model,
+                    "embedding",
+                    input_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
+                )
+            success = True
+            return response.data[0].embedding
+        finally:
+            record_call(
+                provider,
+                model,
+                "embedding",
+                success=success,
+                duration_seconds=time.perf_counter() - started_at,
+            )
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
@@ -73,22 +96,40 @@ class EmbeddingService:
         if self.provider == EmbeddingProvider.GEMINI:
             return await self._embed_batch_gemini(texts)
 
-        response = await self.client.embeddings.create(
-            model=self.settings.embedding_model_name,
-            input=texts,
-        )
+        model = self.settings.embedding_model_name
+        provider = self.provider.value
+        started_at = time.perf_counter()
+        success = False
+        try:
+            response = await self.client.embeddings.create(
+                model=model,
+                input=texts,
+            )
+            if response.usage:
+                record_tokens(
+                    provider,
+                    model,
+                    "embedding",
+                    input_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
+                )
 
-        # Sort by index to maintain order
-        sorted_data = sorted(response.data, key=lambda x: x.index)
-        embeddings = [item.embedding for item in sorted_data]
-
-        logger.debug(
-            "Embeddings generated",
-            count=len(embeddings),
-            usage=response.usage.model_dump() if response.usage else None,
-        )
-
-        return embeddings
+            sorted_data = sorted(response.data, key=lambda x: x.index)
+            embeddings = [item.embedding for item in sorted_data]
+            logger.debug(
+                "Embeddings generated",
+                count=len(embeddings),
+                usage=response.usage.model_dump() if response.usage else None,
+            )
+            success = True
+            return embeddings
+        finally:
+            record_call(
+                provider,
+                model,
+                "embedding",
+                success=success,
+                duration_seconds=time.perf_counter() - started_at,
+            )
 
     async def _embed_gemini(self, text: str) -> list[float]:
         """Generate embedding using Gemini API."""
@@ -103,7 +144,21 @@ class EmbeddingService:
             )
             return result["embedding"]
 
-        return await asyncio.to_thread(_sync_embed)
+        model = self.settings.gemini_embedding_model
+        started_at = time.perf_counter()
+        success = False
+        try:
+            result = await asyncio.to_thread(_sync_embed)
+            success = True
+            return result
+        finally:
+            record_call(
+                "gemini",
+                model,
+                "embedding",
+                success=success,
+                duration_seconds=time.perf_counter() - started_at,
+            )
 
     async def _embed_batch_gemini(self, texts: list[str]) -> list[list[float]]:
         """Generate batch embeddings using Gemini API."""
@@ -136,4 +191,18 @@ class EmbeddingService:
 
             return embeddings
 
-        return await asyncio.to_thread(_sync_embed_batch)
+        model = self.settings.gemini_embedding_model
+        started_at = time.perf_counter()
+        success = False
+        try:
+            result = await asyncio.to_thread(_sync_embed_batch)
+            success = True
+            return result
+        finally:
+            record_call(
+                "gemini",
+                model,
+                "embedding",
+                success=success,
+                duration_seconds=time.perf_counter() - started_at,
+            )

@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,6 +54,7 @@ public class OcrController {
     private final OcrService ocrService;
     private final CurrentUserProvider currentUserProvider;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<MeterRegistry> meterRegistryProvider;
 
     @PostMapping("/jobs")
     @Operation(summary = "Create OCR job")
@@ -164,6 +168,7 @@ public class OcrController {
         Long userId = requireUserId();
         boolean isForce = Boolean.TRUE.equals(force);
         OcrJobView job = ocrService.retryJob(userId, parseId(jobId), isForce);
+        recordOcrRetry(isForce ? "force_retry" : "manual_retry");
         return Result.ok(OcrJobResponse.from(job));
     }
 
@@ -175,6 +180,7 @@ public class OcrController {
         Long userId = requireUserId();
         boolean isForce = Boolean.TRUE.equals(force);
         OcrJobView job = ocrService.reparse(userId, parseId(jobId), isForce);
+        recordOcrRetry(isForce ? "force_reparse" : "manual_reparse");
         return Result.ok(OcrJobResponse.from(job));
     }
 
@@ -200,6 +206,18 @@ public class OcrController {
     private Long requireUserId() {
         return currentUserProvider.getUserId()
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
+    }
+
+    private void recordOcrRetry(String reason) {
+        MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+        if (registry == null) {
+            return;
+        }
+        Counter.builder("ocr_retry")
+                .description("OCR retry or reparse requests")
+                .tag("reason", reason)
+                .register(registry)
+                .increment();
     }
 
     private Long parseId(String idStr) {

@@ -20,7 +20,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, ingest, ocr, query
+from app.api import health, ingest, metrics, ocr, query
 from app.config import get_settings
 from app.db.rag_repository import RagRepository, close_pool, init_pool
 from app.rag_schema_guard import (
@@ -119,6 +119,7 @@ def create_app() -> FastAPI:
 
     # Include routers
     app.include_router(health.router, tags=["Health"])
+    app.include_router(metrics.router, tags=["Metrics"])
     app.include_router(ocr.router, prefix="/ocr", tags=["OCR"])
     app.include_router(ingest.router, prefix="/ingest", tags=["RAG Ingestion"])
     app.include_router(query.router, prefix="/query", tags=["RAG Query"])

@@ -123,7 +123,7 @@ class AiConversationControllerTest {
                 ConversationMessageStatus.PENDING,
                 "assistant:cid-1")).thenReturn(pendingAssistant);
         when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
-        when(groqChatClient.streamChat(contextMessages, 1L)).thenReturn(Flux.just("hello", " world"));
+        when(groqChatClient.streamChat(contextMessages, 1L, "chat")).thenReturn(Flux.just("hello", " world"));
         when(conversationService.updateAssistantMessage(
                 1L,
                 2L,
@@ -205,7 +205,7 @@ class AiConversationControllerTest {
                 ConversationMessageStatus.PENDING,
                 "assistant:cid-2")).thenReturn(pendingAssistant);
         when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
-        when(groqChatClient.streamChat(contextMessages, 1L))
+        when(groqChatClient.streamChat(contextMessages, 1L, "chat"))
                 .thenReturn(Flux.just("partial").concatWith(Flux.error(new RuntimeException("boom"))));
         when(conversationService.updateAssistantMessage(
                 1L,
@@ -288,7 +288,7 @@ class AiConversationControllerTest {
                 ConversationMessageStatus.PENDING,
                 "assistant:cid-4")).thenReturn(pendingAssistant);
         when(conversationService.buildContextMessages(1L, 2L, "hello", 11L)).thenReturn(contextMessages);
-        when(groqChatClient.streamChat(contextMessages, 1L))
+        when(groqChatClient.streamChat(contextMessages, 1L, "chat"))
                 .thenThrow(new RuntimeException("Groq API key missing"));
         when(conversationService.updateAssistantMessage(
                 1L,
@@ -366,7 +366,7 @@ class AiConversationControllerTest {
                 "assistant:cid-3")).thenReturn(pendingAssistant);
         when(conversationService.buildContextMessagesWithTool(1L, 2L, "hello", 11L, "quote:\n- a"))
                 .thenReturn(toolMessages);
-        when(groqChatClient.streamChat(toolMessages, 1L)).thenReturn(Flux.just("ok"));
+        when(groqChatClient.streamChat(toolMessages, 1L, "chat")).thenReturn(Flux.just("ok"));
         when(conversationService.updateAssistantMessage(1L, 2L, 22L, "ok", ConversationMessageStatus.COMPLETED))
                 .thenReturn(completedAssistant);
 

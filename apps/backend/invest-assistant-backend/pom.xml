@@ -37,6 +37,7 @@
     <modules>
         <module>modules/app-bootstrap</module>
         <module>modules/app-api</module>
+        <module>modules/app-analytics</module>
         <module>modules/app-auth</module>
         <module>modules/app-portfolio</module>
         <module>modules/app-stocks</module>
@@ -75,6 +76,11 @@
             <dependency>
                 <groupId>tw.bk</groupId>
                 <artifactId>app-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>tw.bk</groupId>
+                <artifactId>app-analytics</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

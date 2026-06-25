@@ -21,6 +21,7 @@ import {
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
 import { FloatingAiAssistant } from '../ai/FloatingAiAssistant';
+import { AnalyticsPageTracker } from '../analytics/AnalyticsPageTracker';
 
 const { Header, Sider, Content } = Layout;
 
@@ -175,6 +176,7 @@ export const MainLayout: React.FC = () => {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
+      <AnalyticsPageTracker />
       {!isMobile && (
         <Sider trigger={null} collapsible collapsed={siderCollapsed} theme="light" style={{ borderRight: '1px solid #f0f0f0' }}>
           <div className="demo-logo-vertical" style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: 18, color: '#1677ff' }}>

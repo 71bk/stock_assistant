@@ -15,7 +15,9 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.HttpStatus;
@@ -115,7 +117,13 @@ class BackendApiSmokeBaselineTest {
     void ocr_retry_shouldReturnJobPayload() {
         OcrService ocrService = mock(OcrService.class);
         CurrentUserProvider currentUserProvider = mock(CurrentUserProvider.class);
-        OcrController controller = new OcrController(ocrService, currentUserProvider, new ObjectMapper());
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MeterRegistry> meterRegistryProvider = mock(ObjectProvider.class);
+        OcrController controller = new OcrController(
+                ocrService,
+                currentUserProvider,
+                new ObjectMapper(),
+                meterRegistryProvider);
 
         OcrJobView jobView = new OcrJobView(21L, 31L, OcrJobStatus.QUEUED, 0, null);
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(5L));

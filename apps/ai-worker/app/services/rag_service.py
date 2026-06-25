@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 import anyio
 import httpx
-import random
 import structlog
 
 try:
@@ -20,6 +20,7 @@ except ImportError:
 
 from app.config import get_settings
 from app.db.rag_repository import RagRepository
+from app.metrics import record_embedding_batch_fallback, record_embedding_retry
 from app.services.document_parser import DocumentParser
 from app.services.embedding_service import EmbeddingService
 from app.services.text_splitter import chunk_text
@@ -271,13 +272,18 @@ class RagService:
         batch_sizes = [self.settings.embedding_batch_size] + self.settings.embedding_batch_fallbacks_list
         last_exc: Exception | None = None
 
-        for batch_size in batch_sizes:
+        for index, batch_size in enumerate(batch_sizes):
             try:
                 return await self._embed_in_batches(texts, batch_size)
             except Exception as exc:
                 last_exc = exc
                 if not self._is_retryable(exc):
                     raise
+                if index < len(batch_sizes) - 1:
+                    record_embedding_batch_fallback(
+                        self.embedder.provider.value,
+                        self.settings.embedding_model_name,
+                    )
                 logger.warning(
                     "Embedding failed, trying smaller batch size",
                     batch_size=batch_size,
@@ -321,6 +327,12 @@ class RagService:
                     delay=delay,
                     error=str(exc),
                 )
+                record_embedding_retry(
+                    self.embedder.provider.value,
+                    self.settings.embedding_model_name,
+                    "batch",
+                    type(exc).__name__,
+                )
                 await anyio.sleep(delay)
         # Should not reach here, but just in case
         raise RuntimeError("Embedding failed after all retries")
@@ -345,6 +357,12 @@ class RagService:
                     max_attempts=max_attempts,
                     delay=delay,
                     error=str(exc),
+                )
+                record_embedding_retry(
+                    self.embedder.provider.value,
+                    self.settings.embedding_model_name,
+                    "query",
+                    type(exc).__name__,
                 )
                 await anyio.sleep(delay)
         raise RuntimeError("Embedding failed after all retries")

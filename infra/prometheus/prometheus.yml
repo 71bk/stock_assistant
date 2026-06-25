@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: invest-assistant-backend
+    metrics_path: /api/actuator/prometheus
+    static_configs:
+      - targets:
+          - backend:8080
+
+  - job_name: ai-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - ai-worker:8001

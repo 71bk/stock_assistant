@@ -70,6 +70,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/health",
                                 "/actuator/health",
+                                "/actuator/prometheus",
                                 "/auth/google/login",
                                 "/auth/csrf",
                                 "/auth/admin/login",

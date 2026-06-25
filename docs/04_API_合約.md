@@ -104,10 +104,28 @@
 
 ---
 
+## Product Analytics
+
+| Method | Path | 說明 | Auth |
+|---|---|---|---|
+| POST | `/api/analytics/events` | 批次記錄已登入使用者的 SPA 事件（目前支援 `PAGE_VIEW`） | 是 |
+
+- 每批最多 20 筆，`eventId` 為 UUID 並用於冪等去重。
+- `userId` 一律由 JWT 決定，前端不可指定。
+- `route` 只保存 pathname，不保存 query string、Email、IP、User-Agent 或業務內容。
+- 事件時間只接受伺服器時間前 24 小時至後 5 分鐘。
+
+---
+
 ## Admin
 ### Endpoints
 | Method | Path | 說明 | Auth |
 |---|---|---|---|
+| GET | `/api/admin/analytics/summary` | 註冊、DAU/WAU/MAU、瀏覽與工作階段摘要 | `ROLE_ADMIN` |
+| GET | `/api/admin/analytics/users/trend` | 每日新增、活躍使用者與頁面瀏覽趨勢 | `ROLE_ADMIN` |
+| GET | `/api/admin/analytics/pages` | 熱門 SPA 路由 | `ROLE_ADMIN` |
+| GET | `/api/admin/analytics/api-traffic` | Prometheus API 請求量、錯誤與 p95 延遲 | `ROLE_ADMIN` |
+| GET | `/api/admin/analytics/ai-usage` | AI/OCR token、呼叫、失敗、fallback 與 retry 指標 | `ROLE_ADMIN` |
 | POST | `/api/admin/instruments/sync` | 從 Fugle 同步 Instrument | 見下方 |
 | POST | `/api/admin/instruments/sync-warrants` | 同步權證（TPEx + TWSE fallback） | 見下方 |
 | POST | `/api/admin/rag/portfolio-snapshots` | 手動觸發投資組合快照向量化 | 見下方 |
@@ -117,7 +135,9 @@
 
 #### 認證方式
 - 必須為 **ADMIN 角色**（`ROLE_ADMIN`，由 access token / Spring Security RBAC 驗證）
-- 若 **已設定** `APP_ADMIN_API_KEY`，除 ADMIN 角色外，還需帶 `X-Admin-Key` header（第二道防線）
+- 分析查詢 API 只要求 `ROLE_ADMIN`。
+- 同步、修復、刪除等敏感操作若 **已設定** `APP_ADMIN_API_KEY`，除 ADMIN 角色外，還需帶 `X-Admin-Key` header（第二道防線）。
+- 分析日期參數為 `from`、`to`（ISO date，含首尾日期）與 `timezone`；範圍最多 90 天。
 
 #### 同步 Instrument（`POST /api/admin/instruments/sync`）
 Request Headers（若已設定 API Key）：

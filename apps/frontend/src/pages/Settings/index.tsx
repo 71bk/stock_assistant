@@ -1,17 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { Typography, Card, Form, Select, Switch, Button, message, Divider, Input } from 'antd';
+import React, { useEffect } from 'react';
+import { Typography, Card, Form, Select, Switch, Button, message } from 'antd';
 import { useAuthStore } from '../../stores/auth.store';
 import { usersApi } from '../../api/users.api';
-import { adminApi } from '../../api/admin.api';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const { Option } = Select;
 
 const Settings: React.FC = () => {
   const { user, checkAuth } = useAuthStore();
   const [form] = Form.useForm();
-  const [adminKey, setAdminKey] = useState('');
-  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -30,45 +27,6 @@ const Settings: React.FC = () => {
       checkAuth();
     } catch {
       message.error('更新失敗');
-    }
-  };
-
-  const handleSyncInstruments = async () => {
-    setIsSyncing(true);
-    try {
-      const res = await adminApi.syncInstruments(adminKey);
-      const { added, skipped } = res;
-      message.success(`標的同步成功！新增：${added} 筆，略過：${skipped} 筆`);
-    } catch {
-      message.error('同步失敗，請檢查 Admin Key 是否正確');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleSyncWarrants = async () => {
-    setIsSyncing(true);
-    try {
-      const res = await adminApi.syncWarrants(adminKey);
-      const { added, skipped } = res;
-      message.success(`權證同步成功！新增：${added} 筆，略過：${skipped} 筆`);
-    } catch {
-      message.error('權證同步失敗，請檢查 Admin Key 是否正確');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleSnapshotValuations = async () => {
-    setIsSyncing(true);
-    try {
-      const res = await adminApi.snapshotValuations(undefined, undefined, undefined, adminKey);
-      const { asOfDate, succeeded, failed } = res;
-      message.success(`估值快照已重算 (${asOfDate})！成功：${succeeded}，失敗：${failed}`);
-    } catch {
-      message.error('重算失敗，請檢查 Admin Key 是否正確');
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -106,44 +64,6 @@ const Settings: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
-
-        <Divider />
-        
-        <Title level={4}>系統管理 (Admin)</Title>
-        <div style={{ marginTop: 16 }}>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            同步市場標的 (從 Fugle 匯入台股清單)
-          </Text>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Input.Password
-              placeholder="輸入 Admin Key (若有設定)"
-              value={adminKey}
-              onChange={(e) => setAdminKey(e.target.value)}
-              style={{ maxWidth: 200 }}
-            />
-            <Button
-              onClick={handleSyncInstruments}
-              loading={isSyncing}
-              danger
-            >
-              同步標的資料
-            </Button>
-            <Button
-              onClick={handleSyncWarrants}
-              loading={isSyncing}
-              danger
-            >
-              同步權證資料
-            </Button>
-            <Button
-              onClick={handleSnapshotValuations}
-              loading={isSyncing}
-              danger
-            >
-              重算估值快照
-            </Button>
-          </div>
-        </div>
       </Card>
     </div>
   );

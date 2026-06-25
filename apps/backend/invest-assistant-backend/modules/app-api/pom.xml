@@ -29,6 +29,7 @@
         <dependency><groupId>tw.bk</groupId><artifactId>app-files</artifactId></dependency>
         <dependency><groupId>tw.bk</groupId><artifactId>app-ai</artifactId></dependency>
         <dependency><groupId>tw.bk</groupId><artifactId>app-rag</artifactId></dependency>
+        <dependency><groupId>tw.bk</groupId><artifactId>app-analytics</artifactId></dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

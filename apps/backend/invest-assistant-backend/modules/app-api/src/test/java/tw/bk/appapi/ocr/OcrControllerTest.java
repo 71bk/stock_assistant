@@ -13,6 +13,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import tw.bk.appapi.ocr.dto.SubmitOcrPasswordRequest;
 import tw.bk.appapi.ocr.vo.OcrJobResponse;
 import tw.bk.appcommon.enums.OcrJobStatus;
@@ -33,19 +36,28 @@ class OcrControllerTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private ObjectProvider<MeterRegistry> meterRegistryProvider;
+
     private OcrController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new OcrController(ocrService, currentUserProvider, objectMapper);
+        controller = new OcrController(
+                ocrService,
+                currentUserProvider,
+                objectMapper,
+                meterRegistryProvider);
     }
 
     @Test
     void retry_shouldCallServiceWithForceTrue() {
         OcrJobView job = new OcrJobView(123L, 456L, OcrJobStatus.QUEUED, 0, null);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(99L));
         when(ocrService.retryJob(99L, 123L, true)).thenReturn(job);
+        when(meterRegistryProvider.getIfAvailable()).thenReturn(registry);
 
         Result<OcrJobResponse> result = controller.retry("123", true);
 
@@ -54,6 +66,9 @@ class OcrControllerTest {
         assertEquals("123", result.getData().getJobId());
         assertEquals("456", result.getData().getStatementId());
         assertEquals(0, result.getData().getProgress());
+        assertEquals(
+                1.0,
+                registry.get("ocr_retry").tag("reason", "force_retry").counter().count());
         verify(ocrService).retryJob(99L, 123L, true);
     }
 
