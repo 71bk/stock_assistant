@@ -1,0 +1,53 @@
+# Local-only monitoring stack to test the "metric → Grafana → Slack #dev" pipeline
+# against your host-run services (IntelliJ backend on :8080, ai-worker on :8001).
+#
+#   docker compose -f compose.monitoring.yaml --env-file .env.monitoring up -d
+#   # Grafana: http://localhost:3000   Prometheus: http://localhost:9090
+#   docker compose -f compose.monitoring.yaml down
+#
+# .env.monitoring (see .env.monitoring.example) needs:
+#   GRAFANA_ADMIN_PASSWORD=...
+#   SLACK_WEBHOOK_DEV=<your #dev Slack incoming webhook>
+#
+# Reuses the same Grafana provisioning as prod (same 5 alert rules); the only
+# difference is Prometheus scrapes the host and alerts go to your #dev channel.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    extra_hosts:
+      # Lets the container reach host-run services via host.docker.internal
+      # (automatic on Docker Desktop; explicit here for portability).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../../../infra/prometheus/prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_dev_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # The provisioned contact point reads SLACK_WEBHOOK_PROD; feed the DEV
+      # webhook into it so local alerts land in #dev (keeping #prod clean).
+      SLACK_WEBHOOK_PROD: ${SLACK_WEBHOOK_DEV:?SLACK_WEBHOOK_DEV is required}
+    volumes:
+      - ../../../infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_dev_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+volumes:
+  prometheus_dev_data:
+  grafana_dev_data:

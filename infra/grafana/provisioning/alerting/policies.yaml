@@ -1,0 +1,12 @@
+apiVersion: 1
+
+# Prometheus currently only scrapes the prod stack, so every alert routes to the
+# prod Slack channel. To add dev routing later: add a `slack-dev` contact point
+# and a child route here matching an `environment = dev` label.
+policies:
+  - orgId: 1
+    receiver: slack
+    group_by: ['alertname', 'grafana_folder']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

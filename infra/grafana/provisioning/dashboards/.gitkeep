@@ -1,0 +1,2 @@
+# Placeholder so Grafana doesn't log "directory not found" for dashboard provisioning.
+# Add dashboard providers (*.yaml) + dashboard JSON here later if desired.

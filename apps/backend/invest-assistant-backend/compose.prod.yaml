@@ -91,6 +91,27 @@ services:
     networks:
       - app-net
 
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      # Consumed by the provisioned Slack contact point (see infra/grafana/provisioning).
+      SLACK_WEBHOOK_PROD: ${SLACK_WEBHOOK_PROD:?SLACK_WEBHOOK_PROD is required}
+    volumes:
+      - ../../../infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      # Internal ops tool — keep it off the public Cloudflare hostname.
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - app-net
+
   ai-worker:
     image: ${AI_WORKER_IMAGE:-ghcr.io/71bk/stock_assistant/ai-worker:latest}
     restart: unless-stopped
@@ -168,6 +189,7 @@ volumes:
   redis_data:
   backend_uploads:
   prometheus_data:
+  grafana_data:
 
 networks:
   app-net:

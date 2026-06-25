@@ -1,0 +1,160 @@
+apiVersion: 1
+
+# Grafana-managed alert rules (no Alertmanager needed).
+# Each rule: an instant Prometheus query (refId A) fed into a threshold
+# expression (refId C). Thresholds are starting points — tune to your traffic.
+groups:
+  - orgId: 1
+    name: infra
+    folder: Infra Alerts
+    interval: 1m
+    rules:
+      - uid: svc-down
+        title: Service down (up == 0)
+        condition: C
+        for: 2m
+        noDataState: Alerting
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Target {{ $labels.job }} is down'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              expr: 'min by (job) (up{job=~"invest-assistant-backend|ai-worker"})'
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: api-5xx-ratio
+        title: API 5xx ratio high
+        condition: C
+        for: 10m
+        noDataState: NoData
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Backend 5xx ratio above 5% for 10m'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              expr: 'sum(rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])), 0.001)'
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+
+      - uid: ai-call-failures
+        title: AI provider call failures
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: 'More than 5 failed AI provider calls in the last hour'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              expr: 'sum(increase(ai_calls_total{success="false"}[1h]))'
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [5] }
+
+      - uid: ai-token-spike
+        title: AI token usage spike (cost proxy)
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: 'AI token usage over 200k in the last hour — check for runaway cost'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              expr: 'sum(increase(ai_tokens_total[1h]))'
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [200000] }
+
+      - uid: ocr-fallback-spike
+        title: OCR fallback spike
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: 'More than 10 OCR fallbacks in the last hour'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              expr: 'sum(increase(ocr_fallback_total[1h]))'
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [10] }

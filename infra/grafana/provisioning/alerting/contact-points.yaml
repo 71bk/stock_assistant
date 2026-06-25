@@ -1,0 +1,13 @@
+apiVersion: 1
+
+# Slack incoming webhook URL is injected from the SLACK_WEBHOOK_PROD env var
+# (set on the grafana container) — never hard-code it here.
+contactPoints:
+  - orgId: 1
+    name: slack
+    receivers:
+      - uid: slack-prod
+        type: slack
+        settings:
+          url: ${SLACK_WEBHOOK_PROD}
+        disableResolveMessage: false

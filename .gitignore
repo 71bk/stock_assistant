@@ -29,6 +29,7 @@ lerna-debug.log*
 .env.development
 .env.production
 .env.prod
+.env.monitoring
 .env.*.local
 
 # === Node.js ===

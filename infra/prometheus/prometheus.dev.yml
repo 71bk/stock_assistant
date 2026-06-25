@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Local dev: scrape the host-run services (IntelliJ backend + local ai-worker)
+# instead of Docker service names. Job names match the prod config so the same
+# Grafana alert rules (up{job=~"invest-assistant-backend|ai-worker"}) apply.
+scrape_configs:
+  - job_name: invest-assistant-backend
+    metrics_path: /api/actuator/prometheus
+    static_configs:
+      - targets:
+          - host.docker.internal:8080
+
+  - job_name: ai-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8001
