@@ -822,6 +822,8 @@ Response：`Result<InstrumentDetailResponse>`
 | GET | `/api/portfolios` | 取得投資組合列表 | 是 |
 | POST | `/api/portfolios` | 新增投資組合 | 是 |
 | GET | `/api/portfolios/{portfolioId}` | 取得投資組合（含統計） | 是 |
+| PATCH | `/api/portfolios/{portfolioId}` | 更新投資組合（重新命名）（規劃中） | 是 |
+| DELETE | `/api/portfolios/{portfolioId}` | 刪除投資組合（規劃中） | 是 |
 | GET | `/api/portfolios/{portfolioId}/positions` | 持倉列表 | 是 |
 | GET | `/api/portfolios/{portfolioId}/trades` | 交易列表（可篩選） | 是 |
 | POST | `/api/portfolios/{portfolioId}/trades` | 新增交易 | 是 |
@@ -856,6 +858,32 @@ Response：
   "traceId": "..."
 }
 ```
+
+#### 更新投資組合（`PATCH /api/portfolios/{portfolioId}`）（規劃中）
+重新命名或調整基礎幣別。需擁有該投資組合（user_id 隔離）。
+
+Request 欄位（皆可選，至少需一個）：
+- `name`：名稱（去除前後空白後 1–50 字）
+- `baseCurrency`：基礎幣別（`TWD`/`USD`…）
+
+行為與限制：
+- `baseCurrency`：一旦該投資組合**已有交易/持倉，不可變更**（避免歷史估值與損益的幣別錯亂）；嘗試變更回 `400 VALIDATION_ERROR`（message: `baseCurrency cannot change after trades exist`）。
+- `name` 空字串或超過 50 字 → `400 VALIDATION_ERROR`。
+- 找不到或非本人擁有 → `404 NOT_FOUND`。
+
+Response：`Result<PortfolioSummary>`（欄位同 `GET /api/portfolios/{portfolioId}`）。
+
+#### 刪除投資組合（`DELETE /api/portfolios/{portfolioId}`）（規劃中）
+刪除投資組合，並**連同其交易、持倉、估值快照一併移除**（不可逆）。需擁有該投資組合（user_id 隔離）。
+
+行為與限制：
+- 連動刪除：`app.stock_trades`、`app.user_positions`、`app.portfolio_valuations`（以 DB `ON DELETE CASCADE` 或 service 層單一交易內刪除）。
+- RAG：若曾向量化此組合（`source_type=portfolio`、tag `portfolioId:{id}`），應一併刪除對應向量文件（沿用既有刪除文件機制）。
+- 允許刪除「最後一個」投資組合；刪光後前端顯示空狀態 + 建立 CTA（見 `POST /api/portfolios` 建立流程）。
+- 前端必須二次確認（Popconfirm），因為不可逆。
+- 找不到或非本人擁有 → `404 NOT_FOUND`。
+
+Response：`Result<Void>`（`success: true, data: null`）。
 
 #### 取得資產歷史價值（`GET /api/portfolios/{portfolioId}/valuations`）
 Query Parameters：
