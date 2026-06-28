@@ -1,7 +1,8 @@
 import { lazy } from "react";
 import type { RouteObject } from "react-router-dom";
-import { Outlet } from "react-router-dom";
+import { Outlet, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { RequireAuth, RequireAdmin, PublicOnly } from "@/utils/guards";
 
@@ -17,7 +18,11 @@ const ChatPage = lazy(() => import("@/pages/Chat"));
 const KnowledgeBasePage = lazy(() => import("@/pages/KnowledgeBase"));
 const Login = lazy(() => import("@/pages/Auth").then(module => ({ default: module.Login })));
 const AdminLogin = lazy(() => import("@/pages/Auth/AdminLogin").then(module => ({ default: module.AdminLogin })));
-const AdminDashboard = lazy(() => import("@/pages/Admin/Dashboard"));
+const AdminOverview = lazy(() => import("@/pages/Admin/OverviewPage"));
+const AdminUsers = lazy(() => import("@/pages/Admin/UsersPage"));
+const AdminAiUsage = lazy(() => import("@/pages/Admin/AiUsagePage"));
+const AdminApiTraffic = lazy(() => import("@/pages/Admin/ApiTrafficPage"));
+const AdminMaintenance = lazy(() => import("@/pages/Admin/MaintenancePage"));
 const OAuthCallback = lazy(() => import("@/pages/Auth/Callback"));
 
 import { LazyWrapper } from "@/components/common/LazyWrapper";
@@ -118,14 +123,67 @@ export const routeConfig: RouteObject[] = [
               </LazyWrapper>
             ),
           },
+        ],
+      },
+      {
+        path: "admin",
+        element: (
+          <RequireAdmin>
+            <AdminLayout />
+          </RequireAdmin>
+        ),
+        children: [
           {
-            path: "admin/dashboard",
+            index: true,
+            element: <Navigate to="/admin/overview" replace />,
+          },
+          {
+            // Backward-compat for old links (/admin/dashboard, /admin/analytics).
+            path: "dashboard",
+            element: <Navigate to="/admin/overview" replace />,
+          },
+          {
+            path: "analytics",
+            element: <Navigate to="/admin/users" replace />,
+          },
+          {
+            path: "overview",
             element: (
-              <RequireAdmin>
-                <LazyWrapper>
-                  <AdminDashboard />
-                </LazyWrapper>
-              </RequireAdmin>
+              <LazyWrapper>
+                <AdminOverview />
+              </LazyWrapper>
+            ),
+          },
+          {
+            path: "users",
+            element: (
+              <LazyWrapper>
+                <AdminUsers />
+              </LazyWrapper>
+            ),
+          },
+          {
+            path: "ai-usage",
+            element: (
+              <LazyWrapper>
+                <AdminAiUsage />
+              </LazyWrapper>
+            ),
+          },
+          {
+            path: "api-traffic",
+            element: (
+              <LazyWrapper>
+                <AdminApiTraffic />
+              </LazyWrapper>
+            ),
+          },
+          {
+            path: "maintenance",
+            element: (
+              <LazyWrapper>
+                <AdminMaintenance />
+              </LazyWrapper>
             ),
           },
         ],

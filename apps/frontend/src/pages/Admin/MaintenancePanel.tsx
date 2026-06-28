@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Card, Typography, Row, Col, Statistic, Button, message, Input, InputNumber, Space, Divider, Alert, Popconfirm, Tag } from 'antd';
+import { Card, Typography, Row, Col, Statistic, Button, Input, InputNumber, Space, Divider, Alert, Popconfirm, Tag } from 'antd';
 import { SyncOutlined, ReloadOutlined, DatabaseOutlined, SaveOutlined, KeyOutlined } from '@ant-design/icons';
 import { adminApi, type AdminKeyStatus, type SyncResult } from '../../api/admin.api';
+// Use the context-aware antd message instance so toasts follow the active (dark) theme.
+import { antd } from '../../utils/antd-globals';
 
 const { Title, Text } = Typography;
 
@@ -38,9 +40,9 @@ export const MaintenancePanel: React.FC = () => {
       const status = await adminApi.setAdminKey(keyInput.trim());
       setKeyStatus(status);
       setKeyInput(''); // Never keep the raw key in component state after it's exchanged for the cookie.
-      message.success('Admin Key 已驗證並寫入安全 cookie');
+      antd.message.success('Admin Key 已驗證並寫入安全 cookie');
     } catch {
-      message.error('Admin Key 驗證失敗，請確認金鑰是否正確');
+      antd.message.error('Admin Key 驗證失敗，請確認金鑰是否正確');
     } finally {
       setSavingKey(false);
     }
@@ -51,9 +53,9 @@ export const MaintenancePanel: React.FC = () => {
     try {
       await adminApi.clearAdminKey();
       await refreshKeyStatus();
-      message.success('Admin Key 已清除');
+      antd.message.success('Admin Key 已清除');
     } catch {
-      message.error('清除失敗，請稍後再試');
+      antd.message.error('清除失敗，請稍後再試');
     } finally {
       setSavingKey(false);
     }
@@ -81,15 +83,19 @@ export const MaintenancePanel: React.FC = () => {
       } else if (action === 'snapshotValuations') {
         msg = `估值快照完成`;
         details = JSON.stringify(res, null, 2);
+      } else if (action === 'snapshotRagPortfolios') {
+        const data = res as { total: number; ingested: number; skipped: number; failed: number };
+        msg = `RAG 向量化完成：共 ${data.total} 組，寫入 ${data.ingested}、略過 ${data.skipped}、失敗 ${data.failed}`;
+        details = JSON.stringify(res, null, 2);
       }
 
       setResult({ type: 'success', message: msg, details });
-      message.success(msg);
+      antd.message.success(msg);
     } catch (err: unknown) {
       console.error(`${action} failed:`, err);
       const errMsg = err instanceof Error ? err.message : '操作失敗';
       setResult({ type: 'error', message: errMsg });
-      message.error(errMsg);
+      antd.message.error(errMsg);
     } finally {
       setLoading(prev => ({ ...prev, [action]: false }));
     }
@@ -221,7 +227,7 @@ export const MaintenancePanel: React.FC = () => {
 
         <Col span={24}>
           <Divider />
-          <Title level={4}>維護工具</Title>
+          <Title level={4}>持倉與快照</Title>
         </Col>
 
         <Col xs={24} sm={12}>
@@ -286,6 +292,34 @@ export const MaintenancePanel: React.FC = () => {
             />
             <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
               手動觸發所有投資組合的每日估值快照寫入。
+            </Text>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12}>
+          <Card>
+            <Statistic
+              title="RAG 投資組合向量化 (Portfolio Embedding)"
+              value="Embed"
+              formatter={() => (
+                <Popconfirm
+                  title="開始向量化所有投資組合？"
+                  description="此操作會將各使用者持倉文字化後送 embedding 寫入向量庫，會呼叫 embedding 供應商（有成本）。"
+                  okText="開始向量化"
+                  cancelText="取消"
+                  onConfirm={() => handleAction('snapshotRagPortfolios', () => adminApi.snapshotRagPortfolios())}
+                >
+                  <Button
+                    icon={<DatabaseOutlined spin={loading['snapshotRagPortfolios']} />}
+                    loading={loading['snapshotRagPortfolios']}
+                  >
+                    觸發投資組合向量化
+                  </Button>
+                </Popconfirm>
+              )}
+            />
+            <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
+              將所有投資組合持倉 embedding 進向量庫，供 AI 聊天 RAG 檢索（依 user_id 隔離）。對應每日 02:30 排程。
             </Text>
           </Card>
         </Col>

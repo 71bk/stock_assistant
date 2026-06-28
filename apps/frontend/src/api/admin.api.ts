@@ -46,4 +46,14 @@ export const adminApi = {
       failed: number;
       failedPortfolioIds: number[];
     }>('/admin/portfolios/valuations-snapshot', { portfolioId, userId, asOfDate }),
+
+  snapshotRagPortfolios: (portfolioId?: number, userId?: number) =>
+    http.post<{
+      total: number;
+      ingested: number;
+      skipped: number;
+      failed: number;
+    }>('/admin/rag/portfolio-snapshots', { portfolioId, userId }, {
+      timeout: 120000, // Embedding all portfolios can take a while.
+    }),
 };

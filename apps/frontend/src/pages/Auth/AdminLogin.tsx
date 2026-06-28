@@ -27,7 +27,7 @@ export const AdminLogin: React.FC = () => {
     try {
       await loginAdmin(values);
       message.success('管理員登入成功');
-      navigate('/admin/dashboard');
+      navigate('/admin');
     } catch (err: unknown) {
       console.error('Admin login failed:', err);
       // Handle different error cases if needed (e.g., 429, 401)
