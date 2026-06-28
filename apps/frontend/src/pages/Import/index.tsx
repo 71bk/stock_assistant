@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Steps, Card, Upload, Typography, Button, Progress, Table,
   Tag, Tooltip, Space, Popconfirm, InputNumber, DatePicker, Select,
@@ -10,6 +10,7 @@ import {
   ReloadOutlined, UploadOutlined, ImportOutlined, FileImageOutlined, LockOutlined
 } from '@ant-design/icons';
 import { useImportFlow } from '../../hooks/useImportFlow';
+import { usePortfolioStore } from '../../stores/portfolio.store';
 import type { DraftTrade } from '../../api/ocr.api';
 import type { GetProp, UploadProps } from 'antd';
 import dayjs from 'dayjs';
@@ -27,6 +28,18 @@ const { Title, Text } = Typography;
 // --- Step 0: Upload ---
 const UploadStep: React.FC = () => {
   const { uploadFile } = useImportFlow();
+  const portfolios = usePortfolioStore((s) => s.portfolios);
+  const currentPortfolioId = usePortfolioStore((s) => s.currentPortfolioId);
+  const initPortfolioId = usePortfolioStore((s) => s.initPortfolioId);
+  const [targetId, setTargetId] = useState<string | undefined>(currentPortfolioId ?? undefined);
+
+  // Ensure the portfolio list is loaded and default the target to the active one.
+  useEffect(() => {
+    initPortfolioId();
+  }, [initPortfolioId]);
+  useEffect(() => {
+    if (currentPortfolioId && !targetId) setTargetId(currentPortfolioId);
+  }, [currentPortfolioId, targetId]);
 
   const props = {
     name: 'file',
@@ -35,13 +48,27 @@ const UploadStep: React.FC = () => {
     accept: '.jpg,.jpeg,.pdf',
     customRequest: async (options: Parameters<GetProp<UploadProps, 'customRequest'>>[0]) => {
       const { file, onSuccess } = options;
-      await uploadFile(file as File);
+      // Pass the chosen target; when the user has no portfolio yet, leaving it
+      // undefined lets uploadFile open the create-portfolio modal first.
+      await uploadFile(file as File, targetId);
       onSuccess?.("ok");
     },
   };
 
   return (
     <Card style={{ textAlign: 'center', padding: 40 }}>
+      {portfolios.length > 0 && (
+        <div style={{ maxWidth: 360, margin: '0 auto 24px', textAlign: 'left' }}>
+          <Text strong style={{ display: 'block', marginBottom: 8 }}>匯入到投資組合</Text>
+          <Select
+            style={{ width: '100%' }}
+            value={targetId}
+            onChange={setTargetId}
+            options={portfolios.map((p) => ({ value: String(p.id), label: p.name }))}
+            aria-label="選擇匯入目標投資組合"
+          />
+        </div>
+      )}
       <Dragger {...props} style={{ padding: 40, background: '#fafafa' }}>
         <p className="ant-upload-drag-icon">
           <InboxOutlined style={{ fontSize: 48, color: '#1677ff' }} />

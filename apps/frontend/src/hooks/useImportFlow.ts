@@ -11,13 +11,13 @@ export function useImportFlow() {
   const portfolioStore = usePortfolioStore();
   const { handleError } = useApiError();
 
-  const uploadFile = useCallback(async (file: File) => {
+  const uploadFile = useCallback(async (file: File, portfolioId?: string) => {
     try {
-      // Opens the create-portfolio modal and waits when the user has none yet;
-      // returns null only if they cancel, in which case we abort silently.
-      const portfolioId = await portfolioStore.requirePortfolio();
-      if (!portfolioId) return;
-      await importStore.uploadFile(file, portfolioId);
+      // Use the explicitly chosen target portfolio; otherwise fall back to the
+      // active one, opening the create-portfolio modal when the user has none.
+      const targetId = portfolioId ?? await portfolioStore.requirePortfolio();
+      if (!targetId) return;
+      await importStore.uploadFile(file, targetId);
     } catch (error) {
       handleError(error, '檔案上傳失敗');
     }
