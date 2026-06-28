@@ -2,6 +2,9 @@
 .idea/
 .run/
 .claude/
+.serena/
+.playwright-mcp/
+.zoo/
 *.iml
 *.ipr
 *.iws
