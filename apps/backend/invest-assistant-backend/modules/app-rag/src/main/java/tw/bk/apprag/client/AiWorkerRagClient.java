@@ -1,5 +1,7 @@
 package tw.bk.apprag.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
@@ -20,6 +22,8 @@ import tw.bk.appcommon.exception.BusinessException;
 
 @Component
 public class AiWorkerRagClient {
+    private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
+
     private final WebClient webClient;
     private final AiWorkerRagProperties properties;
 
@@ -257,10 +261,32 @@ public class AiWorkerRagClient {
     }
 
     private BusinessException ingestionException(Exception ex) {
+        // The ai-worker returns 4xx for client-side problems (unparseable / empty /
+        // unsupported file, or a scanned PDF needing OCR). Surface those as a 4xx
+        // with the worker's reason so they read as bad input — not a server error
+        // that pages Sentry.
+        if (ex instanceof WebClientResponseException wcre && wcre.getStatusCode().is4xxClientError()) {
+            return new BusinessException(ErrorCode.VALIDATION_ERROR, extractWorkerDetail(wcre));
+        }
         if (isTimeoutException(ex)) {
             return new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker ingestion timeout");
         }
         return new BusinessException(ErrorCode.INTERNAL_ERROR, "AI Worker ingestion failed: " + ex.getMessage());
+    }
+
+    private String extractWorkerDetail(WebClientResponseException ex) {
+        try {
+            String body = ex.getResponseBodyAsString();
+            if (body != null && !body.isBlank()) {
+                JsonNode detail = ERROR_MAPPER.readTree(body).get("detail");
+                if (detail != null && detail.isTextual() && !detail.asText().isBlank()) {
+                    return detail.asText();
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through to a generic message
+        }
+        return "文件無法解析，請確認檔案內容或格式是否支援";
     }
 
     private MediaType parseMediaType(String contentType) {

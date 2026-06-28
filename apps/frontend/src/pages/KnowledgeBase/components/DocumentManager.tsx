@@ -8,9 +8,29 @@ import type { UploadFile } from 'antd/es/upload/interface';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatDateTime } from '@/utils/format';
 import { logger } from '@/utils/logger';
+import type { AxiosError } from 'axios';
 
 const { Dragger } = Upload;
 const { TextArea } = Input;
+
+/**
+ * Classify an ingest failure. A 4xx is an expected user problem (unsupported /
+ * empty / unparseable file, or a scanned PDF needing OCR): show the backend's
+ * reason and log at info level so it doesn't page Sentry. Anything else is a
+ * genuine error worth reporting.
+ */
+function reportIngestError(error: unknown, fallback: string) {
+  const status = (error as AxiosError)?.response?.status;
+  const data = (error as AxiosError)?.response?.data as { error?: { message?: string }; message?: string } | undefined;
+  const backendMsg = data?.error?.message || data?.message;
+  if (status && status >= 400 && status < 500) {
+    logger.info('Knowledge base ingest rejected', { status, message: backendMsg });
+    message.error(backendMsg || fallback);
+  } else {
+    logger.error(fallback, error);
+    message.error(fallback);
+  }
+}
 
 const DocumentManager: React.FC = () => {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
@@ -60,8 +80,7 @@ const DocumentManager: React.FC = () => {
       setFileList([]);
       fetchDocuments(); // Refresh list
     } catch (error) {
-      logger.error('Upload document failed', error);
-      message.error('文件上傳失敗');
+      reportIngestError(error, '文件上傳失敗');
     } finally {
       setUploading(false);
     }
@@ -83,8 +102,7 @@ const DocumentManager: React.FC = () => {
       textForm.resetFields();
       fetchDocuments(); // Refresh list
     } catch (error) {
-      logger.error('Ingest text failed', error);
-      message.error('寫入失敗');
+      reportIngestError(error, '寫入失敗');
     } finally {
       setUploading(false);
     }
