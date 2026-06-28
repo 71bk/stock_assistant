@@ -13,11 +13,10 @@ export function useImportFlow() {
 
   const uploadFile = useCallback(async (file: File) => {
     try {
-      const portfolioId = await portfolioStore.initPortfolioId();
-      if (!portfolioId) {
-        // Notification is already shown in initPortfolioId
-        return;
-      }
+      // Opens the create-portfolio modal and waits when the user has none yet;
+      // returns null only if they cancel, in which case we abort silently.
+      const portfolioId = await portfolioStore.requirePortfolio();
+      if (!portfolioId) return;
       await importStore.uploadFile(file, portfolioId);
     } catch (error) {
       handleError(error, '檔案上傳失敗');
@@ -26,7 +25,7 @@ export function useImportFlow() {
 
   const reprocessJob = useCallback(async () => {
     try {
-      const portfolioId = await portfolioStore.initPortfolioId();
+      const portfolioId = await portfolioStore.requirePortfolio();
       if (!portfolioId) return;
       await importStore.reprocessJob(portfolioId);
     } catch (error) {

@@ -22,6 +22,8 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
 import { FloatingAiAssistant } from '../ai/FloatingAiAssistant';
 import { AnalyticsPageTracker } from '../analytics/AnalyticsPageTracker';
+import { CreatePortfolioModal } from '../portfolio/CreatePortfolioModal';
+import { PortfolioSwitcher } from '../portfolio/PortfolioSwitcher';
 
 const { Header, Sider, Content } = Layout;
 
@@ -62,12 +64,17 @@ export const MainLayout: React.FC = () => {
         icon: <SettingOutlined />,
         onClick: () => navigate('/settings'),
       },
-      ...(!isAdmin ? [{
+      ...(isAdmin ? [{
+        key: 'admin-console',
+        label: '管理後台',
+        icon: <DashboardOutlined />,
+        onClick: () => navigate('/admin'),
+      }] : [{
         key: 'admin-login',
         label: '管理員登入',
         icon: <KeyOutlined />,
         onClick: () => navigate('/auth/admin/login'),
-      }] : []),
+      }]),
       {
         key: 'logout',
         label: '登出',
@@ -155,14 +162,6 @@ export const MainLayout: React.FC = () => {
     },
   ];
 
-  if (isAdmin) {
-    menuItems.push({
-      key: '/admin/dashboard',
-      icon: <DashboardOutlined />,
-      label: '管理後台',
-    });
-  }
-
   const MenuContent = (
     <Menu
       theme={uiTheme}
@@ -217,6 +216,7 @@ export const MainLayout: React.FC = () => {
             <Breadcrumb items={[{ title: '首頁' }, ...breadcrumbItems]} style={{ marginLeft: 16 }} />
           </Flex>
           <Flex align="center" gap={16}>
+            <PortfolioSwitcher />
             <Switch
               checked={uiTheme === 'dark'}
               onChange={(checked) => setTheme(checked ? 'dark' : 'light')}
@@ -251,6 +251,7 @@ export const MainLayout: React.FC = () => {
         </Content>
       </Layout>
       <FloatingAiAssistant />
+      <CreatePortfolioModal />
     </Layout>
   );
 };

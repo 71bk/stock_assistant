@@ -1,12 +1,30 @@
 import { create } from 'zustand';
-import { message, notification } from 'antd';
+import { message } from 'antd';
 import { portfoliosApi } from '../api/portfolios.api';
 import type { Position, PortfolioSummary, Trade, PortfolioValuation } from '../api/portfolios.api';
 import { logger } from '../utils/logger';
 
+// Shared in-flight portfolio lookup so the many data fetches a page triggers on
+// load don't each hit the API.
+let initInFlight: Promise<string | null> | null = null;
+// Bridges the global "create portfolio" modal back to whoever awaited
+// requirePortfolio(), so the original action (e.g. OCR upload) can resume.
+let pendingPortfolioResolve: ((id: string | null) => void) | null = null;
+
+// Persist the selected portfolio so a switch survives reloads. Validated against
+// the live list on init, so a stale id (or another user's) safely falls back.
+const PORTFOLIO_ID_KEY = 'current_portfolio_id';
+function readPersistedPortfolioId(): string | null {
+  try { return window.localStorage.getItem(PORTFOLIO_ID_KEY); } catch { return null; }
+}
+function persistPortfolioId(id: string): void {
+  try { window.localStorage.setItem(PORTFOLIO_ID_KEY, id); } catch { /* ignore */ }
+}
+
 interface PortfolioState {
   summary: PortfolioSummary | null;
   currentPortfolioId: string | null;
+  portfolios: PortfolioSummary[];
   positions: Position[];
   recentTrades: Trade[];
   valuations: PortfolioValuation[];
@@ -15,7 +33,14 @@ interface PortfolioState {
   isLoading: boolean;
   error: string | null;
 
+  noPortfolio: boolean;
+  createModalOpen: boolean;
   initPortfolioId: () => Promise<string | null>;
+  requirePortfolio: () => Promise<string | null>;
+  setCurrentPortfolio: (id: string) => void;
+  openCreatePortfolio: () => void;
+  createPortfolio: (name: string, baseCurrency: string) => Promise<string>;
+  cancelCreatePortfolio: () => void;
   fetchPortfolioData: (portfolioId?: string) => Promise<void>;
   fetchPortfolioValuations: (portfolioId?: string, from?: string, to?: string) => Promise<void>;
   fetchPortfolioSummary: (portfolioId?: string) => Promise<void>;
@@ -29,6 +54,7 @@ interface PortfolioState {
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   summary: null,
   currentPortfolioId: null,
+  portfolios: [],
   positions: [],
   recentTrades: [],
   valuations: [],
@@ -36,29 +62,96 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   tradesTotal: 0,
   isLoading: false,
   error: null,
+  noPortfolio: false,
+  createModalOpen: false,
 
   initPortfolioId: async () => {
     const state = get();
     if (state.currentPortfolioId) return state.currentPortfolioId;
+    // Concurrent callers (dashboard fires several fetches at once) share one lookup.
+    if (initInFlight) return initInFlight;
+
+    initInFlight = (async () => {
+      try {
+        const list = await portfoliosApi.getPortfolios();
+        const portfolios = Array.isArray(list) ? list : [];
+        set({ portfolios });
+
+        if (portfolios.length > 0) {
+          // Prefer the user's last-selected portfolio if it still exists.
+          const persisted = readPersistedPortfolioId();
+          const pid = persisted && portfolios.some((p) => String(p.id) === persisted)
+            ? persisted
+            : String(portfolios[0].id);
+          set({ currentPortfolioId: pid, noPortfolio: false });
+          persistPortfolioId(pid);
+          return pid;
+        }
+        // Empty list = the user genuinely has no portfolio yet. The UI surfaces
+        // this via an empty-state / create modal instead of a toast.
+        set({ noPortfolio: true });
+      } catch (e) {
+        logger.error('Failed to init portfolio', e);
+      }
+      return null;
+    })();
 
     try {
-      const list = await portfoliosApi.getPortfolios();
-
-      if (Array.isArray(list) && list.length > 0) {
-        const pid = String(list[0].id); // Ensure string
-        set({ currentPortfolioId: pid });
-        return pid;
-      }
-    } catch (e) {
-      logger.error('Failed to init portfolio', e);
+      return await initInFlight;
+    } finally {
+      initInFlight = null;
     }
+  },
 
-    notification.warning({
-      message: '尚未建立投資組合',
-      description: '您尚未建立投資組合，請先前往投資組合頁面建立。',
-      duration: 5,
+  // Returns a usable portfolio id, opening the global create-portfolio modal and
+  // waiting for the user when none exists. Lets callers (OCR upload, add trade)
+  // transparently resume once the first portfolio is created.
+  requirePortfolio: async () => {
+    const existing = await get().initPortfolioId();
+    if (existing) return existing;
+    return new Promise<string | null>((resolve) => {
+      pendingPortfolioResolve = resolve;
+      set({ createModalOpen: true });
     });
-    return null;
+  },
+
+  // Switch the active portfolio. Pages re-fetch via their effects on
+  // currentPortfolioId; the choice is persisted so it survives reloads.
+  setCurrentPortfolio: (id: string) => {
+    const pid = String(id);
+    if (pid === get().currentPortfolioId) return;
+    persistPortfolioId(pid);
+    set({ currentPortfolioId: pid });
+  },
+
+  openCreatePortfolio: () => set({ createModalOpen: true }),
+
+  createPortfolio: async (name: string, baseCurrency: string) => {
+    const res = await portfoliosApi.createPortfolio({ name, baseCurrency });
+    const pid = String(res.id);
+    persistPortfolioId(pid);
+
+    // Refresh the list so the switcher includes the new portfolio.
+    let portfolios = get().portfolios;
+    try {
+      const list = await portfoliosApi.getPortfolios();
+      if (Array.isArray(list)) portfolios = list;
+    } catch { /* keep existing list; the new id is still set below */ }
+
+    set({ currentPortfolioId: pid, noPortfolio: false, createModalOpen: false, portfolios });
+    if (pendingPortfolioResolve) {
+      pendingPortfolioResolve(pid);
+      pendingPortfolioResolve = null;
+    }
+    return pid;
+  },
+
+  cancelCreatePortfolio: () => {
+    set({ createModalOpen: false });
+    if (pendingPortfolioResolve) {
+      pendingPortfolioResolve(null);
+      pendingPortfolioResolve = null;
+    }
   },
 
   fetchPortfolioData: async (portfolioId?: string) => {

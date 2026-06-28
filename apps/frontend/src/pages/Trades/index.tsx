@@ -11,13 +11,14 @@ import type { Trade } from '../../api/portfolios.api';
 const { Title } = Typography;
 
 const Trades: React.FC = () => {
-  const { trades, isLoading, error, fetchTrades, deleteTrade } = usePortfolioStore();
+  const { trades, isLoading, error, fetchTrades, deleteTrade, currentPortfolioId } = usePortfolioStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Re-fetch on mount and whenever the active portfolio changes (header switcher).
   useEffect(() => {
     fetchTrades();
-  }, [fetchTrades]);
+  }, [fetchTrades, currentPortfolioId]);
 
   const handleEdit = (trade: Trade) => {
     setEditingTrade(trade);

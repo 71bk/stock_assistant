@@ -15,14 +15,15 @@ const { Title } = Typography;
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
   const { theme } = useUIStore();
-  const { summary, positions, recentTrades, valuations, isLoading, fetchPortfolioData, fetchRecentTrades, fetchPortfolioValuations } = usePortfolioStore();
+  const { summary, positions, recentTrades, valuations, isLoading, fetchPortfolioData, fetchRecentTrades, fetchPortfolioValuations, currentPortfolioId } = usePortfolioStore();
   const baseCurrency = user?.baseCurrency || 'TWD';
 
+  // Re-fetch when the active portfolio changes (header switcher) as well as on mount.
   useEffect(() => {
     fetchPortfolioData(); // Fetch summary AND positions
     fetchRecentTrades();
     fetchPortfolioValuations();
-  }, [fetchPortfolioData, fetchRecentTrades, fetchPortfolioValuations]);
+  }, [fetchPortfolioData, fetchRecentTrades, fetchPortfolioValuations, currentPortfolioId]);
 
   // Chart Configs
   // Calculate value for pie chart (fallback to cost if market value missing)

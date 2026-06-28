@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Card, Row, Col, Statistic, Button, Tag, Typography } from 'antd';
-import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
+import { Table, Card, Row, Col, Statistic, Button, Tag, Typography, Result } from 'antd';
+import { PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined, RobotOutlined, FolderAddOutlined } from '@ant-design/icons';
 import { usePortfolioStore } from '../../stores/portfolio.store';
 import { useAiStore } from '../../stores/ai.store';
 import { formatCurrency } from '../../utils/format';
@@ -14,15 +14,17 @@ const { Title } = Typography;
 
 const Portfolio: React.FC = () => {
   const navigate = useNavigate();
-  const { summary, positions, isLoading, fetchPortfolioData } = usePortfolioStore();
+  const { summary, positions, isLoading, fetchPortfolioData, noPortfolio, openCreatePortfolio, currentPortfolioId } = usePortfolioStore();
   const { startAnalysis, resetAnalysis } = useAiStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
+  // Re-fetch on mount and whenever the active portfolio changes (e.g. right after
+  // the user creates their first one via the global modal).
   useEffect(() => {
     fetchPortfolioData();
-  }, [fetchPortfolioData]);
+  }, [fetchPortfolioData, currentPortfolioId]);
 
   const handleTradeSuccess = () => {
     fetchPortfolioData();
@@ -167,23 +169,41 @@ const Portfolio: React.FC = () => {
           >
             AI 組合分析
           </Button>
+          <Button icon={<FolderAddOutlined />} onClick={openCreatePortfolio}>新增投資組合</Button>
           <Button icon={<ReloadOutlined />} onClick={() => fetchPortfolioData()}>重新整理</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>新增交易</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)} disabled={noPortfolio}>新增交易</Button>
         </div>
       </div>
 
-      {renderKPI()}
+      {noPortfolio && !isLoading ? (
+        <Card>
+          <Result
+            icon={<FolderAddOutlined style={{ color: '#1677ff' }} />}
+            title="還沒有投資組合"
+            subTitle="建立第一個投資組合後，就能手動新增交易，或從對帳單 OCR 自動匯入。"
+            extra={
+              <Button type="primary" icon={<FolderAddOutlined />} onClick={openCreatePortfolio}>
+                建立投資組合
+              </Button>
+            }
+          />
+        </Card>
+      ) : (
+        <>
+          {renderKPI()}
 
-      <Card styles={{ body: { padding: 0 } }}>
-        <Table
-          dataSource={positions}
-          columns={columns}
-          rowKey="instrumentId"
-          loading={isLoading}
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-        />
-      </Card>
+          <Card styles={{ body: { padding: 0 } }}>
+            <Table
+              dataSource={positions}
+              columns={columns}
+              rowKey="instrumentId"
+              loading={isLoading}
+              pagination={false}
+              scroll={{ x: 'max-content' }}
+            />
+          </Card>
+        </>
+      )}
 
       <AddTradeModal
         open={isModalOpen}
