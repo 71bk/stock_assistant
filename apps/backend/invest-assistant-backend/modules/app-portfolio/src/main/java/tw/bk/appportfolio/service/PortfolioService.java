@@ -2,12 +2,8 @@ package tw.bk.appportfolio.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.DateTimeException;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -22,16 +18,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.enums.TradeSource;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.time.ClockProvider;
-import tw.bk.appcommon.enums.TradeSide;
+import tw.bk.appportfolio.mapper.PortfolioMapper;
 import tw.bk.appportfolio.model.PortfolioSummary;
 import tw.bk.appportfolio.model.PortfolioRefView;
 import tw.bk.appportfolio.model.PortfolioPositionsRebuildResult;
@@ -45,7 +39,6 @@ import tw.bk.appportfolio.model.TradeView;
 import tw.bk.apppersistence.entity.InstrumentEntity;
 import tw.bk.apppersistence.entity.PortfolioEntity;
 import tw.bk.apppersistence.entity.PortfolioValuationEntity;
-import tw.bk.apppersistence.entity.PortfolioValuationId;
 import tw.bk.apppersistence.entity.StockTradeEntity;
 import tw.bk.apppersistence.entity.UserPositionEntity;
 import tw.bk.apppersistence.repository.InstrumentRepository;
@@ -58,11 +51,8 @@ import tw.bk.apppersistence.repository.UserPositionRepository;
 public class PortfolioService {
     private static final Logger log = LoggerFactory.getLogger(PortfolioService.class);
     private static final int AMOUNT_SCALE = 6;
-    private static final int PRICE_SCALE = 8;
-    private static final int AVG_COST_SCALE = 8;
     private static final String DEFAULT_PORTFOLIO_NAME = "Main";
     private static final String DEFAULT_BASE_CURRENCY = "TWD";
-    private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
 
     private final PortfolioRepository portfolioRepository;
     private final PortfolioValuationRepository portfolioValuationRepository;
@@ -70,6 +60,10 @@ public class PortfolioService {
     private final UserPositionRepository positionRepository;
     private final InstrumentRepository instrumentRepository;
     private final ClockProvider clockProvider;
+    private final PortfolioMapper mapper = new PortfolioMapper();
+    private final PositionService positionService;
+    private final PortfolioValuationService valuationService;
+    private final TradeService tradeService;
 
     @Value("${app.portfolio.valuation.zone:Asia/Taipei}")
     private String valuationZone = "Asia/Taipei";
@@ -86,6 +80,21 @@ public class PortfolioService {
         this.positionRepository = positionRepository;
         this.instrumentRepository = instrumentRepository;
         this.clockProvider = clockProvider;
+        this.positionService = new PositionService(tradeRepository, positionRepository, clockProvider);
+        this.valuationService = new PortfolioValuationService(
+                portfolioRepository,
+                portfolioValuationRepository,
+                tradeRepository,
+                instrumentRepository,
+                positionService,
+                mapper,
+                this::nowValuationDate);
+        this.tradeService = new TradeService(
+                tradeRepository,
+                instrumentRepository,
+                portfolioRepository,
+                positionService,
+                mapper);
     }
 
     public PortfolioView createPortfolio(Long userId, String name, String baseCurrency) {
@@ -94,36 +103,36 @@ public class PortfolioService {
         portfolio.setName(isBlank(name) ? DEFAULT_PORTFOLIO_NAME : name.trim());
         portfolio.setBaseCurrency(
                 isBlank(baseCurrency) ? DEFAULT_BASE_CURRENCY : baseCurrency.trim().toUpperCase(Locale.ROOT));
-        return toPortfolioView(portfolioRepository.save(portfolio));
+        return mapper.toPortfolioView(portfolioRepository.save(portfolio));
     }
 
     public List<PortfolioView> listPortfolios(Long userId) {
         return portfolioRepository.findByUserId(userId).stream()
-                .map(this::toPortfolioView)
+                .map(mapper::toPortfolioView)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public Optional<PortfolioRefView> findPortfolioRefById(Long portfolioId) {
-        return portfolioRepository.findById(portfolioId).map(this::toPortfolioRefView);
+        return portfolioRepository.findById(portfolioId).map(mapper::toPortfolioRefView);
     }
 
     @Transactional(readOnly = true)
     public List<PortfolioRefView> listPortfolioRefsByUser(Long userId) {
         return portfolioRepository.findByUserId(userId).stream()
-                .map(this::toPortfolioRefView)
+                .map(mapper::toPortfolioRefView)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<PortfolioRefView> listAllPortfolioRefs() {
         return portfolioRepository.findAll().stream()
-                .map(this::toPortfolioRefView)
+                .map(mapper::toPortfolioRefView)
                 .toList();
     }
 
     public PortfolioView getPortfolio(Long userId, Long portfolioId) {
-        return toPortfolioView(requirePortfolioEntity(userId, portfolioId));
+        return mapper.toPortfolioView(requirePortfolioEntity(userId, portfolioId));
     }
 
     @Transactional(readOnly = true)
@@ -158,8 +167,8 @@ public class PortfolioService {
                 continue;
             }
 
-            BigDecimal positionsValue = calculatePositionsValue(portfolioId, today, quoteProvider);
-            BigDecimal cashValue = calculateCashValue(portfolioId, today);
+            BigDecimal positionsValue = valuationService.calculatePositionsValue(portfolioId, today, quoteProvider);
+            BigDecimal cashValue = valuationService.calculateCashValue(portfolioId, today);
             BigDecimal totalValue = positionsValue.add(cashValue).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
             contexts.add(new PortfolioChatContext(
                     portfolioId,
@@ -182,21 +191,7 @@ public class PortfolioService {
 
     @Transactional(readOnly = true)
     public List<PortfolioValuationView> listValuations(Long userId, Long portfolioId, LocalDate from, LocalDate to) {
-        requirePortfolioEntity(userId, portfolioId);
-
-        LocalDate safeTo = to != null ? to : nowValuationDate();
-        LocalDate safeFrom = from != null ? from : safeTo.minusDays(30);
-        if (safeFrom.isAfter(safeTo)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "from must be <= to");
-        }
-
-        return portfolioValuationRepository.findByPortfolioIdAndAsOfDateBetweenOrderByAsOfDateAsc(
-                portfolioId,
-                safeFrom,
-                safeTo)
-                .stream()
-                .map(this::toPortfolioValuationView)
-                .toList();
+        return valuationService.listValuations(userId, portfolioId, from, to);
     }
 
     @Transactional
@@ -205,125 +200,12 @@ public class PortfolioService {
             Long portfolioId,
             LocalDate asOfDate,
             QuoteProvider quoteProvider) {
-        LocalDate snapshotDate = asOfDate != null ? asOfDate : nowValuationDate();
-        List<PortfolioEntity> targets = resolveValuationTargets(userId, portfolioId);
-
-        int succeeded = 0;
-        List<Long> failedPortfolioIds = new ArrayList<>();
-        for (PortfolioEntity portfolio : targets) {
-            Long targetPortfolioId = portfolio.getId();
-            try {
-                upsertValuationSnapshot(portfolio, snapshotDate, quoteProvider);
-                succeeded++;
-            } catch (RuntimeException ex) {
-                failedPortfolioIds.add(targetPortfolioId);
-                log.warn("Portfolio valuation snapshot failed: portfolioId={}, userId={}, asOfDate={}, error={}",
-                        targetPortfolioId, portfolio.getUserId(), snapshotDate, ex.getMessage(), ex);
-            }
-        }
-
-        return new PortfolioValuationSnapshotResult(
-                snapshotDate,
-                targets.size(),
-                succeeded,
-                failedPortfolioIds.size(),
-                failedPortfolioIds);
+        return valuationService.snapshotValuations(userId, portfolioId, asOfDate, quoteProvider);
     }
 
     @Transactional
     public PortfolioValuationSnapshotResult snapshotValuations(LocalDate asOfDate, QuoteProvider quoteProvider) {
-        return snapshotValuations(null, null, asOfDate, quoteProvider);
-    }
-
-    private PortfolioEntity lockPortfolio(Long userId, Long portfolioId) {
-        return portfolioRepository.findByIdAndUserIdForUpdate(portfolioId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
-    }
-
-    private List<PortfolioEntity> resolveValuationTargets(Long userId, Long portfolioId) {
-        if (portfolioId != null) {
-            Optional<PortfolioEntity> target = userId != null
-                    ? portfolioRepository.findByIdAndUserId(portfolioId, userId)
-                    : portfolioRepository.findById(portfolioId);
-            return target.map(List::of).orElseGet(List::of);
-        }
-        if (userId != null) {
-            return portfolioRepository.findByUserId(userId);
-        }
-        return portfolioRepository.findAll();
-    }
-
-    private void upsertValuationSnapshot(PortfolioEntity portfolio, LocalDate asOfDate, QuoteProvider quoteProvider) {
-        BigDecimal positionsValue = calculatePositionsValue(portfolio.getId(), asOfDate, quoteProvider);
-        BigDecimal cashValue = calculateCashValue(portfolio.getId(), asOfDate);
-        BigDecimal totalValue = positionsValue.add(cashValue).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-
-        PortfolioValuationId id = new PortfolioValuationId(portfolio.getId(), asOfDate);
-        PortfolioValuationEntity entity = portfolioValuationRepository.findById(id)
-                .orElseGet(PortfolioValuationEntity::new);
-
-        entity.setPortfolioId(portfolio.getId());
-        entity.setAsOfDate(asOfDate);
-        entity.setBaseCurrency(normalizeBaseCurrency(portfolio.getBaseCurrency()));
-        entity.setTotalValue(totalValue);
-        entity.setCashValue(cashValue);
-        entity.setPositionsValue(positionsValue);
-        portfolioValuationRepository.save(entity);
-    }
-
-    private BigDecimal calculateCashValue(Long portfolioId, LocalDate asOfDate) {
-        BigDecimal netAmount = tradeRepository.sumNetAmountByPortfolioIdAsOfDate(portfolioId, asOfDate);
-        if (netAmount == null) {
-            return BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-        }
-        return netAmount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal calculatePositionsValue(Long portfolioId, LocalDate asOfDate, QuoteProvider quoteProvider) {
-        List<Long> instrumentIds = tradeRepository.findDistinctInstrumentIdsByPortfolioIdAndTradeDateLessThanEqual(
-                portfolioId,
-                asOfDate);
-        if (instrumentIds.isEmpty()) {
-            return BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-        }
-
-        Map<Long, InstrumentEntity> instrumentById = loadInstrumentsById(instrumentIds);
-        LocalDate today = nowValuationDate();
-        BigDecimal total = BigDecimal.ZERO;
-
-        for (Long instrumentId : instrumentIds) {
-            List<StockTradeEntity> trades = tradeRepository
-                    .findByPortfolioIdAndInstrumentIdAndTradeDateLessThanEqualOrderByTradeDateAscIdAsc(
-                            portfolioId,
-                            instrumentId,
-                            asOfDate);
-            PositionState state = calculatePositionState(trades);
-            if (state.totalQuantity().compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-
-            BigDecimal currentPrice = state.avgCostNative();
-            InstrumentEntity instrument = instrumentById.get(instrumentId);
-            String symbolKey = instrument != null ? instrument.getSymbolKey() : null;
-            if (quoteProvider != null && symbolKey != null && !symbolKey.isBlank()) {
-                try {
-                    currentPrice = quoteProvider.getPrice(symbolKey, asOfDate, today).orElse(currentPrice);
-                } catch (RuntimeException ex) {
-                    log.warn(
-                            "Quote lookup failed during valuation snapshot: portfolioId={}, instrumentId={}, symbolKey={}, error={}",
-                            portfolioId,
-                            instrumentId,
-                            symbolKey,
-                            ex.getMessage());
-                }
-            }
-
-            BigDecimal marketValue = currentPrice.multiply(state.totalQuantity())
-                    .setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-            total = total.add(marketValue);
-        }
-
-        return total.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+        return valuationService.snapshotValuations(asOfDate, quoteProvider);
     }
 
     private LocalDate nowValuationDate() {
@@ -464,7 +346,7 @@ public class PortfolioService {
         List<Long> failedInstrumentIds = new ArrayList<>();
         for (Long targetInstrumentId : targetInstrumentIds) {
             try {
-                rebuildPosition(userId, portfolioId, targetInstrumentId);
+                positionService.rebuildPosition(userId, portfolioId, targetInstrumentId);
                 rebuiltCount++;
             } catch (RuntimeException ex) {
                 failedInstrumentIds.add(targetInstrumentId);
@@ -596,302 +478,24 @@ public class PortfolioService {
 
     @Transactional
     public TradeView createTrade(Long userId, Long portfolioId, TradeCommand command) {
-        lockPortfolio(userId, portfolioId);
-        InstrumentEntity instrument = requireInstrument(command.instrumentId());
-        validateCurrency(instrument, command.currency());
-
-        StockTradeEntity trade = new StockTradeEntity();
-        trade.setUserId(userId);
-        trade.setPortfolioId(portfolioId);
-        applyTradeFields(trade, command);
-
-        try {
-            tradeRepository.saveAndFlush(trade);
-        } catch (DataIntegrityViolationException ex) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Duplicate trade");
-        }
-
-        rebuildPosition(userId, portfolioId, command.instrumentId());
-        return toTradeView(trade, instrument);
+        return tradeService.createTrade(userId, portfolioId, command);
     }
 
     @Transactional
     public TradeView updateTrade(Long userId, Long tradeId, TradeCommand command) {
-        StockTradeEntity trade = tradeRepository.findByIdAndUserId(tradeId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Trade not found"));
-
-        Long portfolioId = trade.getPortfolioId();
-        lockPortfolio(userId, portfolioId);
-
-        Long originalInstrumentId = trade.getInstrumentId();
-        InstrumentEntity instrument = requireInstrument(command.instrumentId());
-        validateCurrency(instrument, command.currency());
-
-        applyTradeFields(trade, command);
-
-        try {
-            tradeRepository.saveAndFlush(trade);
-        } catch (DataIntegrityViolationException ex) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Duplicate trade");
-        }
-
-        if (!originalInstrumentId.equals(command.instrumentId())) {
-            rebuildPosition(userId, portfolioId, originalInstrumentId);
-        }
-        rebuildPosition(userId, portfolioId, command.instrumentId());
-        return toTradeView(trade, instrument);
+        return tradeService.updateTrade(userId, tradeId, command);
     }
 
     @Transactional
     public void deleteTrade(Long userId, Long tradeId) {
-        StockTradeEntity trade = tradeRepository.findByIdAndUserId(tradeId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Trade not found"));
-
-        Long portfolioId = trade.getPortfolioId();
-        Long instrumentId = trade.getInstrumentId();
-        lockPortfolio(userId, portfolioId);
-        tradeRepository.delete(trade);
-        tradeRepository.flush();
-        rebuildPosition(userId, portfolioId, instrumentId);
-    }
-
-    private void applyTradeFields(StockTradeEntity trade, TradeCommand command) {
-        BigDecimal quantity = normalizeQuantity(command.quantity());
-        BigDecimal price = normalizePrice(command.price());
-        BigDecimal fee = normalizeAmount(command.fee());
-        BigDecimal tax = normalizeAmount(command.tax());
-
-        trade.setInstrumentId(command.instrumentId());
-        trade.setTradeDate(command.tradeDate());
-        trade.setSettlementDate(command.settlementDate());
-        trade.setSide(command.side().name());
-        trade.setQuantity(quantity);
-        trade.setPrice(price);
-        trade.setCurrency(command.currency().toUpperCase(Locale.ROOT));
-        trade.setFee(fee);
-        trade.setTax(tax);
-        trade.setAccountId(command.accountId());
-        trade.setSource(command.source() == null ? SOURCE_MANUAL : command.source());
-        trade.setSourceRefId(command.sourceRefId());
-
-        BigDecimal gross = price.multiply(quantity).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-        BigDecimal fees = fee.add(tax).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-        BigDecimal net;
-        if (command.side() == TradeSide.BUY) {
-            net = gross.add(fees).negate();
-        } else {
-            net = gross.subtract(fees);
-        }
-        trade.setGrossAmount(gross);
-        trade.setNetAmount(net.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP));
-        trade.setRowHash(buildRowHash(trade));
-    }
-
-    private void rebuildPosition(Long userId, Long portfolioId, Long instrumentId) {
-        List<StockTradeEntity> trades = tradeRepository
-                .findByUserIdAndPortfolioIdAndInstrumentIdOrderByTradeDateAscIdAsc(
-                        userId, portfolioId, instrumentId);
-        if (trades.isEmpty()) {
-            positionRepository.deleteByPortfolioIdAndInstrumentId(portfolioId, instrumentId);
-            return;
-        }
-
-        PositionState state = calculatePositionState(trades);
-
-        if (state.totalQuantity().compareTo(BigDecimal.ZERO) == 0) {
-            positionRepository.deleteByPortfolioIdAndInstrumentId(portfolioId, instrumentId);
-            return;
-        }
-
-        UserPositionEntity position = positionRepository
-                .findByPortfolioIdAndInstrumentId(portfolioId, instrumentId)
-                .orElseGet(UserPositionEntity::new);
-        position.setPortfolioId(portfolioId);
-        position.setInstrumentId(instrumentId);
-        position.setTotalQuantity(state.totalQuantity());
-        position.setAvgCostNative(state.avgCostNative().setScale(AVG_COST_SCALE, RoundingMode.HALF_UP));
-        String currency = state.currency() == null ? DEFAULT_BASE_CURRENCY : state.currency();
-        position.setCurrency(currency.toUpperCase(Locale.ROOT));
-        position.setUpdatedAt(OffsetDateTime.ofInstant(clockProvider.now(), java.time.ZoneOffset.UTC));
-        positionRepository.save(position);
-    }
-
-    private PositionState calculatePositionState(List<StockTradeEntity> trades) {
-        if (trades == null || trades.isEmpty()) {
-            return new PositionState(
-                    BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP),
-                    BigDecimal.ZERO.setScale(AVG_COST_SCALE, RoundingMode.HALF_UP),
-                    null);
-        }
-
-        BigDecimal totalQuantity = BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-        BigDecimal avgCost = BigDecimal.ZERO.setScale(AVG_COST_SCALE, RoundingMode.HALF_UP);
-        String currency = null;
-
-        for (StockTradeEntity trade : trades) {
-            if (currency == null) {
-                currency = trade.getCurrency();
-            } else if (!currency.equalsIgnoreCase(trade.getCurrency())) {
-                throw new BusinessException(ErrorCode.CONFLICT, "Mixed currencies in the same position");
-            }
-
-            BigDecimal fee = normalizeAmount(trade.getFee());
-            BigDecimal tax = normalizeAmount(trade.getTax());
-
-            if (TradeSide.BUY.name().equals(trade.getSide())) {
-                BigDecimal newQty = totalQuantity.add(trade.getQuantity());
-                if (newQty.compareTo(BigDecimal.ZERO) <= 0) {
-                    throw new BusinessException(ErrorCode.CONFLICT, "Invalid buy quantity");
-                }
-                BigDecimal tradeCost = trade.getPrice().multiply(trade.getQuantity())
-                        .add(fee)
-                        .add(tax);
-                BigDecimal totalCost = avgCost.multiply(totalQuantity).add(tradeCost);
-                avgCost = totalCost.divide(newQty, AVG_COST_SCALE, RoundingMode.HALF_UP);
-                totalQuantity = newQty.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-            } else {
-                BigDecimal newQty = totalQuantity.subtract(trade.getQuantity());
-                if (newQty.compareTo(BigDecimal.ZERO) < 0) {
-                    throw new BusinessException(ErrorCode.CONFLICT, "Sell quantity exceeds holdings");
-                }
-                totalQuantity = newQty.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-                if (totalQuantity.compareTo(BigDecimal.ZERO) == 0) {
-                    avgCost = BigDecimal.ZERO.setScale(AVG_COST_SCALE, RoundingMode.HALF_UP);
-                }
-            }
-        }
-
-        return new PositionState(totalQuantity, avgCost, currency);
-    }
-
-    private InstrumentEntity requireInstrument(Long instrumentId) {
-        Optional<InstrumentEntity> instrument = instrumentRepository.findById(instrumentId);
-        return instrument.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Instrument not found"));
-    }
-
-    private void validateCurrency(InstrumentEntity instrument, String currency) {
-        if (currency == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Currency is required");
-        }
-        String normalized = currency.trim().toUpperCase(Locale.ROOT);
-        if (!normalized.equals(instrument.getCurrency())) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Currency does not match instrument currency");
-        }
-    }
-
-    private BigDecimal normalizeQuantity(BigDecimal quantity) {
-        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Quantity must be greater than 0");
-        }
-        return quantity.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal normalizePrice(BigDecimal price) {
-        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Price must be greater than 0");
-        }
-        return price.setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal normalizeAmount(BigDecimal value) {
-        if (value == null) {
-            return BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-        }
-        if (value.compareTo(BigDecimal.ZERO) < 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Amount cannot be negative");
-        }
-        return value.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private String buildRowHash(StockTradeEntity trade) {
-        String payload = trade.getUserId() + "|"
-                + trade.getPortfolioId() + "|"
-                + trade.getInstrumentId() + "|"
-                + trade.getTradeDate() + "|"
-                + trade.getSide() + "|"
-                + trade.getQuantity().toPlainString() + "|"
-                + trade.getPrice().toPlainString() + "|"
-                + trade.getCurrency() + "|"
-                + normalizeAmount(trade.getFee()).toPlainString() + "|"
-                + normalizeAmount(trade.getTax()).toPlainString() + "|"
-                + (trade.getAccountId() == null ? "" : trade.getAccountId());
-        return sha256Hex(payload);
-    }
-
-    private String sha256Hex(String input) {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 not available", ex);
-        }
-        byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-        StringBuilder sb = new StringBuilder(hash.length * 2);
-        for (byte b : hash) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
-    }
-
-    private PortfolioView toPortfolioView(PortfolioEntity entity) {
-        return new PortfolioView(
-                entity.getId(),
-                entity.getName(),
-                entity.getBaseCurrency());
-    }
-
-    private PortfolioRefView toPortfolioRefView(PortfolioEntity entity) {
-        return new PortfolioRefView(
-                entity.getId(),
-                entity.getUserId());
-    }
-
-    private PortfolioValuationView toPortfolioValuationView(PortfolioValuationEntity entity) {
-        return new PortfolioValuationView(
-                entity.getAsOfDate(),
-                entity.getTotalValue(),
-                entity.getCashValue(),
-                entity.getPositionsValue(),
-                entity.getBaseCurrency());
+        tradeService.deleteTrade(userId, tradeId);
     }
 
     private Page<TradeView> toTradeViewPage(Page<StockTradeEntity> trades) {
         Map<Long, InstrumentEntity> instrumentById = loadInstrumentsById(trades.getContent().stream()
                 .map(StockTradeEntity::getInstrumentId)
                 .toList());
-        return trades.map(trade -> toTradeView(trade, instrumentById.get(trade.getInstrumentId())));
-    }
-
-    private TradeView toTradeView(StockTradeEntity entity) {
-        return toTradeView(entity, null);
-    }
-
-    private TradeView toTradeView(StockTradeEntity entity, InstrumentEntity instrument) {
-        return new TradeView(
-                entity.getId(),
-                entity.getInstrumentId(),
-                instrument != null ? instrument.getSymbolKey() : null,
-                instrument != null ? instrument.getTicker() : null,
-                instrument != null ? instrument.getNameZh() : null,
-                instrument != null ? instrument.getNameEn() : null,
-                entity.getTradeDate(),
-                entity.getSettlementDate(),
-                entity.getSideEnum(),
-                entity.getQuantity(),
-                entity.getPrice(),
-                entity.getCurrency(),
-                entity.getGrossAmount(),
-                entity.getFee(),
-                entity.getTax(),
-                entity.getNetAmount(),
-                entity.getSourceEnum(),
-                entity.getAccountId());
-    }
-
-    private record PositionState(
-            BigDecimal totalQuantity,
-            BigDecimal avgCostNative,
-            String currency) {
+        return trades.map(trade -> mapper.toTradeView(trade, instrumentById.get(trade.getInstrumentId())));
     }
 
     private boolean isBlank(String value) {
