@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Steps, Card, Upload, Typography, Button, Progress, Table,
   Tag, Tooltip, Space, Popconfirm, InputNumber, DatePicker, Select,
-  Alert, Result, message, Input, Flex, Modal
+  Alert, Result, message, Input, Flex, Modal, theme
 } from 'antd';
 import {
   InboxOutlined, CheckCircleOutlined,
@@ -27,6 +27,7 @@ const { Title, Text } = Typography;
 
 // --- Step 0: Upload ---
 const UploadStep: React.FC = () => {
+  const { token } = theme.useToken();
   const { uploadFile } = useImportFlow();
   const portfolios = usePortfolioStore((s) => s.portfolios);
   const currentPortfolioId = usePortfolioStore((s) => s.currentPortfolioId);
@@ -69,7 +70,7 @@ const UploadStep: React.FC = () => {
           />
         </div>
       )}
-      <Dragger {...props} style={{ padding: 40, background: '#fafafa' }}>
+      <Dragger {...props} style={{ padding: 40, background: token.colorFillTertiary }}>
         <p className="ant-upload-drag-icon">
           <InboxOutlined style={{ fontSize: 48, color: '#1677ff' }} />
         </p>
