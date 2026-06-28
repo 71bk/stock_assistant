@@ -8,8 +8,6 @@ import java.time.LocalDate;
 import java.util.Set;
 import java.util.List;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -33,6 +31,9 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appapi.web.CurrentUser;
+import tw.bk.appapi.web.IdParser;
+import tw.bk.appapi.web.PageableFactory;
 import tw.bk.appportfolio.model.PortfolioValuationView;
 import tw.bk.appportfolio.model.PortfolioView;
 import tw.bk.appportfolio.model.TradeView;
@@ -83,7 +84,7 @@ public class PortfolioController {
     @GetMapping("/portfolios")
     @Operation(summary = "取得投資組合列表")
     public Result<List<PortfolioResponse>> listPortfolios() {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         List<PortfolioView> portfolios = portfolioService.listPortfolios(userId);
         List<PortfolioResponse> response = portfolios.stream()
                 .map(PortfolioResponse::from)
@@ -94,7 +95,7 @@ public class PortfolioController {
     @PostMapping("/portfolios")
     @Operation(summary = "新增投資組合")
     public Result<PortfolioResponse> createPortfolio(@Valid @RequestBody CreatePortfolioRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         PortfolioView portfolio = portfolioService.createPortfolio(
                 userId,
                 request.getName(),
@@ -105,8 +106,8 @@ public class PortfolioController {
     @GetMapping("/portfolios/{portfolioId}")
     @Operation(summary = "取得投資組合")
     public Result<PortfolioResponse> getPortfolio(@PathVariable String portfolioId) {
-        Long userId = requireUserId();
-        Long id = parseId(portfolioId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long id = IdParser.parseId(portfolioId);
         PortfolioView portfolio = portfolioService.getPortfolio(userId, id);
         QuoteProvider quoteProvider = createQuoteProvider();
         tw.bk.appportfolio.model.PortfolioSummary summary = portfolioService.getPortfolioSummary(userId, id,
@@ -125,10 +126,10 @@ public class PortfolioController {
             @PathVariable String portfolioId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         List<PortfolioValuationView> valuations = portfolioService.listValuations(
                 userId,
-                parseId(portfolioId),
+                IdParser.parseId(portfolioId),
                 from,
                 to);
         List<PortfolioValuationResponse> response = valuations.stream()
@@ -142,9 +143,9 @@ public class PortfolioController {
     @GetMapping("/portfolios/{portfolioId}/positions")
     @Operation(summary = "取得持倉列表")
     public Result<List<PositionResponse>> listPositions(@PathVariable String portfolioId) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         QuoteProvider quoteProvider = createQuoteProvider();
-        List<PositionWithQuote> positions = portfolioService.listPositionsWithQuotes(userId, parseId(portfolioId),
+        List<PositionWithQuote> positions = portfolioService.listPositionsWithQuotes(userId, IdParser.parseId(portfolioId),
                 quoteProvider);
         List<PositionResponse> response = positions.stream()
                 .map(PositionResponse::from)
@@ -176,10 +177,10 @@ public class PortfolioController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "tradeDate,desc") String sort) {
 
-        Long userId = requireUserId();
-        PageableInfo pageInfo = buildPageable(page, size, sort);
+        Long userId = CurrentUser.require(currentUserProvider);
+        PageableFactory.Paged pageInfo = PageableFactory.of(page, size, MAX_PAGE_SIZE, parseTradeSort(sort));
         Page<TradeView> trades = portfolioService.listTrades(
-                userId, parseId(portfolioId), from, to, pageInfo.pageable());
+                userId, IdParser.parseId(portfolioId), from, to, pageInfo.pageable());
 
         List<TradeResponse> items = trades.getContent().stream()
                 .map(TradeResponse::from)
@@ -193,9 +194,9 @@ public class PortfolioController {
             @PathVariable String portfolioId,
             @Valid @RequestBody CreateTradeRequest request) {
 
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         TradeCommand command = toTradeCommand(request);
-        TradeView trade = portfolioService.createTrade(userId, parseId(portfolioId), command);
+        TradeView trade = portfolioService.createTrade(userId, IdParser.parseId(portfolioId), command);
         return Result.ok(TradeResponse.from(trade));
     }
 
@@ -205,34 +206,21 @@ public class PortfolioController {
             @PathVariable String tradeId,
             @Valid @RequestBody UpdateTradeRequest request) {
 
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         TradeCommand command = toTradeCommand(request);
-        TradeView trade = portfolioService.updateTrade(userId, parseId(tradeId), command);
+        TradeView trade = portfolioService.updateTrade(userId, IdParser.parseId(tradeId), command);
         return Result.ok(TradeResponse.from(trade));
     }
 
     @DeleteMapping("/trades/{tradeId}")
     @Operation(summary = "刪除交易")
     public Result<Void> deleteTrade(@PathVariable String tradeId) {
-        Long userId = requireUserId();
-        portfolioService.deleteTrade(userId, parseId(tradeId));
+        Long userId = CurrentUser.require(currentUserProvider);
+        portfolioService.deleteTrade(userId, IdParser.parseId(tradeId));
         return Result.ok();
     }
 
     // ======================= Private Helpers =======================
-
-    private Long requireUserId() {
-        return currentUserProvider.getUserId()
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
-    }
-
-    private Long parseId(String idStr) {
-        try {
-            return Long.parseLong(idStr);
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid ID format");
-        }
-    }
 
     private BigDecimal parseDecimal(String value) {
         if (value == null || value.isBlank()) {
@@ -245,52 +233,44 @@ public class PortfolioController {
         }
     }
 
-    private record PageableInfo(Pageable pageable, int page, int size) {
-    }
+    private Sort parseTradeSort(String sort) {
+        if (sort == null || sort.isBlank()) {
+            return Sort.unsorted();
+        }
+        String[] parts = sort.split(",", -1);
+        if (parts.length > 2) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid sort format: " + sort);
+        }
 
-    private PageableInfo buildPageable(int page, int size, String sort) {
-        int safePage = Math.max(1, page) - 1; // API 是 1-based，Spring 是 0-based
-        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+        String field = parts[0].trim();
+        if (field.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Sort field is required");
+        }
+        if (!ALLOWED_TRADE_SORT_FIELDS.contains(field)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unsupported sort field: " + field);
+        }
 
-        Sort sortObj = Sort.unsorted();
-        if (sort != null && !sort.isBlank()) {
-            String[] parts = sort.split(",", -1);
-            if (parts.length > 2) {
-                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid sort format: " + sort);
-            }
-
-            String field = parts[0].trim();
-            if (field.isBlank()) {
-                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Sort field is required");
-            }
-            if (!ALLOWED_TRADE_SORT_FIELDS.contains(field)) {
-                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unsupported sort field: " + field);
-            }
-
-            Sort.Direction direction = Sort.Direction.ASC;
-            if (parts.length == 2) {
-                String rawDirection = parts[1].trim();
-                if (!rawDirection.isBlank()) {
-                    if ("desc".equalsIgnoreCase(rawDirection)) {
-                        direction = Sort.Direction.DESC;
-                    } else if ("asc".equalsIgnoreCase(rawDirection)) {
-                        direction = Sort.Direction.ASC;
-                    } else {
-                        throw new BusinessException(
-                                ErrorCode.VALIDATION_ERROR,
-                                "Unsupported sort direction: " + rawDirection);
-                    }
+        Sort.Direction direction = Sort.Direction.ASC;
+        if (parts.length == 2) {
+            String rawDirection = parts[1].trim();
+            if (!rawDirection.isBlank()) {
+                if ("desc".equalsIgnoreCase(rawDirection)) {
+                    direction = Sort.Direction.DESC;
+                } else if ("asc".equalsIgnoreCase(rawDirection)) {
+                    direction = Sort.Direction.ASC;
+                } else {
+                    throw new BusinessException(
+                            ErrorCode.VALIDATION_ERROR,
+                            "Unsupported sort direction: " + rawDirection);
                 }
             }
-            sortObj = Sort.by(direction, field);
         }
-        Pageable pageable = PageRequest.of(safePage, safeSize, sortObj);
-        return new PageableInfo(pageable, safePage + 1, safeSize);
+        return Sort.by(direction, field);
     }
 
     private TradeCommand toTradeCommand(CreateTradeRequest request) {
         return new TradeCommand(
-                parseId(request.getInstrumentId()),
+                IdParser.parseId(request.getInstrumentId()),
                 request.getTradeDate(),
                 request.getSettlementDate(),
                 request.getSide(),
@@ -299,14 +279,14 @@ public class PortfolioController {
                 request.getCurrency(),
                 parseDecimal(request.getFee()),
                 parseDecimal(request.getTax()),
-                request.getAccountId() != null ? parseId(request.getAccountId()) : null,
+                request.getAccountId() != null ? IdParser.parseId(request.getAccountId()) : null,
                 SOURCE_MANUAL,
                 null);
     }
 
     private TradeCommand toTradeCommand(UpdateTradeRequest request) {
         return new TradeCommand(
-                parseId(request.getInstrumentId()),
+                IdParser.parseId(request.getInstrumentId()),
                 request.getTradeDate(),
                 request.getSettlementDate(),
                 request.getSide(),
@@ -315,7 +295,7 @@ public class PortfolioController {
                 request.getCurrency(),
                 parseDecimal(request.getFee()),
                 parseDecimal(request.getTax()),
-                request.getAccountId() != null ? parseId(request.getAccountId()) : null,
+                request.getAccountId() != null ? IdParser.parseId(request.getAccountId()) : null,
                 SOURCE_MANUAL,
                 null);
     }

@@ -27,10 +27,11 @@ import tw.bk.apprag.client.AiWorkerRagClient;
 import tw.bk.apprag.model.RagDocumentView;
 import tw.bk.apprag.service.RagDocumentService;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
+import tw.bk.appapi.web.CurrentUser;
+import tw.bk.appapi.web.IdParser;
+import tw.bk.appapi.web.PageableFactory;
 
 @RestController
 @RequestMapping("/rag")
@@ -52,8 +53,9 @@ public class RagController {
     public Result<PageResponse<RagDocumentResponse>> listDocuments(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        Long userId = requireUserId();
-        PageableInfo pageInfo = buildPageable(page, size);
+        Long userId = CurrentUser.require(currentUserProvider);
+        PageableFactory.Paged pageInfo = PageableFactory.of(
+                page, size, MAX_PAGE_SIZE, Sort.by("createdAt").descending());
         Page<RagDocumentView> pageResult = ragDocumentService.listByUserId(userId, pageInfo.pageable());
 
         return Result.ok(PageResponse.ok(
@@ -66,7 +68,7 @@ public class RagController {
     @DeleteMapping("/documents/{id}")
     @Operation(summary = "Delete RAG document")
     public Result<Void> deleteDocument(@PathVariable Long id) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         // Verify ownership first so we never delete foreign documents.
         ragDocumentService.getForUser(userId, id);
         ragClient.deleteDocument(userId, id);
@@ -77,7 +79,7 @@ public class RagController {
     @PostMapping("/documents")
     @Operation(summary = "Create RAG document")
     public Result<RagIngestResponse> ingest(@RequestBody CreateRagDocumentRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Request body is required");
         }
@@ -103,7 +105,7 @@ public class RagController {
             return Result.ok(RagIngestResponse.from(response));
         }
 
-        Long id = parseId(fileId);
+        Long id = IdParser.parseId(fileId);
         FileView file = fileService.getFileView(userId, id);
         String contentType = file.contentType();
         validateFileSize(file);
@@ -129,7 +131,7 @@ public class RagController {
     @PostMapping("/query")
     @Operation(summary = "RAG query")
     public Result<RagQueryResponse> query(@RequestBody RagQueryRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Request body is required");
         }
@@ -145,19 +147,6 @@ public class RagController {
         return Result.ok(RagQueryResponse.from(response));
     }
 
-    private Long requireUserId() {
-        return currentUserProvider.getUserId()
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
-    }
-
-    private Long parseId(String idStr) {
-        try {
-            return Long.parseLong(idStr);
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid ID format");
-        }
-    }
-
     private void validateFileSize(FileView file) {
         if (file == null || file.sizeBytes() == null) {
             return;
@@ -168,13 +157,4 @@ public class RagController {
         }
     }
 
-    private record PageableInfo(Pageable pageable, int page, int size) {
-    }
-
-    private PageableInfo buildPageable(int page, int size) {
-        int safePage = Math.max(1, page);
-        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
-        Pageable pageable = PageRequest.of(safePage - 1, safeSize, Sort.by("createdAt").descending());
-        return new PageableInfo(pageable, safePage, safeSize);
-    }
 }

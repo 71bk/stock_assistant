@@ -41,6 +41,8 @@ import tw.bk.appapi.ai.vo.ConversationMessageResponse;
 import tw.bk.appapi.ai.vo.ConversationSummaryResponse;
 import tw.bk.appapi.sse.BufferedSseSession;
 import tw.bk.appapi.sse.BufferedSseSessionStore;
+import tw.bk.appapi.web.CurrentUser;
+import tw.bk.appapi.web.IdParser;
 import tw.bk.appcommon.enums.ConversationMessageStatus;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
@@ -79,7 +81,7 @@ public class AiConversationController {
     @PostMapping
     @Operation(summary = "Create conversation")
     public Result<ConversationSummaryResponse> createConversation(@RequestBody CreateConversationRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         ConversationView conversation = conversationService.createConversation(userId,
                 request != null ? request.getTitle() : null);
         return Result.ok(ConversationSummaryResponse.from(conversation));
@@ -89,8 +91,8 @@ public class AiConversationController {
     @Operation(summary = "Update conversation title")
     public Result<ConversationSummaryResponse> updateConversation(@PathVariable String conversationId,
             @RequestBody UpdateConversationRequest request) {
-        Long userId = requireUserId();
-        Long id = parseId(conversationId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long id = IdParser.parseId(conversationId);
         ConversationView conversation = conversationService.updateTitle(userId, id,
                 request != null ? request.getTitle() : null);
         return Result.ok(ConversationSummaryResponse.from(conversation));
@@ -99,7 +101,7 @@ public class AiConversationController {
     @GetMapping
     @Operation(summary = "List conversations")
     public Result<List<ConversationSummaryResponse>> listConversations() {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         List<ConversationSummaryResponse> items = conversationService.listConversations(userId).stream()
                 .map(ConversationSummaryResponse::from)
                 .toList();
@@ -110,8 +112,8 @@ public class AiConversationController {
     @Operation(summary = "Get conversation detail")
     public Result<ConversationDetailResponse> getConversation(@PathVariable String conversationId,
             @RequestParam(required = false) Integer limit) {
-        Long userId = requireUserId();
-        Long id = parseId(conversationId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long id = IdParser.parseId(conversationId);
         ConversationView conversation = conversationService.getConversation(userId, id);
         List<ConversationMessageResponse> messages = conversationService.getRecentMessages(userId, id, limit).stream()
                 .map(ConversationMessageResponse::from)
@@ -122,8 +124,8 @@ public class AiConversationController {
     @DeleteMapping("/{conversationId}")
     @Operation(summary = "Delete conversation (soft delete)")
     public Result<Void> deleteConversation(@PathVariable String conversationId) {
-        Long userId = requireUserId();
-        Long id = parseId(conversationId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long id = IdParser.parseId(conversationId);
         conversationService.softDeleteConversation(userId, id);
         return Result.ok();
     }
@@ -134,8 +136,8 @@ public class AiConversationController {
             @RequestBody ChatMessageRequest request,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
         SseEmitter emitter = new SseEmitter(0L);
-        Long userId = requireUserId();
-        Long id = parseId(conversationId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long id = IdParser.parseId(conversationId);
         String content = request != null ? request.getContent() : null;
         String clientMessageId = request != null ? request.getClientMessageId() : null;
         String requestId = "c-" + UUID.randomUUID();
@@ -316,16 +318,4 @@ public class AiConversationController {
         log.debug("Chat skills executed: {}", summary);
     }
 
-    private Long requireUserId() {
-        return currentUserProvider.getUserId()
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
-    }
-
-    private Long parseId(String idStr) {
-        try {
-            return Long.parseLong(idStr);
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid ID format");
-        }
-    }
 }

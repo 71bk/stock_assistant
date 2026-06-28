@@ -11,10 +11,9 @@ import tw.bk.appapi.users.dto.UpdateUserSettingsRequest;
 import tw.bk.appapi.users.vo.UserSettingsResponse;
 import tw.bk.appauth.model.UserSettingsView;
 import tw.bk.appauth.service.UserSettingsService;
-import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appapi.web.CurrentUser;
 
 @RestController
 @RequestMapping("/users")
@@ -33,16 +32,11 @@ public class UserSettingsController {
     @Operation(summary = "Update user settings")
     public Result<UserSettingsResponse> updateSettings(
             @Valid @RequestBody UpdateUserSettingsRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         UserSettingsView settings = userSettingsService.update(
                 userId,
                 request.getBaseCurrency(),
                 request.getDisplayTimezone());
         return Result.ok(UserSettingsResponse.from(settings));
-    }
-
-    private Long requireUserId() {
-        return currentUserProvider.getUserId()
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
     }
 }

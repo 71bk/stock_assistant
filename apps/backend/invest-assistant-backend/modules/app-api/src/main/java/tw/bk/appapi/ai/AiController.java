@@ -12,8 +12,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,6 +36,9 @@ import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appapi.web.CurrentUser;
+import tw.bk.appapi.web.IdParser;
+import tw.bk.appapi.web.PageableFactory;
 
 /**
  * AI 分析 API 控制器。
@@ -107,7 +108,7 @@ public class AiController {
 
         // ⚠️ 重要：在進入 async 之前先抓取 userId
         // 因為 SecurityContext 是 thread-local，不會傳遞到 async 執行緒
-        final Long userId = requireUserId();
+        final Long userId = CurrentUser.require(currentUserProvider);
 
         // 使用 async 執行，避免阻塞 servlet 執行緒
         CompletableFuture.runAsync(() -> {
@@ -117,8 +118,8 @@ public class AiController {
             try {
                 AiAnalysisInput input = AiAnalysisInput.builder()
                         .userId(userId)
-                        .portfolioId(parseIdOrNull(request.getPortfolioId()))
-                        .instrumentId(parseIdOrNull(request.getInstrumentId()))
+                        .portfolioId(IdParser.parseIdOrNull(request.getPortfolioId()))
+                        .instrumentId(IdParser.parseIdOrNull(request.getInstrumentId()))
                         .reportType(request.getReportType())
                         .prompt(request.getPrompt())
                         .build();
@@ -201,13 +202,14 @@ public class AiController {
     public Result<PageResponse<AiReportSummaryResponse>> listReports(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        Long userId = requireUserId();
-        PageableInfo pageInfo = buildPageable(page, size);
-        Page<AiReportView> reports = aiReportService.listReports(userId, pageInfo.pageable);
+        Long userId = CurrentUser.require(currentUserProvider);
+        PageableFactory.Paged pageInfo = PageableFactory.of(
+                page, size, MAX_PAGE_SIZE, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<AiReportView> reports = aiReportService.listReports(userId, pageInfo.pageable());
         List<AiReportSummaryResponse> items = reports.getContent().stream()
                 .map(AiReportSummaryResponse::from)
                 .toList();
-        return Result.ok(PageResponse.ok(items, pageInfo.page, pageInfo.size, reports.getTotalElements()));
+        return Result.ok(PageResponse.ok(items, pageInfo.page(), pageInfo.size(), reports.getTotalElements()));
     }
 
     /**
@@ -216,8 +218,8 @@ public class AiController {
     @GetMapping("/reports/{reportId}")
     @Operation(summary = "Get AI report detail")
     public Result<AiReportResponse> getReport(@PathVariable String reportId) {
-        Long userId = requireUserId();
-        AiReportView report = aiReportService.getReport(userId, parseId(reportId));
+        Long userId = CurrentUser.require(currentUserProvider);
+        AiReportView report = aiReportService.getReport(userId, IdParser.parseId(reportId));
         return Result.ok(AiReportResponse.from(report));
     }
 
@@ -330,52 +332,4 @@ public class AiController {
         }
     }
 
-    // ============================================================
-    // Common Helpers
-    // ============================================================
-
-    /**
-     * 取得當前使用者 ID，若未登入則拋出異常。
-     */
-    private Long requireUserId() {
-        return currentUserProvider.getUserId()
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
-    }
-
-    /**
-     * 解析 ID 字串為 Long，失敗則拋出驗證錯誤。
-     */
-    private Long parseId(String idStr) {
-        try {
-            return Long.parseLong(idStr);
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid ID format");
-        }
-    }
-
-    /**
-     * 解析 ID 字串為 Long，空值時回傳 null。
-     */
-    private Long parseIdOrNull(String idStr) {
-        if (idStr == null || idStr.isBlank()) {
-            return null;
-        }
-        return parseId(idStr);
-    }
-
-    /**
-     * 封裝分頁資訊，確保回傳的 page/size 與實際查詢一致。
-     */
-    private record PageableInfo(Pageable pageable, int page, int size) {
-    }
-
-    /**
-     * 建立分頁物件，處理邊界值。
-     */
-    private PageableInfo buildPageable(int page, int size) {
-        int safePage = Math.max(1, page);
-        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
-        Pageable pageable = PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return new PageableInfo(pageable, safePage, safeSize);
-    }
 }

@@ -26,6 +26,8 @@ import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appapi.web.CurrentUser;
+import tw.bk.appapi.web.IdParser;
 import tw.bk.appfiles.model.FileView;
 import tw.bk.appfiles.model.PresignResult;
 import tw.bk.appfiles.service.FileService;
@@ -53,7 +55,7 @@ public class FilesController {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "檔案不得為空");
         }
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         log.info("檔案上傳 userId={}", userId);
         FileView entity;
         try {
@@ -70,16 +72,16 @@ public class FilesController {
     @GetMapping("/{fileId}")
     @Operation(summary = "Get file metadata")
     public Result<FileResponse> getMetadata(@PathVariable String fileId) {
-        Long userId = requireUserId();
-        FileView entity = fileService.getFileView(userId, parseId(fileId));
+        Long userId = CurrentUser.require(currentUserProvider);
+        FileView entity = fileService.getFileView(userId, IdParser.parseId(fileId));
         return Result.ok(FileResponse.from(entity));
     }
 
     @GetMapping("/{fileId}/url")
     @Operation(summary = "Get file download/preview URL")
     public Result<FileUrlResponse> getFileUrl(@PathVariable String fileId) {
-        Long userId = requireUserId();
-        Long id = parseId(fileId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long id = IdParser.parseId(fileId);
         FileView file = fileService.getFileView(userId, id);
         FileProvider provider = fileService.resolveProvider(file);
 
@@ -102,8 +104,8 @@ public class FilesController {
     @GetMapping("/{fileId}/content")
     @Operation(summary = "Stream file content (local provider fallback)")
     public ResponseEntity<byte[]> getContent(@PathVariable String fileId) {
-        Long userId = requireUserId();
-        Long id = parseId(fileId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long id = IdParser.parseId(fileId);
         FileView file = fileService.getFileView(userId, id);
         byte[] bytes = fileService.loadBytes(userId, id);
         MediaType mediaType = parseMediaType(file.contentType());
@@ -116,26 +118,13 @@ public class FilesController {
     @PostMapping("/presign")
     @Operation(summary = "Get presigned upload URL")
     public Result<PresignResponse> presign(@Valid @RequestBody PresignRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         PresignResult result = fileService.presignUpload(
                 userId,
                 request.getSha256(),
                 request.getSizeBytes(),
                 request.getContentType());
         return Result.ok(PresignResponse.from(result));
-    }
-
-    private Long requireUserId() {
-        return currentUserProvider.getUserId()
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
-    }
-
-    private Long parseId(String idStr) {
-        try {
-            return Long.parseLong(idStr);
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid ID format");
-        }
     }
 
     private MediaType parseMediaType(String contentType) {

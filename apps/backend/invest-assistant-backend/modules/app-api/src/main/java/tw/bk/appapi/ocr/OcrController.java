@@ -28,7 +28,6 @@ import tw.bk.appapi.ocr.dto.CreateOcrJobRequest;
 import tw.bk.appapi.ocr.dto.SubmitOcrPasswordRequest;
 import tw.bk.appapi.ocr.dto.UpdateOcrDraftRequest;
 import tw.bk.appapi.ocr.vo.OcrConfirmResponse;
-import tw.bk.appapi.ocr.vo.OcrConfirmResponse.DraftError;
 import tw.bk.appapi.ocr.vo.OcrDraftListResponse;
 import tw.bk.appapi.ocr.vo.OcrDraftResponse;
 import tw.bk.appapi.ocr.vo.OcrJobResponse;
@@ -36,6 +35,8 @@ import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
+import tw.bk.appapi.web.CurrentUser;
+import tw.bk.appapi.web.IdParser;
 import tw.bk.appocr.model.OcrDraftUpdate;
 import tw.bk.appocr.model.OcrDraftView;
 import tw.bk.appocr.model.OcrJobView;
@@ -61,9 +62,9 @@ public class OcrController {
     public Result<OcrJobResponse> createJob(@Valid @RequestBody CreateOcrJobRequest request) {
         log.info("Create OCR job: fileId={}, portfolioId={}, force={}",
                 request.getFileId(), request.getPortfolioId(), request.getForce());
-        Long userId = requireUserId();
-        Long fileId = parseId(request.getFileId());
-        Long portfolioId = parseId(request.getPortfolioId());
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long fileId = IdParser.parseId(request.getFileId());
+        Long portfolioId = IdParser.parseId(request.getPortfolioId());
         boolean force = Boolean.TRUE.equals(request.getForce());
         OcrJobView job = ocrService.createJob(userId, fileId, portfolioId, force);
         log.info("Created OCR job: jobId={}, status={}", job.id(), job.status());
@@ -73,8 +74,8 @@ public class OcrController {
     @GetMapping("/jobs/{jobId}")
     @Operation(summary = "Get OCR job status")
     public Result<OcrJobResponse> getJob(@PathVariable String jobId) {
-        Long userId = requireUserId();
-        OcrJobView job = ocrService.getJob(userId, parseId(jobId));
+        Long userId = CurrentUser.require(currentUserProvider);
+        OcrJobView job = ocrService.getJob(userId, IdParser.parseId(jobId));
         return Result.ok(OcrJobResponse.from(job));
     }
 
@@ -83,8 +84,8 @@ public class OcrController {
     public Result<OcrJobResponse> submitPassword(
             @PathVariable String jobId,
             @Valid @RequestBody SubmitOcrPasswordRequest request) {
-        Long userId = requireUserId();
-        Long parsedJobId = parseId(jobId);
+        Long userId = CurrentUser.require(currentUserProvider);
+        Long parsedJobId = IdParser.parseId(jobId);
         log.info("Submit OCR PDF password: jobId={}, passwordProvided=true", parsedJobId);
         OcrJobView job = ocrService.submitPdfPassword(userId, parsedJobId, request.getPassword());
         return Result.ok(OcrJobResponse.from(job));
@@ -93,8 +94,8 @@ public class OcrController {
     @GetMapping("/jobs/{jobId}/drafts")
     @Operation(summary = "Get draft trades by job")
     public Result<OcrDraftListResponse> getDrafts(@PathVariable String jobId) {
-        Long userId = requireUserId();
-        List<OcrDraftView> drafts = ocrService.getDrafts(userId, parseId(jobId));
+        Long userId = CurrentUser.require(currentUserProvider);
+        List<OcrDraftView> drafts = ocrService.getDrafts(userId, IdParser.parseId(jobId));
         List<OcrDraftResponse> items = drafts.stream()
                 .map(draft -> OcrDraftResponse.from(
                         draft,
@@ -109,9 +110,9 @@ public class OcrController {
     public Result<OcrDraftResponse> updateDraft(
             @PathVariable String draftId,
             @RequestBody UpdateOcrDraftRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         OcrDraftUpdate update = new OcrDraftUpdate(
-                parseIdOrNull(request.getInstrumentId()),
+                IdParser.parseIdOrNull(request.getInstrumentId()),
                 request.getRawTicker(),
                 request.getName(),
                 request.getTradeDate(),
@@ -123,7 +124,7 @@ public class OcrController {
                 parseDecimalOrNull(request.getFee()),
                 parseDecimalOrNull(request.getTax()));
 
-        OcrDraftView updated = ocrService.updateDraft(userId, parseId(draftId), update);
+        OcrDraftView updated = ocrService.updateDraft(userId, IdParser.parseId(draftId), update);
         return Result.ok(OcrDraftResponse.from(
                 updated,
                 parseList(updated.warningsJson()),
@@ -135,29 +136,16 @@ public class OcrController {
     public Result<OcrConfirmResponse> confirm(
             @PathVariable String jobId,
             @RequestBody(required = false) ConfirmOcrRequest request) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         Set<Long> selectedIds = null;
         if (request != null && request.getDraftIds() != null && !request.getDraftIds().isEmpty()) {
             selectedIds = new HashSet<>();
             for (String id : request.getDraftIds()) {
-                selectedIds.add(parseId(id));
+                selectedIds.add(IdParser.parseId(id));
             }
         }
-        var result = ocrService.confirm(userId, parseId(jobId), selectedIds);
-
-        List<DraftError> errors = result.getErrors() != null
-                ? result.getErrors().stream()
-                        .map(e -> DraftError.builder()
-                                .draftId(String.valueOf(e.getDraftId()))
-                                .reason(e.getReason())
-                                .build())
-                        .toList()
-                : List.of();
-
-        return Result.ok(OcrConfirmResponse.builder()
-                .importedCount(result.getImportedCount())
-                .errors(errors)
-                .build());
+        var result = ocrService.confirm(userId, IdParser.parseId(jobId), selectedIds);
+        return Result.ok(OcrConfirmResponse.from(result));
     }
 
     @PostMapping("/jobs/{jobId}/retry")
@@ -165,9 +153,9 @@ public class OcrController {
     public Result<OcrJobResponse> retry(
             @PathVariable String jobId,
             @RequestParam(required = false) Boolean force) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         boolean isForce = Boolean.TRUE.equals(force);
-        OcrJobView job = ocrService.retryJob(userId, parseId(jobId), isForce);
+        OcrJobView job = ocrService.retryJob(userId, IdParser.parseId(jobId), isForce);
         recordOcrRetry(isForce ? "force_retry" : "manual_retry");
         return Result.ok(OcrJobResponse.from(job));
     }
@@ -177,9 +165,9 @@ public class OcrController {
     public Result<OcrJobResponse> reparse(
             @PathVariable String jobId,
             @RequestParam(required = false) Boolean force) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         boolean isForce = Boolean.TRUE.equals(force);
-        OcrJobView job = ocrService.reparse(userId, parseId(jobId), isForce);
+        OcrJobView job = ocrService.reparse(userId, IdParser.parseId(jobId), isForce);
         recordOcrRetry(isForce ? "force_reparse" : "manual_reparse");
         return Result.ok(OcrJobResponse.from(job));
     }
@@ -189,23 +177,18 @@ public class OcrController {
     public Result<OcrJobResponse> cancel(
             @PathVariable String jobId,
             @RequestParam(required = false) Boolean force) {
-        Long userId = requireUserId();
+        Long userId = CurrentUser.require(currentUserProvider);
         boolean isForce = Boolean.TRUE.equals(force);
-        OcrJobView job = ocrService.cancel(userId, parseId(jobId), isForce);
+        OcrJobView job = ocrService.cancel(userId, IdParser.parseId(jobId), isForce);
         return Result.ok(OcrJobResponse.from(job));
     }
 
     @DeleteMapping("/drafts/{draftId}")
     @Operation(summary = "Delete draft trade")
     public Result<Void> deleteDraft(@PathVariable String draftId) {
-        Long userId = requireUserId();
-        ocrService.deleteDraft(userId, parseId(draftId));
+        Long userId = CurrentUser.require(currentUserProvider);
+        ocrService.deleteDraft(userId, IdParser.parseId(draftId));
         return Result.ok();
-    }
-
-    private Long requireUserId() {
-        return currentUserProvider.getUserId()
-                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized"));
     }
 
     private void recordOcrRetry(String reason) {
@@ -218,21 +201,6 @@ public class OcrController {
                 .tag("reason", reason)
                 .register(registry)
                 .increment();
-    }
-
-    private Long parseId(String idStr) {
-        try {
-            return Long.parseLong(idStr);
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid ID format");
-        }
-    }
-
-    private Long parseIdOrNull(String idStr) {
-        if (idStr == null || idStr.isBlank()) {
-            return null;
-        }
-        return parseId(idStr);
     }
 
     private BigDecimal parseDecimalOrNull(String value) {
