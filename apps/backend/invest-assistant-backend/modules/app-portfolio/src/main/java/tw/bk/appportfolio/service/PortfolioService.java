@@ -582,6 +582,7 @@ public class PortfolioService {
         return new PositionWithQuote(
                 pos.getPortfolioId(),
                 pos.getInstrumentId(),
+                symbolKey,
                 ticker,
                 name,
                 quantity,

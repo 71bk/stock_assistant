@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 public record PositionWithQuote(
         Long portfolioId,
         Long instrumentId,
+        String symbolKey,
         String ticker,
         String name,
         BigDecimal totalQuantity,
@@ -24,6 +25,7 @@ public record PositionWithQuote(
     public static PositionWithQuote withoutQuote(
             Long portfolioId,
             Long instrumentId,
+            String symbolKey,
             String ticker,
             String name,
             BigDecimal totalQuantity,
@@ -32,6 +34,7 @@ public record PositionWithQuote(
         return new PositionWithQuote(
                 portfolioId,
                 instrumentId,
+                symbolKey,
                 ticker,
                 name,
                 totalQuantity,

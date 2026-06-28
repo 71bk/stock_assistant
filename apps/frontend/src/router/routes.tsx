@@ -13,6 +13,7 @@ const Trades = lazy(() => import("@/pages/Trades"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const Stocks = lazy(() => import("@/pages/Stocks"));
+const InstrumentDetail = lazy(() => import("@/pages/InstrumentDetail"));
 const ImportPage = lazy(() => import("@/pages/Import"));
 const ChatPage = lazy(() => import("@/pages/Chat"));
 const KnowledgeBasePage = lazy(() => import("@/pages/KnowledgeBase"));
@@ -96,6 +97,14 @@ export const routeConfig: RouteObject[] = [
             element: (
               <LazyWrapper>
                 <Stocks />
+              </LazyWrapper>
+            ),
+          },
+          {
+            path: "instruments/:symbolKey",
+            element: (
+              <LazyWrapper>
+                <InstrumentDetail />
               </LazyWrapper>
             ),
           },

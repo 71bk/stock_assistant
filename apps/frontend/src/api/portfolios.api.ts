@@ -23,6 +23,7 @@ export interface Position {
   positionId: string;
   portfolioId: string;
   instrumentId: string;
+  symbolKey?: string | null;
   ticker: string;
   name: string;
   totalQuantity: string;

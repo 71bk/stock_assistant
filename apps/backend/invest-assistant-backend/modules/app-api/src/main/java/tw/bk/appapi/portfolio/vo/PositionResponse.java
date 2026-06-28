@@ -15,6 +15,7 @@ public class PositionResponse {
     private String positionId;
     private String portfolioId;
     private String instrumentId;
+    private String symbolKey;
     private String ticker;
     private String name;
     private String totalQuantity;
@@ -35,6 +36,7 @@ public class PositionResponse {
                 .positionId(pos.portfolioId() + "-" + pos.instrumentId())
                 .portfolioId(String.valueOf(pos.portfolioId()))
                 .instrumentId(String.valueOf(pos.instrumentId()))
+                .symbolKey(pos.symbolKey())
                 .ticker(pos.ticker())
                 .name(pos.name())
                 .totalQuantity(pos.totalQuantity() != null ? pos.totalQuantity().toPlainString() : null)

@@ -146,10 +146,12 @@ const Portfolio: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      render: () => (
+      render: (_: unknown, record: Position) => (
         <Button
           size="small"
-          onClick={() => navigate('/trades')}
+          onClick={() => navigate(
+            record.symbolKey ? `/instruments/${record.symbolKey}` : '/trades',
+          )}
         >
           詳情
         </Button>
