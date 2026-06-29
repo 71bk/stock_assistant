@@ -8,6 +8,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appcommon.enums.TradeSource;
@@ -28,6 +29,7 @@ import tw.bk.apppersistence.repository.StockTradeRepository;
  * {@link PositionService} 重建受影響持倉。從 {@code PortfolioService} 抽出；
  * 交易語意（{@code @Transactional}）維持在呼叫端 {@code PortfolioService} 上。
  */
+@Service
 class TradeService {
     private static final String SOURCE_MANUAL = TradeSource.MANUAL.name();
 

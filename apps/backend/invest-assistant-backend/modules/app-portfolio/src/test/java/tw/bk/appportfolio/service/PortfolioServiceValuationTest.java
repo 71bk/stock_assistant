@@ -50,7 +50,7 @@ class PortfolioServiceValuationTest {
 
     @BeforeEach
     void setUp() {
-        service = new PortfolioService(
+        service = PortfolioServiceTestFactory.create(
                 portfolioRepository,
                 portfolioValuationRepository,
                 stockTradeRepository,

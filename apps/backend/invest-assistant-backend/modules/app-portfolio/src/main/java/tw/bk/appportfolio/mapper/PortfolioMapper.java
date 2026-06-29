@@ -1,5 +1,6 @@
 package tw.bk.appportfolio.mapper;
 
+import org.springframework.stereotype.Component;
 import tw.bk.appportfolio.model.PortfolioRefView;
 import tw.bk.appportfolio.model.PortfolioValuationView;
 import tw.bk.appportfolio.model.PortfolioView;
@@ -15,6 +16,7 @@ import tw.bk.apppersistence.entity.StockTradeEntity;
  * <p>無狀態、無外部依賴，由 {@code PortfolioService} 直接持有，
  * 把 view 組裝邏輯從 service 抽出以縮小其職責。
  */
+@Component
 public class PortfolioMapper {
 
     public PortfolioView toPortfolioView(PortfolioEntity entity) {

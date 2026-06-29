@@ -10,9 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appportfolio.mapper.PortfolioMapper;
@@ -35,6 +35,7 @@ import tw.bk.apppersistence.repository.StockTradeRepository;
  * 從 {@code PortfolioService} 抽出以集中估值邏輯；交易語意（{@code @Transactional}）
  * 維持在呼叫端 {@code PortfolioService} 的公開方法上。
  */
+@Service
 class PortfolioValuationService {
     private static final Logger log = LoggerFactory.getLogger(PortfolioValuationService.class);
 
@@ -44,7 +45,7 @@ class PortfolioValuationService {
     private final InstrumentRepository instrumentRepository;
     private final PositionService positionService;
     private final PortfolioMapper mapper;
-    private final Supplier<LocalDate> nowValuationDate;
+    private final PortfolioValuationDateProvider valuationDateProvider;
 
     PortfolioValuationService(PortfolioRepository portfolioRepository,
             PortfolioValuationRepository portfolioValuationRepository,
@@ -52,20 +53,20 @@ class PortfolioValuationService {
             InstrumentRepository instrumentRepository,
             PositionService positionService,
             PortfolioMapper mapper,
-            Supplier<LocalDate> nowValuationDate) {
+            PortfolioValuationDateProvider valuationDateProvider) {
         this.portfolioRepository = portfolioRepository;
         this.portfolioValuationRepository = portfolioValuationRepository;
         this.tradeRepository = tradeRepository;
         this.instrumentRepository = instrumentRepository;
         this.positionService = positionService;
         this.mapper = mapper;
-        this.nowValuationDate = nowValuationDate;
+        this.valuationDateProvider = valuationDateProvider;
     }
 
     List<PortfolioValuationView> listValuations(Long userId, Long portfolioId, LocalDate from, LocalDate to) {
         requireOwnedPortfolio(userId, portfolioId);
 
-        LocalDate safeTo = to != null ? to : nowValuationDate.get();
+        LocalDate safeTo = to != null ? to : valuationDateProvider.currentDate();
         LocalDate safeFrom = from != null ? from : safeTo.minusDays(30);
         if (safeFrom.isAfter(safeTo)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "from must be <= to");
@@ -85,7 +86,7 @@ class PortfolioValuationService {
             Long portfolioId,
             LocalDate asOfDate,
             QuoteProvider quoteProvider) {
-        LocalDate snapshotDate = asOfDate != null ? asOfDate : nowValuationDate.get();
+        LocalDate snapshotDate = asOfDate != null ? asOfDate : valuationDateProvider.currentDate();
         List<PortfolioEntity> targets = resolveValuationTargets(userId, portfolioId);
 
         int succeeded = 0;
@@ -131,7 +132,7 @@ class PortfolioValuationService {
         }
 
         Map<Long, InstrumentEntity> instrumentById = loadInstrumentsById(instrumentIds);
-        LocalDate today = nowValuationDate.get();
+        LocalDate today = valuationDateProvider.currentDate();
         BigDecimal total = BigDecimal.ZERO;
 
         for (Long instrumentId : instrumentIds) {

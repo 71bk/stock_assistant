@@ -4,14 +4,23 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.TradeSide;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.time.ClockProvider;
+import tw.bk.appportfolio.model.PortfolioPositionsRebuildResult;
+import tw.bk.apppersistence.entity.PortfolioEntity;
 import tw.bk.apppersistence.entity.StockTradeEntity;
 import tw.bk.apppersistence.entity.UserPositionEntity;
+import tw.bk.apppersistence.repository.PortfolioRepository;
 import tw.bk.apppersistence.repository.StockTradeRepository;
 import tw.bk.apppersistence.repository.UserPositionRepository;
 
@@ -23,18 +32,60 @@ import tw.bk.apppersistence.repository.UserPositionRepository;
  * 由 {@code PortfolioService} 在其交易型 {@code @Transactional} 方法中呼叫，
  * 共用同一交易上下文。
  */
+@Service
 class PositionService {
+    private static final Logger log = LoggerFactory.getLogger(PositionService.class);
 
     private final StockTradeRepository tradeRepository;
     private final UserPositionRepository positionRepository;
+    private final PortfolioRepository portfolioRepository;
     private final ClockProvider clockProvider;
 
     PositionService(StockTradeRepository tradeRepository,
             UserPositionRepository positionRepository,
+            PortfolioRepository portfolioRepository,
             ClockProvider clockProvider) {
         this.tradeRepository = tradeRepository;
         this.positionRepository = positionRepository;
+        this.portfolioRepository = portfolioRepository;
         this.clockProvider = clockProvider;
+    }
+
+    PortfolioPositionsRebuildResult rebuildPositions(Long portfolioId, Long instrumentId) {
+        PortfolioEntity portfolio = portfolioRepository.findById(portfolioId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
+        Long userId = portfolio.getUserId();
+
+        Set<Long> targetInstrumentIds = resolveRebuildTargets(userId, portfolioId, instrumentId);
+        if (targetInstrumentIds.isEmpty()) {
+            return new PortfolioPositionsRebuildResult(portfolioId, userId, 0, 0, 0, List.of());
+        }
+
+        int rebuiltCount = 0;
+        List<Long> failedInstrumentIds = new ArrayList<>();
+        for (Long targetInstrumentId : targetInstrumentIds) {
+            try {
+                rebuildPosition(userId, portfolioId, targetInstrumentId);
+                rebuiltCount++;
+            } catch (RuntimeException ex) {
+                failedInstrumentIds.add(targetInstrumentId);
+                log.warn(
+                        "Rebuild position failed: portfolioId={}, userId={}, instrumentId={}, error={}",
+                        portfolioId,
+                        userId,
+                        targetInstrumentId,
+                        ex.getMessage(),
+                        ex);
+            }
+        }
+
+        return new PortfolioPositionsRebuildResult(
+                portfolioId,
+                userId,
+                targetInstrumentIds.size(),
+                rebuiltCount,
+                failedInstrumentIds.size(),
+                List.copyOf(failedInstrumentIds));
     }
 
     /** 依交易紀錄重建單一持倉；無持倉或數量歸零時刪除該筆 position。 */
@@ -65,6 +116,17 @@ class PositionService {
         position.setCurrency(currency.toUpperCase(Locale.ROOT));
         position.setUpdatedAt(OffsetDateTime.ofInstant(clockProvider.now(), ZoneOffset.UTC));
         positionRepository.save(position);
+    }
+
+    private Set<Long> resolveRebuildTargets(Long userId, Long portfolioId, Long instrumentId) {
+        Set<Long> targets = new LinkedHashSet<>();
+        if (instrumentId != null) {
+            targets.add(instrumentId);
+            return targets;
+        }
+        targets.addAll(tradeRepository.findDistinctInstrumentIdsByUserIdAndPortfolioId(userId, portfolioId));
+        targets.addAll(positionRepository.findDistinctInstrumentIdsByPortfolioId(portfolioId));
+        return targets;
     }
 
     /** 依時間排序的交易計算總量、加權平均成本與幣別；遇混幣或不合理數量時拋出 {@link BusinessException}。 */
