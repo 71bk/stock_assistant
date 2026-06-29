@@ -2,15 +2,10 @@ package tw.bk.appapi.ai;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
@@ -26,11 +21,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tw.bk.appai.client.GroqChatClient;
-import tw.bk.appai.model.ConversationMessageView;
 import tw.bk.appai.model.ConversationView;
 import tw.bk.appai.service.AiConversationService;
-import tw.bk.appai.skill.ChatSkillBatchResult;
-import tw.bk.appai.skill.ChatSkillContext;
 import tw.bk.appai.skill.ChatSkillExecutor;
 import tw.bk.appapi.ai.security.CurrentUserRoleProvider;
 import tw.bk.appapi.ai.dto.ChatMessageRequest;
@@ -43,9 +35,6 @@ import tw.bk.appapi.sse.BufferedSseSession;
 import tw.bk.appapi.sse.BufferedSseSessionStore;
 import tw.bk.appapi.web.CurrentUser;
 import tw.bk.appapi.web.IdParser;
-import tw.bk.appcommon.enums.ConversationMessageStatus;
-import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
 
@@ -55,12 +44,10 @@ import tw.bk.appcommon.security.CurrentUserProvider;
 @Slf4j
 public class AiConversationController {
     private final AiConversationService conversationService;
-    private final GroqChatClient groqChatClient;
     private final CurrentUserProvider currentUserProvider;
-    private final CurrentUserRoleProvider currentUserRoleProvider;
     private final Executor aiSseExecutor;
     private final BufferedSseSessionStore bufferedSseSessionStore;
-    private final ChatSkillExecutor chatSkillExecutor;
+    private final ConversationStreamingUseCase streamingUseCase;
 
     public AiConversationController(AiConversationService conversationService,
             GroqChatClient groqChatClient,
@@ -70,12 +57,14 @@ public class AiConversationController {
             BufferedSseSessionStore bufferedSseSessionStore,
             ChatSkillExecutor chatSkillExecutor) {
         this.conversationService = conversationService;
-        this.groqChatClient = groqChatClient;
         this.currentUserProvider = currentUserProvider;
-        this.currentUserRoleProvider = currentUserRoleProvider;
         this.aiSseExecutor = aiSseExecutor;
         this.bufferedSseSessionStore = bufferedSseSessionStore;
-        this.chatSkillExecutor = chatSkillExecutor;
+        this.streamingUseCase = new ConversationStreamingUseCase(
+                conversationService,
+                groqChatClient,
+                currentUserRoleProvider,
+                chatSkillExecutor);
     }
 
     @PostMapping
@@ -147,154 +136,12 @@ public class AiConversationController {
         BufferedSseSession session = bufferedSseSessionStore.getOrCreate(sessionKey);
         session.attachEmitter(emitter, lastEventId);
 
-        session.startIfNeeded(() -> CompletableFuture.runAsync(() -> {
-            AtomicReference<ConversationMessageView> assistantMessageRef = new AtomicReference<>();
-            StringBuilder buffer = new StringBuilder();
-            try {
-                ConversationMessageView userMessage = conversationService.appendUserMessage(
-                        userId, id, content, effectiveClientMessageId);
-                ConversationMessageView assistantMessage = conversationService.appendOrGetAssistantMessage(
-                        userId, id, "", ConversationMessageStatus.PENDING, assistantClientMessageId);
-                assistantMessageRef.set(assistantMessage);
-                sendMeta(session, requestId, id, userMessage.id(), assistantMessage.id());
-
-                if (assistantMessage.status() == ConversationMessageStatus.COMPLETED
-                        && assistantMessage.content() != null
-                        && !assistantMessage.content().isBlank()) {
-                    sendDelta(session, assistantMessage.content());
-                    sendDone(session, assistantMessage.id());
-                    return;
-                }
-                if (assistantMessage.status() == ConversationMessageStatus.FAILED) {
-                    sendError(session, ErrorCode.INTERNAL_ERROR, "Assistant message failed");
-                    return;
-                }
-
-                ChatSkillContext skillContext = new ChatSkillContext(
-                        userId,
-                        id,
-                        userMessage.id(),
-                        content,
-                        currentUserRoleProvider.getCurrentRole());
-                ChatSkillBatchResult skillBatchResult = chatSkillExecutor.executeAll(skillContext);
-                logSkillBatch(skillBatchResult);
-                String toolContext = skillBatchResult != null ? skillBatchResult.mergedContext() : null;
-                List<Map<String, String>> messages = toolContext == null
-                        ? conversationService.buildContextMessages(userId, id, content, userMessage.id())
-                        : conversationService.buildContextMessagesWithTool(userId, id, content, userMessage.id(),
-                                toolContext);
-                AtomicBoolean failed = new AtomicBoolean(false);
-
-                groqChatClient.streamChat(messages, userId, "chat")
-                        .doOnNext(delta -> {
-                            buffer.append(delta);
-                            sendDelta(session, delta);
-                        })
-                        .doOnError(ex -> {
-                            failed.set(true);
-                            try {
-                                ConversationMessageView failedAssistant = conversationService.updateAssistantMessage(
-                                        userId,
-                                        id,
-                                        assistantMessage.id(),
-                                        buffer.toString(),
-                                        ConversationMessageStatus.FAILED);
-                                assistantMessageRef.set(failedAssistant);
-                            } catch (Exception saveEx) {
-                                log.error("Failed to mark assistant message as FAILED", saveEx);
-                            }
-                            if (ex instanceof BusinessException be) {
-                                sendError(session, be.getErrorCode(), be.getMessage());
-                            } else {
-                                sendError(session, ErrorCode.INTERNAL_ERROR,
-                                        "Groq streaming failed: " + ex.getMessage());
-                            }
-                        })
-                        .onErrorResume(ex -> reactor.core.publisher.Flux.empty())
-                        .doOnComplete(() -> {
-                            if (failed.get()) {
-                                return;
-                            }
-                            try {
-                                ConversationMessageView assistant = conversationService.updateAssistantMessage(
-                                        userId,
-                                        id,
-                                        assistantMessage.id(),
-                                        buffer.toString(),
-                                        ConversationMessageStatus.COMPLETED);
-                                assistantMessageRef.set(assistant);
-                                sendDone(session, assistant.id());
-                            } catch (Exception ex) {
-                                log.error("Failed to save assistant message", ex);
-                            }
-                        })
-                        .blockLast();
-            } catch (BusinessException ex) {
-                markAssistantMessageFailed(userId, id, assistantMessageRef.get(), buffer.toString());
-                sendError(session, ex.getErrorCode(), ex.getMessage());
-            } catch (Exception ex) {
-                log.error("Chat streaming failed", ex);
-                markAssistantMessageFailed(userId, id, assistantMessageRef.get(), buffer.toString());
-                sendError(session, ErrorCode.INTERNAL_ERROR, "Chat streaming failed");
-            }
-        }, aiSseExecutor));
+        session.startIfNeeded(() -> CompletableFuture.runAsync(
+                () -> streamingUseCase.stream(
+                        session, userId, id, requestId, content, effectiveClientMessageId, assistantClientMessageId),
+                aiSseExecutor));
 
         return emitter;
-    }
-
-    private void sendMeta(
-            BufferedSseSession session,
-            String requestId,
-            Long conversationId,
-            Long userMessageId,
-            Long assistantMessageId) {
-        Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("requestId", requestId);
-        meta.put("conversationId", conversationId != null ? conversationId.toString() : null);
-        meta.put("userMessageId", userMessageId != null ? userMessageId.toString() : null);
-        meta.put("assistantMessageId", assistantMessageId != null ? assistantMessageId.toString() : null);
-        session.sendEvent("meta", meta);
-    }
-
-    private void sendDelta(BufferedSseSession session, String text) {
-        session.sendEvent("delta", Map.of("text", text));
-    }
-
-    private void sendDone(BufferedSseSession session, Long assistantMessageId) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("assistantMessageId", assistantMessageId != null ? assistantMessageId.toString() : null);
-        session.sendEvent("done", payload);
-        session.complete();
-    }
-
-    private void sendError(BufferedSseSession session, ErrorCode code, String message) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("code", code.getCode());
-        payload.put("message", message);
-        session.sendEvent("error", payload);
-        session.complete();
-    }
-
-    private void markAssistantMessageFailed(
-            Long userId,
-            Long conversationId,
-            ConversationMessageView assistantMessage,
-            String content) {
-        if (assistantMessage == null
-                || assistantMessage.status() == ConversationMessageStatus.COMPLETED
-                || assistantMessage.status() == ConversationMessageStatus.FAILED) {
-            return;
-        }
-        try {
-            conversationService.updateAssistantMessage(
-                    userId,
-                    conversationId,
-                    assistantMessage.id(),
-                    content,
-                    ConversationMessageStatus.FAILED);
-        } catch (Exception saveEx) {
-            log.error("Failed to mark assistant message as FAILED", saveEx);
-        }
     }
 
     private String resolveClientMessageId(String clientMessageId, String fallbackRequestId) {
@@ -307,15 +154,4 @@ public class AiConversationController {
     private String buildSessionKey(Long userId, Long conversationId, String clientMessageId) {
         return userId + ":" + conversationId + ":" + clientMessageId;
     }
-
-    private void logSkillBatch(ChatSkillBatchResult batch) {
-        if (batch == null || batch.results() == null || !log.isDebugEnabled()) {
-            return;
-        }
-        String summary = batch.results().stream()
-                .map(result -> result.skillName() + ":" + result.status())
-                .collect(Collectors.joining(", "));
-        log.debug("Chat skills executed: {}", summary);
-    }
-
 }

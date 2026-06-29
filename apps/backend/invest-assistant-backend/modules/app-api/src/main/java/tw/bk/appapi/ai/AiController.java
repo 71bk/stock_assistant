@@ -4,12 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
@@ -23,16 +20,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tw.bk.appai.client.GroqChatClient;
-import tw.bk.appai.model.AiAnalysisInput;
-import tw.bk.appai.model.AiReportContext;
 import tw.bk.appai.model.AiReportView;
 import tw.bk.appai.service.AiReportService;
 import tw.bk.appapi.ai.dto.AiAnalysisRequest;
 import tw.bk.appapi.ai.vo.AiReportResponse;
 import tw.bk.appapi.ai.vo.AiReportSummaryResponse;
-import tw.bk.appcommon.enums.AiReportType;
-import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
@@ -50,38 +42,21 @@ import tw.bk.appapi.web.PageableFactory;
 @Slf4j
 public class AiController {
     private static final int MAX_PAGE_SIZE = 100;
-    private static final String SYSTEM_PROMPT = """
-            You are a financial analysis assistant. Be concise and factual.
-            You are replying in a web UI that supports Markdown rendering.
-            Detect the user's primary language from their latest message and reply in that language.
-            If the user writes in Traditional Chinese, reply in Traditional Chinese.
-            Do not reply in Simplified Chinese unless the user uses Simplified Chinese.
-            Use standard Markdown formatting for the response.
-            For lists, use valid Markdown list syntax such as `- ` or `1. `.
-            Separate paragraphs, tables, and lists with a blank line.
-            When presenting tabular data, use valid GitHub Flavored Markdown tables.
-            Tables must include a header row and a separator row, for example:
-            | 欄位一 | 欄位二 |
-            |---|---|
-            | 值一 | 值二 |
-            請務必使用標準的 Markdown Table 格式來呈現表格數據，不要使用空白鍵對齊。
-            Every table row must have the same number of columns as the header.
-            If a cell value contains a literal pipe character, rewrite or escape it so the table remains valid.
-            """;
 
     private final AiReportService aiReportService;
-    private final GroqChatClient groqChatClient;
     private final CurrentUserProvider currentUserProvider;
-    private final ObjectMapper objectMapper;
+    private final AiAnalysisStreamUseCase analysisStreamUseCase;
 
     public AiController(AiReportService aiReportService,
             GroqChatClient groqChatClient,
             CurrentUserProvider currentUserProvider,
             ObjectMapper objectMapper) {
         this.aiReportService = aiReportService;
-        this.groqChatClient = groqChatClient;
         this.currentUserProvider = currentUserProvider;
-        this.objectMapper = objectMapper;
+        this.analysisStreamUseCase = new AiAnalysisStreamUseCase(
+                aiReportService,
+                groqChatClient,
+                new AnalysisPromptProvider(objectMapper));
     }
 
     // ============================================================
@@ -89,15 +64,8 @@ public class AiController {
     // ============================================================
 
     /**
-     * SSE 串流 AI 分析。
-     * 
-     * 流程：
-     * 1. 準備上下文 (prepareContext)
-     * 2. 送出 meta 事件
-     * 3. 訂閱 Groq stream，每個 chunk 送 delta 事件
-     * 4. 完成後儲存報告，送 done 事件
-     * 
-     * 錯誤處理：發送 error 事件後關閉連線
+     * SSE 串流 AI 分析。Controller 僅建立 SSE 連線並交給 use case 在 async 執行緒處理；
+     * 串流、報告儲存與事件輸出皆由 {@link AiAnalysisStreamUseCase} 負責。
      */
     @PostMapping(value = "/analysis/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "AI analysis stream (SSE)")
@@ -111,82 +79,7 @@ public class AiController {
         final Long userId = CurrentUser.require(currentUserProvider);
 
         // 使用 async 執行，避免阻塞 servlet 執行緒
-        CompletableFuture.runAsync(() -> {
-            AiReportContext context;
-
-            // Step 1: 準備上下文
-            try {
-                AiAnalysisInput input = AiAnalysisInput.builder()
-                        .userId(userId)
-                        .portfolioId(IdParser.parseIdOrNull(request.getPortfolioId()))
-                        .instrumentId(IdParser.parseIdOrNull(request.getInstrumentId()))
-                        .reportType(request.getReportType())
-                        .prompt(request.getPrompt())
-                        .build();
-                context = aiReportService.prepareContext(input);
-                sendMeta(emitter, requestId, context);
-                log.debug("SSE stream started: requestId={}", requestId);
-            } catch (BusinessException ex) {
-                sendError(emitter, ex.getErrorCode(), ex.getMessage());
-                return;
-            } catch (Exception ex) {
-                log.error("Failed to prepare context", ex);
-                sendError(emitter, ErrorCode.INTERNAL_ERROR, "Internal server error");
-                return;
-            }
-
-            // Step 2: 串流 Groq 回應
-            List<Map<String, String>> messages = buildMessages(context);
-            StringBuilder buffer = new StringBuilder();
-            AtomicBoolean failed = new AtomicBoolean(false);
-
-            try {
-                groqChatClient.streamChat(messages, context.getUserId(), "analysis")
-                        .doOnNext(delta -> {
-                            buffer.append(delta);
-                            try {
-                                sendDelta(emitter, delta);
-                            } catch (Exception ex) {
-                                throw new RuntimeException(ex);
-                            }
-                        })
-                        .doOnError(ex -> {
-                            failed.set(true);
-                            log.error("Groq stream error", ex);
-                            if (ex instanceof BusinessException be) {
-                                sendError(emitter, be.getErrorCode(), be.getMessage());
-                            } else {
-                                sendError(emitter, ErrorCode.INTERNAL_ERROR,
-                                        "Groq streaming failed: " + ex.getMessage());
-                            }
-                        })
-                        .onErrorResume(ex -> reactor.core.publisher.Flux.empty())
-                        .doOnComplete(() -> {
-                            if (failed.get()) {
-                                return;
-                            }
-                            // Step 3: 儲存報告並送 done
-                            try {
-                                AiReportView report = aiReportService.saveReport(context, buffer.toString());
-                                Map<String, Object> done = new LinkedHashMap<>();
-                                done.put("reportId", report.id() != null ? report.id().toString() : null);
-                                emitter.send(SseEmitter.event().name("done").data(done));
-                                log.info("SSE stream completed: requestId={}, reportId={}",
-                                        requestId, report.id());
-                            } catch (Exception ex) {
-                                log.error("Failed to save report or send done", ex);
-                            } finally {
-                                emitter.complete();
-                            }
-                        })
-                        .blockLast();
-            } catch (BusinessException ex) {
-                sendError(emitter, ex.getErrorCode(), ex.getMessage());
-            } catch (Exception ex) {
-                log.error("Groq stream failed", ex);
-                sendError(emitter, ErrorCode.INTERNAL_ERROR, "Groq streaming failed");
-            }
-        });
+        CompletableFuture.runAsync(() -> analysisStreamUseCase.stream(emitter, requestId, userId, request));
         return emitter;
     }
 
@@ -222,114 +115,4 @@ public class AiController {
         AiReportView report = aiReportService.getReport(userId, IdParser.parseId(reportId));
         return Result.ok(AiReportResponse.from(report));
     }
-
-    // ============================================================
-    // SSE Helper Methods
-    // ============================================================
-
-    /**
-     * 送出 meta 事件，包含 requestId 和相關 ID。
-     */
-    private void sendMeta(SseEmitter emitter, String requestId, AiReportContext context) throws Exception {
-        Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("requestId", requestId);
-        if (context.getInstrumentId() != null) {
-            meta.put("instrumentId", context.getInstrumentId().toString());
-        }
-        if (context.getPortfolioId() != null) {
-            meta.put("portfolioId", context.getPortfolioId().toString());
-        }
-        if (context.getReportType() != null && !context.getReportType().isBlank()) {
-            meta.put("reportType", context.getReportType());
-        }
-        emitter.send(SseEmitter.event().name("meta").data(meta));
-    }
-
-    /**
-     * 送出 delta 事件，包含一段 LLM 回覆文字。
-     */
-    private void sendDelta(SseEmitter emitter, String text) throws Exception {
-        emitter.send(SseEmitter.event().name("delta").data(Map.of("text", text)));
-    }
-
-    /**
-     * 送出 error 事件並關閉連線。
-     */
-    private void sendError(SseEmitter emitter, ErrorCode code, String message) {
-        try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("code", code.getCode());
-            payload.put("message", message);
-            emitter.send(SseEmitter.event().name("error").data(payload));
-        } catch (Exception ignored) {
-            // 忽略送出失敗（連線可能已斷開）
-        } finally {
-            emitter.complete();
-        }
-    }
-
-    // ============================================================
-    // LLM Message Builder
-    // ============================================================
-
-    /**
-     * 建立 LLM 訊息列表（system + user）。
-     */
-    private List<Map<String, String>> buildMessages(AiReportContext context) {
-        String prompt = resolvePrompt(context);
-        String summaryJson = toJson(context.getSummary());
-
-        StringBuilder userContent = new StringBuilder();
-        if (context.getReportType() != null) {
-            userContent.append("report_type: ").append(context.getReportType());
-        }
-        if (context.getInstrumentDisplay() != null && !context.getInstrumentDisplay().isBlank()) {
-            userContent.append("\n").append("instrument: ").append(context.getInstrumentDisplay());
-        }
-        if (context.getPortfolioName() != null && !context.getPortfolioName().isBlank()) {
-            userContent.append("\n").append("portfolio: ").append(context.getPortfolioName());
-        }
-        if (context.getPortfolioCurrency() != null && !context.getPortfolioCurrency().isBlank()) {
-            userContent.append("\n").append("base_currency: ").append(context.getPortfolioCurrency());
-        }
-        if (summaryJson != null && !summaryJson.isBlank()) {
-            userContent.append("\n").append("summary: ").append(summaryJson);
-        }
-        userContent.append("\n").append("request: ").append(prompt);
-
-        return List.of(
-                Map.of("role", "system", "content", SYSTEM_PROMPT),
-                Map.of("role", "user", "content", userContent.toString()));
-    }
-
-    /**
-     * 解析使用者 prompt，若為空則根據 reportType 提供預設。
-     */
-    private String resolvePrompt(AiReportContext context) {
-        String prompt = context.getPrompt();
-        if (prompt != null && !prompt.isBlank()) {
-            return prompt.trim();
-        }
-        AiReportType reportType = AiReportType.from(context.getReportType());
-        if (AiReportType.PORTFOLIO.equals(reportType)) {
-            return "Summarize the portfolio and highlight key risks.";
-        }
-        if (AiReportType.INSTRUMENT.equals(reportType)) {
-            return "Summarize the instrument and highlight key risks.";
-        }
-        return "Provide a concise market summary.";
-    }
-
-    /**
-     * 將 Map 轉為 JSON 字串。
-     */
-    private String toJson(Map<String, Object> value) {
-        try {
-            Map<String, Object> safe = value == null ? Map.of() : value;
-            return objectMapper.writeValueAsString(safe);
-        } catch (Exception ex) {
-            return "{}";
-        }
-    }
-
 }
