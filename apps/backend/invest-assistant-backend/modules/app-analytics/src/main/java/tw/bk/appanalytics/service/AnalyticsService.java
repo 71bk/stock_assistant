@@ -18,6 +18,7 @@ import tw.bk.appanalytics.model.AnalyticsModels.AiUsage;
 import tw.bk.appanalytics.model.AnalyticsModels.DailyTrend;
 import tw.bk.appanalytics.model.AnalyticsModels.PageMetric;
 import tw.bk.appanalytics.model.AnalyticsModels.Summary;
+import tw.bk.appcommon.enums.AnalyticsEventType;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.repository.AnalyticsRepository;
@@ -26,7 +27,7 @@ import tw.bk.apppersistence.repository.AnalyticsRepository.DailyEngagementRow;
 
 @Service
 public class AnalyticsService {
-    private static final String PAGE_VIEW = "PAGE_VIEW";
+    private static final String PAGE_VIEW = AnalyticsEventType.PAGE_VIEW.name();
 
     private final AnalyticsRepository repository;
     private final PrometheusAnalyticsClient prometheusClient;
