@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tw.bk.appapi.auth.dto.AdminLoginRequest;
 import tw.bk.appapi.auth.vo.MeResponse;
+import tw.bk.appapi.security.ClientIpResolver;
+import tw.bk.appapi.security.RateLimitGuard;
 import tw.bk.appauth.model.UserSettingsView;
 import tw.bk.appauth.model.UserView;
 import tw.bk.appauth.config.AuthProperties;
@@ -125,7 +127,7 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response) {
         enforceAdminLoginRateLimit(request);
-        String ip = getClientKey(request);
+        String ip = clientIp(request);
         String userAgent = request.getHeader("User-Agent");
 
         AuthService.AuthTokens tokens = adminAuthService.login(
@@ -174,61 +176,24 @@ public class AuthController {
     }
 
     private void enforceRefreshRateLimit(HttpServletRequest request) {
-        String key = "auth:refresh:" + getClientKey(request);
-        if (!rateLimiter.tryAcquire(key, refreshRateLimit, refreshRateWindow)) {
-            throw new BusinessException(ErrorCode.RATE_LIMITED, "Too many refresh attempts");
-        }
+        RateLimitGuard.require(
+                rateLimiter,
+                "auth:refresh:" + clientIp(request),
+                refreshRateLimit,
+                refreshRateWindow,
+                "Too many refresh attempts");
     }
 
     private void enforceAdminLoginRateLimit(HttpServletRequest request) {
-        String key = "auth:admin:login:" + getClientKey(request);
-        if (!rateLimiter.tryAcquire(key, adminLoginRateLimit, adminLoginRateWindow)) {
-            throw new BusinessException(ErrorCode.RATE_LIMITED, "Too many login attempts");
-        }
+        RateLimitGuard.require(
+                rateLimiter,
+                "auth:admin:login:" + clientIp(request),
+                adminLoginRateLimit,
+                adminLoginRateWindow,
+                "Too many login attempts");
     }
 
-    private String getClientKey(HttpServletRequest request) {
-        if (isTrustedProxyRequest(request)) {
-            String forwarded = request.getHeader("X-Forwarded-For");
-            if (forwarded != null && !forwarded.isBlank()) {
-                return forwarded.split(",")[0].trim();
-            }
-            String realIp = request.getHeader("X-Real-IP");
-            if (realIp != null && !realIp.isBlank()) {
-                return realIp.trim();
-            }
-        }
-        return request.getRemoteAddr();
-    }
-
-    private boolean isTrustedProxyRequest(HttpServletRequest request) {
-        if (!trustedProxyEnabled) {
-            return false;
-        }
-
-        String remoteAddr = request.getRemoteAddr();
-        if (remoteAddr == null || remoteAddr.isBlank()) {
-            return false;
-        }
-        if (isLoopback(remoteAddr)) {
-            return true;
-        }
-
-        if (trustedProxyIpList == null || trustedProxyIpList.isBlank()) {
-            return false;
-        }
-        for (String candidate : trustedProxyIpList.split(",")) {
-            String trimmed = candidate.trim();
-            if (!trimmed.isEmpty() && trimmed.equals(remoteAddr)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isLoopback(String ip) {
-        return "127.0.0.1".equals(ip)
-                || "::1".equals(ip)
-                || "0:0:0:0:0:0:0:1".equals(ip);
+    private String clientIp(HttpServletRequest request) {
+        return ClientIpResolver.resolve(request, trustedProxyEnabled, trustedProxyIpList);
     }
 }

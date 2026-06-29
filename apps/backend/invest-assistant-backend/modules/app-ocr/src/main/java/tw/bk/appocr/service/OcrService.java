@@ -1,11 +1,9 @@
 package tw.bk.appocr.service;
 
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -22,7 +20,6 @@ import tw.bk.appocr.model.OcrJobView;
 import tw.bk.apppersistence.entity.FileEntity;
 import tw.bk.apppersistence.entity.OcrJobEntity;
 import tw.bk.apppersistence.entity.StatementEntity;
-import tw.bk.apppersistence.entity.StatementTradeEntity;
 import tw.bk.apppersistence.repository.FileRepository;
 import tw.bk.apppersistence.repository.OcrJobRepository;
 import tw.bk.apppersistence.repository.PortfolioRepository;
@@ -34,7 +31,6 @@ import tw.bk.appocr.queue.OcrQueueService;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OcrService {
     private static final String SOURCE_OCR = TradeSource.OCR.name();
     private static final String STATUS_DRAFT = StatementStatus.DRAFT.name();
@@ -62,9 +58,45 @@ public class OcrService {
     private final OcrDedupeContentKeyResolver dedupeContentKeyResolver;
     private final OcrImportTxService importTxService;
     private final OcrViewMapper viewMapper;
+    private final OcrJobQueryService queryService;
+    private final OcrConfirmationService confirmationService;
 
     @Value("${app.ocr.queue.max-running-minutes:30}")
     private long maxRunningMinutes;
+
+    public OcrService(FileRepository fileRepository,
+            StatementRepository statementRepository,
+            StatementTradeRepository statementTradeRepository,
+            OcrJobRepository ocrJobRepository,
+            PortfolioRepository portfolioRepository,
+            OcrQueueService queueService,
+            OcrDedupeService dedupeService,
+            OcrPdfPasswordVault pdfPasswordVault,
+            StockTradeRepository stockTradeRepository,
+            OcrJobProcessor jobProcessor,
+            OcrDraftService ocrDraftService,
+            OcrDedupeContentKeyResolver dedupeContentKeyResolver,
+            OcrImportTxService importTxService,
+            OcrViewMapper viewMapper) {
+        this.fileRepository = fileRepository;
+        this.statementRepository = statementRepository;
+        this.statementTradeRepository = statementTradeRepository;
+        this.ocrJobRepository = ocrJobRepository;
+        this.portfolioRepository = portfolioRepository;
+        this.queueService = queueService;
+        this.dedupeService = dedupeService;
+        this.pdfPasswordVault = pdfPasswordVault;
+        this.stockTradeRepository = stockTradeRepository;
+        this.jobProcessor = jobProcessor;
+        this.ocrDraftService = ocrDraftService;
+        this.dedupeContentKeyResolver = dedupeContentKeyResolver;
+        this.importTxService = importTxService;
+        this.viewMapper = viewMapper;
+        this.queryService = new OcrJobQueryService(
+                ocrJobRepository, statementRepository, statementTradeRepository, viewMapper);
+        this.confirmationService = new OcrConfirmationService(
+                statementRepository, statementTradeRepository, ocrJobRepository, ocrDraftService, importTxService);
+    }
 
     /**
      * 建立 OCR Job。
@@ -205,7 +237,7 @@ public class OcrService {
 
     @Transactional(readOnly = true)
     public OcrJobView getJob(Long userId, Long jobId) {
-        return viewMapper.toJobView(getJobEntity(userId, jobId));
+        return queryService.getJob(userId, jobId);
     }
 
     private OcrJobEntity getJobEntity(Long userId, Long jobId) {
@@ -234,18 +266,7 @@ public class OcrService {
 
     @Transactional(readOnly = true)
     public List<OcrDraftView> getDrafts(Long userId, Long jobId) {
-        OcrJobEntity job = getJobEntity(userId, jobId);
-        if (job.getStatementId() == null) {
-            return List.of();
-        }
-        StatementEntity statement = requireStatement(job.getStatementId(), userId);
-        if (statement == null) {
-            return List.of();
-        }
-        return statementTradeRepository.findByStatementIdOrderByIdAsc(statement.getId())
-                .stream()
-                .map(viewMapper::toDraftView)
-                .toList();
+        return queryService.getDrafts(userId, jobId);
     }
 
     @Transactional
@@ -345,21 +366,12 @@ public class OcrService {
 
     @Transactional(readOnly = true)
     public Long getPortfolioIdByJob(Long userId, Long jobId) {
-        OcrJobEntity job = getJobEntity(userId, jobId);
-        if (job.getStatementId() == null) {
-            return null;
-        }
-        StatementEntity statement = requireStatement(job.getStatementId(), userId);
-        return statement.getPortfolioId();
+        return queryService.getPortfolioIdByJob(userId, jobId);
     }
 
     @Transactional(readOnly = true)
     public Long getPortfolioIdByStatementId(Long userId, Long statementId) {
-        if (statementId == null) {
-            return null;
-        }
-        StatementEntity statement = requireStatement(statementId, userId);
-        return statement.getPortfolioId();
+        return queryService.getPortfolioIdByStatementId(userId, statementId);
     }
 
     @Transactional
@@ -378,98 +390,7 @@ public class OcrService {
      */
     @Transactional
     public ConfirmResult confirm(Long userId, Long jobId, Set<Long> selectedDraftIds) {
-        OcrJobEntity job = getJobEntity(userId, jobId);
-        if (!JOB_DONE.equals(job.getStatus())) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR job not completed");
-        }
-        if (job.getStatementId() == null) {
-            return ConfirmResult.builder().importedCount(0).errors(List.of()).build();
-        }
-        StatementEntity statement = requireStatement(job.getStatementId(), userId);
-        List<StatementTradeEntity> allDrafts = statementTradeRepository
-                .findByStatementIdOrderByIdAsc(statement.getId());
-        if (allDrafts.isEmpty()) {
-            return ConfirmResult.builder().importedCount(0).errors(List.of()).build();
-        }
-
-        // Filter drafts to import
-        List<StatementTradeEntity> draftsToImport;
-        if (selectedDraftIds == null || selectedDraftIds.isEmpty()) {
-            // Import all drafts (backward compatible)
-            draftsToImport = allDrafts;
-        } else {
-            // Import only selected drafts
-            draftsToImport = allDrafts.stream()
-                    .filter(d -> selectedDraftIds.contains(d.getId()))
-                    .toList();
-        }
-
-        if (draftsToImport.isEmpty()) {
-            return ConfirmResult.builder().importedCount(0).errors(List.of()).build();
-        }
-
-        // Validate and import drafts
-        int importedCount = 0;
-        List<ConfirmResult.DraftError> errors = new ArrayList<>();
-
-        for (StatementTradeEntity draft : draftsToImport) {
-            // Validate: check instrumentId
-            if (draft.getInstrumentId() == null) {
-                errors.add(ConfirmResult.DraftError.builder()
-                        .draftId(draft.getId())
-                        .reason("缺少股票代碼 (instrumentId)")
-                        .build());
-                continue;
-            }
-
-            // Validate: check duplicate
-            boolean isDuplicate = ocrDraftService.isDuplicateDraft(draft, statement.getPortfolioId());
-            if (isDuplicate) {
-                errors.add(ConfirmResult.DraftError.builder()
-                        .draftId(draft.getId())
-                        .reason("重複交易（相同股票、日期、買賣、數量、價格）")
-                        .build());
-                continue;
-            }
-
-            // Import each draft in its own (REQUIRES_NEW) transaction so a single
-            // failure (currency mismatch, missing instrument, dedupe constraint, ...)
-            // only rolls back that draft instead of poisoning the whole batch.
-            try {
-                importTxService.importDraft(userId, statement.getPortfolioId(), draft);
-                importedCount++;
-            } catch (BusinessException ex) {
-                log.warn("Failed to import draft: draftId={}, error={}", draft.getId(), ex.getMessage());
-                errors.add(ConfirmResult.DraftError.builder()
-                        .draftId(draft.getId())
-                        .reason(ex.getMessage())
-                        .build());
-            }
-        }
-
-        log.info("已匯入並刪除草稿: statementId={}, importedCount={}, errorCount={}",
-                statement.getId(), importedCount, errors.size());
-
-        // Check if all drafts are processed
-        List<StatementTradeEntity> remainingDrafts = statementTradeRepository
-                .findByStatementIdOrderByIdAsc(statement.getId());
-        if (remainingDrafts.isEmpty()) {
-            // All drafts processed, mark as confirmed
-            statement.setStatus(STATUS_CONFIRMED);
-            statementRepository.save(statement);
-            int updated = ocrJobRepository.updateStatusIfNotCancelled(
-                    jobId, JOB_DONE, 100, null, JOB_CANCELLED);
-            if (updated == 0) {
-                log.info("OCR Job cancelled before confirm, skip DONE update: jobId={}", jobId);
-            } else {
-                log.info("OCR Job 已完成: jobId={}", jobId);
-            }
-        }
-
-        return ConfirmResult.builder()
-                .importedCount(importedCount)
-                .errors(errors)
-                .build();
+        return confirmationService.confirm(userId, jobId, selectedDraftIds);
     }
 
     /**
@@ -480,39 +401,7 @@ public class OcrService {
      */
     @Transactional
     public void deleteDraft(Long userId, Long draftId) {
-        StatementTradeEntity draft = statementTradeRepository.findById(draftId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Draft not found"));
-
-        // Verify ownership
-        StatementEntity statement = requireStatement(draft.getStatementId(), userId);
-        OcrJobEntity job = ocrJobRepository.findByStatementId(statement.getId()).orElse(null);
-        if (job != null && !JOB_DONE.equals(job.getStatus())) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR job not completed");
-        }
-
-        statementTradeRepository.deleteById(draftId);
-        log.info("已刪除草稿: draftId={}, statementId={}", draftId, statement.getId());
-
-        // Check if all drafts are deleted
-        List<StatementTradeEntity> remainingDrafts = statementTradeRepository
-                .findByStatementIdOrderByIdAsc(statement.getId());
-        if (remainingDrafts.isEmpty()) {
-            // All drafts deleted (either imported or manually deleted), mark as confirmed
-            statement.setStatus(STATUS_CONFIRMED);
-            statementRepository.save(statement);
-
-            // Find and update the job
-            if (job != null) {
-                int updated = ocrJobRepository.updateStatusIfNotCancelled(
-                        job.getId(), JOB_DONE, 100, null, JOB_CANCELLED);
-                if (updated == 0) {
-                    log.info("OCR Job cancelled before deleteDraft completion, skip DONE update: jobId={}",
-                            job.getId());
-                } else {
-                    log.info("OCR Job 已完成: jobId={}", job.getId());
-                }
-            }
-        }
+        confirmationService.deleteDraft(userId, draftId);
     }
 
     private StatementEntity requireStatement(Long statementId, Long userId) {

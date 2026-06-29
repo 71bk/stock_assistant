@@ -2,7 +2,6 @@ package tw.bk.appapi.rag;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,12 +13,10 @@ import tw.bk.appapi.rag.vo.RagDocumentResponse;
 import tw.bk.appapi.rag.vo.RagIngestResponse;
 import tw.bk.appapi.rag.vo.RagQueryResponse;
 import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.enums.FileProvider;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
-import tw.bk.appfiles.model.FileView;
 import tw.bk.appfiles.service.FileService;
 import tw.bk.apprag.client.AiWorkerIngestResponse;
 import tw.bk.apprag.client.AiWorkerQueryResponse;
@@ -30,23 +27,31 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 import tw.bk.appapi.web.CurrentUser;
-import tw.bk.appapi.web.IdParser;
 import tw.bk.appapi.web.PageableFactory;
 
 @RestController
 @RequestMapping("/rag")
 @Tag(name = "RAG", description = "RAG APIs")
-@RequiredArgsConstructor
 public class RagController {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final AiWorkerRagClient ragClient;
-    private final FileService fileService;
     private final CurrentUserProvider currentUserProvider;
     private final RagDocumentService ragDocumentService;
+    private final RagIngestionService ingestionService;
 
     @Value("${app.rag.max-file-size-mb:50}")
     private long maxFileSizeMb;
+
+    public RagController(AiWorkerRagClient ragClient,
+            FileService fileService,
+            CurrentUserProvider currentUserProvider,
+            RagDocumentService ragDocumentService) {
+        this.ragClient = ragClient;
+        this.currentUserProvider = currentUserProvider;
+        this.ragDocumentService = ragDocumentService;
+        this.ingestionService = new RagIngestionService(ragClient, fileService);
+    }
 
     @GetMapping("/documents")
     @Operation(summary = "List RAG documents")
@@ -83,48 +88,8 @@ public class RagController {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Request body is required");
         }
-
-        String rawText = request.getRawText();
-        String fileId = request.getFileId();
-        String title = request.getTitle();
-        String sourceType = request.getSourceType();
-
-        boolean hasText = rawText != null && !rawText.isBlank();
-        boolean hasFile = fileId != null && !fileId.isBlank();
-        if (hasText == hasFile) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "Provide either rawText or fileId");
-        }
-
-        if (hasText) {
-            if (title == null || title.isBlank()) {
-                title = "note";
-            }
-            AiWorkerIngestResponse response = ragClient.ingestText(
-                    userId, rawText, title, sourceType, request.getTags());
-            return Result.ok(RagIngestResponse.from(response));
-        }
-
-        Long id = IdParser.parseId(fileId);
-        FileView file = fileService.getFileView(userId, id);
-        String contentType = file.contentType();
-        validateFileSize(file);
-        FileProvider provider = fileService.resolveProvider(file);
-        String fileName = file.objectKey();
-        if (title == null || title.isBlank()) {
-            title = fileName;
-        }
-
-        AiWorkerIngestResponse response;
-        if (provider == FileProvider.LOCAL) {
-            byte[] content = fileService.loadBytes(file);
-            response = ragClient.ingestFile(
-                    userId, fileName, contentType, content, title, sourceType, request.getTags());
-        } else {
-            String fileUrl = fileService.presignDownloadUrl(file);
-            response = ragClient.ingestUrl(
-                    userId, fileUrl, fileName, contentType, title, sourceType, request.getTags());
-        }
+        long maxFileSizeBytes = maxFileSizeMb * 1024L * 1024L;
+        AiWorkerIngestResponse response = ingestionService.ingest(userId, request, maxFileSizeBytes);
         return Result.ok(RagIngestResponse.from(response));
     }
 
@@ -146,15 +111,4 @@ public class RagController {
                 request.getSourceType());
         return Result.ok(RagQueryResponse.from(response));
     }
-
-    private void validateFileSize(FileView file) {
-        if (file == null || file.sizeBytes() == null) {
-            return;
-        }
-        long limitBytes = maxFileSizeMb * 1024L * 1024L;
-        if (limitBytes > 0 && file.sizeBytes() > limitBytes) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File size exceeds limit");
-        }
-    }
-
 }
