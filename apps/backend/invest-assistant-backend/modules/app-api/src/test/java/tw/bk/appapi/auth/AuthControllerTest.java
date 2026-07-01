@@ -11,12 +11,10 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.DefaultCsrfToken;
 import tw.bk.appauth.config.AuthProperties;
-import tw.bk.appauth.service.AdminAuthService;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
 import tw.bk.appauth.service.UserService;
 import tw.bk.appauth.service.UserSettingsService;
-import tw.bk.appcommon.ratelimit.RateLimiter;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
 
@@ -29,12 +27,11 @@ class AuthControllerTest {
         controller = new AuthController(
                 mock(AuthService.class),
                 mock(AuthCookieService.class),
-                mock(AdminAuthService.class),
                 mock(UserService.class),
                 mock(UserSettingsService.class),
                 mock(CurrentUserProvider.class),
                 new AuthProperties(),
-                mock(RateLimiter.class));
+                mock(AuthRateLimitPolicy.class));
     }
 
     @Test

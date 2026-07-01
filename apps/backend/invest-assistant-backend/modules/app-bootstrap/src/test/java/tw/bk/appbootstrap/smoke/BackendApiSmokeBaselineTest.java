@@ -28,6 +28,7 @@ import tw.bk.appai.service.AiReportService;
 import tw.bk.appapi.ai.AiController;
 import tw.bk.appapi.ai.vo.AiReportSummaryResponse;
 import tw.bk.appapi.auth.AuthController;
+import tw.bk.appapi.auth.AuthRateLimitPolicy;
 import tw.bk.appapi.files.FilesController;
 import tw.bk.appapi.files.vo.FileUrlResponse;
 import tw.bk.appapi.ocr.OcrController;
@@ -40,7 +41,6 @@ import tw.bk.appapi.rag.vo.RagQueryResponse;
 import tw.bk.appapi.stocks.StockController;
 import tw.bk.appapi.stocks.vo.MarketResponse;
 import tw.bk.appauth.config.AuthProperties;
-import tw.bk.appauth.service.AdminAuthService;
 import tw.bk.appauth.service.AuthCookieService;
 import tw.bk.appauth.service.AuthService;
 import tw.bk.appauth.service.UserService;
@@ -48,7 +48,6 @@ import tw.bk.appauth.service.UserSettingsService;
 import tw.bk.appcommon.enums.AiReportType;
 import tw.bk.appcommon.enums.FileProvider;
 import tw.bk.appcommon.enums.OcrJobStatus;
-import tw.bk.appcommon.ratelimit.RateLimiter;
 import tw.bk.appcommon.result.PageResponse;
 import tw.bk.appcommon.result.Result;
 import tw.bk.appcommon.security.CurrentUserProvider;
@@ -73,12 +72,11 @@ class BackendApiSmokeBaselineTest {
         AuthController controller = new AuthController(
                 mock(AuthService.class),
                 mock(AuthCookieService.class),
-                mock(AdminAuthService.class),
                 mock(UserService.class),
                 mock(UserSettingsService.class),
                 mock(CurrentUserProvider.class),
                 new AuthProperties(),
-                mock(RateLimiter.class));
+                mock(AuthRateLimitPolicy.class));
 
         ResponseEntity<Void> response = controller.googleLogin();
 
