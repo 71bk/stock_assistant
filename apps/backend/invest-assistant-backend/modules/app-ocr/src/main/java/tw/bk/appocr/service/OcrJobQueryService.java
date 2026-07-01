@@ -1,6 +1,8 @@
 package tw.bk.appocr.service;
 
 import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.OcrDraftView;
@@ -17,6 +19,8 @@ import tw.bk.apppersistence.repository.StatementTradeRepository;
  * <p>從 {@code OcrService} 抽出查詢職責；交易語意（{@code @Transactional(readOnly)}）
  * 維持在 {@code OcrService} 的委派方法上。
  */
+@Service
+@Transactional(readOnly = true)
 class OcrJobQueryService {
 
     private final OcrJobRepository ocrJobRepository;
@@ -34,11 +38,11 @@ class OcrJobQueryService {
         this.viewMapper = viewMapper;
     }
 
-    OcrJobView getJob(Long userId, Long jobId) {
+    public OcrJobView getJob(Long userId, Long jobId) {
         return viewMapper.toJobView(getJobEntity(userId, jobId));
     }
 
-    List<OcrDraftView> getDrafts(Long userId, Long jobId) {
+    public List<OcrDraftView> getDrafts(Long userId, Long jobId) {
         OcrJobEntity job = getJobEntity(userId, jobId);
         if (job.getStatementId() == null) {
             return List.of();
@@ -53,7 +57,7 @@ class OcrJobQueryService {
                 .toList();
     }
 
-    Long getPortfolioIdByJob(Long userId, Long jobId) {
+    public Long getPortfolioIdByJob(Long userId, Long jobId) {
         OcrJobEntity job = getJobEntity(userId, jobId);
         if (job.getStatementId() == null) {
             return null;
@@ -62,7 +66,7 @@ class OcrJobQueryService {
         return statement.getPortfolioId();
     }
 
-    Long getPortfolioIdByStatementId(Long userId, Long statementId) {
+    public Long getPortfolioIdByStatementId(Long userId, Long statementId) {
         if (statementId == null) {
             return null;
         }

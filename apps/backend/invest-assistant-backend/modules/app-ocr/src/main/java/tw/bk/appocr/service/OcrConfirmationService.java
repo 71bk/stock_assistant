@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.appcommon.enums.StatementStatus;
@@ -24,6 +26,7 @@ import tw.bk.apppersistence.repository.StatementTradeRepository;
  * 的委派方法上，逐筆匯入仍透過 {@code OcrImportTxService}（REQUIRES_NEW）隔離單筆失敗。
  */
 @Slf4j
+@Service
 class OcrConfirmationService {
     private static final String STATUS_CONFIRMED = StatementStatus.CONFIRMED.name();
     private static final String JOB_DONE = OcrJobStatus.DONE.name();
@@ -47,7 +50,8 @@ class OcrConfirmationService {
         this.importTxService = importTxService;
     }
 
-    ConfirmResult confirm(Long userId, Long jobId, Set<Long> selectedDraftIds) {
+    @Transactional
+    public ConfirmResult confirm(Long userId, Long jobId, Set<Long> selectedDraftIds) {
         OcrJobEntity job = getJobEntity(userId, jobId);
         if (!JOB_DONE.equals(job.getStatus())) {
             throw new BusinessException(ErrorCode.CONFLICT, "OCR job not completed");
@@ -142,7 +146,8 @@ class OcrConfirmationService {
                 .build();
     }
 
-    void deleteDraft(Long userId, Long draftId) {
+    @Transactional
+    public void deleteDraft(Long userId, Long draftId) {
         StatementTradeEntity draft = statementTradeRepository.findById(draftId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Draft not found"));
 

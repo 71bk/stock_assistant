@@ -1,412 +1,90 @@
 package tw.bk.appocr.service;
 
-import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import tw.bk.appcommon.enums.ErrorCode;
-import tw.bk.appcommon.enums.OcrJobStatus;
-import tw.bk.appcommon.enums.StatementStatus;
-import tw.bk.appcommon.enums.TradeSource;
-import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.ConfirmResult;
-import tw.bk.appocr.model.OcrDraftView;
 import tw.bk.appocr.model.OcrDraftUpdate;
+import tw.bk.appocr.model.OcrDraftView;
 import tw.bk.appocr.model.OcrJobView;
-import tw.bk.apppersistence.entity.FileEntity;
-import tw.bk.apppersistence.entity.OcrJobEntity;
-import tw.bk.apppersistence.entity.StatementEntity;
-import tw.bk.apppersistence.repository.FileRepository;
-import tw.bk.apppersistence.repository.OcrJobRepository;
-import tw.bk.apppersistence.repository.PortfolioRepository;
-import tw.bk.apppersistence.repository.StatementRepository;
-import tw.bk.apppersistence.repository.StatementTradeRepository;
-import tw.bk.apppersistence.repository.StockTradeRepository;
-import tw.bk.appocr.queue.OcrDedupeService;
-import tw.bk.appocr.queue.OcrQueueService;
 
-@Slf4j
+/** Public facade for OCR application use cases. */
 @Service
 public class OcrService {
-    private static final String SOURCE_OCR = TradeSource.OCR.name();
-    private static final String STATUS_DRAFT = StatementStatus.DRAFT.name();
-    private static final String STATUS_CONFIRMED = StatementStatus.CONFIRMED.name();
-    private static final String STATUS_SUPERSEDED = StatementStatus.SUPERSEDED.name();
-    private static final String JOB_QUEUED = OcrJobStatus.QUEUED.name();
-    private static final String JOB_PASSWORD_REQUIRED = OcrJobStatus.PASSWORD_REQUIRED.name();
-    private static final String JOB_PASSWORD_INVALID = OcrJobStatus.PASSWORD_INVALID.name();
-    private static final String JOB_RUNNING = OcrJobStatus.RUNNING.name();
-    private static final String JOB_DONE = OcrJobStatus.DONE.name();
-    private static final String JOB_FAILED = OcrJobStatus.FAILED.name();
-    private static final String JOB_CANCELLED = OcrJobStatus.CANCELLED.name();
-
-    private final FileRepository fileRepository;
-    private final StatementRepository statementRepository;
-    private final StatementTradeRepository statementTradeRepository;
-    private final OcrJobRepository ocrJobRepository;
-    private final PortfolioRepository portfolioRepository;
-    private final OcrQueueService queueService;
-    private final OcrDedupeService dedupeService;
-    private final OcrPdfPasswordVault pdfPasswordVault;
-    private final StockTradeRepository stockTradeRepository;
+    private final OcrJobCreationService creationService;
+    private final OcrJobCommandService commandService;
     private final OcrJobProcessor jobProcessor;
-    private final OcrDraftService ocrDraftService;
-    private final OcrDedupeContentKeyResolver dedupeContentKeyResolver;
-    private final OcrImportTxService importTxService;
-    private final OcrViewMapper viewMapper;
     private final OcrJobQueryService queryService;
+    private final OcrDraftService draftService;
     private final OcrConfirmationService confirmationService;
+    private final OcrViewMapper viewMapper;
 
-    @Value("${app.ocr.queue.max-running-minutes:30}")
-    private long maxRunningMinutes;
-
-    public OcrService(FileRepository fileRepository,
-            StatementRepository statementRepository,
-            StatementTradeRepository statementTradeRepository,
-            OcrJobRepository ocrJobRepository,
-            PortfolioRepository portfolioRepository,
-            OcrQueueService queueService,
-            OcrDedupeService dedupeService,
-            OcrPdfPasswordVault pdfPasswordVault,
-            StockTradeRepository stockTradeRepository,
+    public OcrService(
+            OcrJobCreationService creationService,
+            OcrJobCommandService commandService,
             OcrJobProcessor jobProcessor,
-            OcrDraftService ocrDraftService,
-            OcrDedupeContentKeyResolver dedupeContentKeyResolver,
-            OcrImportTxService importTxService,
+            OcrJobQueryService queryService,
+            OcrDraftService draftService,
+            OcrConfirmationService confirmationService,
             OcrViewMapper viewMapper) {
-        this.fileRepository = fileRepository;
-        this.statementRepository = statementRepository;
-        this.statementTradeRepository = statementTradeRepository;
-        this.ocrJobRepository = ocrJobRepository;
-        this.portfolioRepository = portfolioRepository;
-        this.queueService = queueService;
-        this.dedupeService = dedupeService;
-        this.pdfPasswordVault = pdfPasswordVault;
-        this.stockTradeRepository = stockTradeRepository;
+        this.creationService = creationService;
+        this.commandService = commandService;
         this.jobProcessor = jobProcessor;
-        this.ocrDraftService = ocrDraftService;
-        this.dedupeContentKeyResolver = dedupeContentKeyResolver;
-        this.importTxService = importTxService;
+        this.queryService = queryService;
+        this.draftService = draftService;
+        this.confirmationService = confirmationService;
         this.viewMapper = viewMapper;
-        this.queryService = new OcrJobQueryService(
-                ocrJobRepository, statementRepository, statementTradeRepository, viewMapper);
-        this.confirmationService = new OcrConfirmationService(
-                statementRepository, statementTradeRepository, ocrJobRepository, ocrDraftService, importTxService);
     }
 
-    /**
-     * 建立 OCR Job。
-     *
-     * @param userId      使用者 ID
-     * @param fileId      檔案 ID
-     * @param portfolioId 投資組合 ID
-     * @param force       是否強制重新處理（忽略去重邏輯）
-     * @return OCR Job 實體
-     */
-    @Transactional
     public OcrJobView createJob(Long userId, Long fileId, Long portfolioId, boolean force) {
-        if (userId == null) {
-            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
-        }
-        FileEntity file = fileRepository.findByIdAndUserId(fileId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "File not found"));
-        portfolioRepository.findByIdAndUserId(portfolioId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Portfolio not found"));
-
-        String sha256 = file.getSha256();
-        String dedupeContentKey = dedupeContentKeyResolver.resolve(file);
-        log.info("建立 OCR Job: sha256={}, force={}", sha256, force);
-
-        // 如果不是強制模式，檢查去重
-        boolean reserved = false;
-        if (!force && dedupeContentKey != null) {
-            Optional<Long> existingJobId = dedupeService.findJobId(userId, dedupeContentKey, portfolioId);
-            if (existingJobId.isPresent()) {
-                log.info("發現既存 Job ID: {}", existingJobId.get());
-                OcrJobEntity existing = ocrJobRepository.findByIdAndUserId(existingJobId.get(), userId).orElse(null);
-                if (existing != null) {
-                    log.info("既存 Job 狀態: {}", existing.getStatus());
-
-                    // 失敗 / 已取消 / 仍在 QUEUED 的 job：重置 statement 後重新入列。
-                    // 特別是「使用者取消後重新上傳同一檔案」會走到這裡 —— 必須能重新辨識，
-                    // 而不是把那個已取消的 job 直接回傳（dedupe key 預設保留 7 天）。
-                    if (JOB_FAILED.equals(existing.getStatus())
-                            || JOB_QUEUED.equals(existing.getStatus())
-                            || JOB_CANCELLED.equals(existing.getStatus())) {
-                        resetStatementForReprocess(existing.getStatementId(), userId);
-                        existing.setStatus(JOB_QUEUED);
-                        existing.setProgress(0);
-                        existing.setErrorMessage(null);
-                        ocrJobRepository.save(existing);
-                        queueService.enqueue(existing);
-                    }
-                    return viewMapper.toJobView(existing);
-                }
-            }
-
-            reserved = dedupeService.reserve(userId, dedupeContentKey, portfolioId);
-            if (!reserved) {
-                Optional<Long> jobId = dedupeService.findJobId(userId, dedupeContentKey, portfolioId);
-                if (jobId.isPresent()) {
-                    OcrJobEntity existing = ocrJobRepository.findByIdAndUserId(jobId.get(), userId).orElse(null);
-                    if (existing != null) {
-                        return viewMapper.toJobView(existing);
-                    }
-                }
-                throw new BusinessException(ErrorCode.CONFLICT, "OCR job is being created, please retry");
-            }
-        } else if (!force) {
-            log.warn("Skip OCR dedupe because dedupeContentKey is missing: fileId={}, userId={}",
-                    file.getId(), userId);
-        } else {
-            log.info("強制模式：跳過去重邏輯，建立新 Job");
-        }
-
-        StatementEntity statement = new StatementEntity();
-        statement.setUserId(userId);
-        statement.setPortfolioId(portfolioId);
-        statement.setSource(SOURCE_OCR);
-        statement.setFileId(file.getId());
-        statement.setStatus(STATUS_DRAFT);
-        statement.setParsedJson("{}");
-        statementRepository.save(statement);
-
-        OcrJobEntity job = new OcrJobEntity();
-        job.setUserId(userId);
-        job.setFileId(file.getId());
-        job.setStatementId(statement.getId());
-        job.setStatus(JOB_QUEUED);
-        job.setProgress(0);
-        ocrJobRepository.save(job);
-
-        if (!force && dedupeContentKey != null) {
-            dedupeService.store(userId, dedupeContentKey, portfolioId, job.getId());
-        }
-        queueService.enqueue(job);
-        return viewMapper.toJobView(job);
+        return creationService.createJob(userId, fileId, portfolioId, force);
     }
 
-    /**
-     * 處理 OCR Job。
-     * 注意：不使用 @Transactional，讓每個步驟獨立執行，
-     * 這樣即使處理失敗，也能正確更新 job 狀態。
-     */
     public void processJob(Long userId, Long jobId) {
         jobProcessor.processJob(userId, jobId);
     }
 
-    @Transactional
     public OcrJobView submitPdfPassword(Long userId, Long jobId, String pdfPassword) {
-        if (userId == null) {
-            throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
-        }
-        if (pdfPassword == null || pdfPassword.isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "PDF password is required");
-        }
-
-        OcrJobEntity job = getJobEntity(userId, jobId);
-        String status = job.getStatus();
-        if (JOB_DONE.equals(status)) {
-            return viewMapper.toJobView(job);
-        }
-        if (JOB_CANCELLED.equals(status)) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR job is cancelled");
-        }
-        if (JOB_RUNNING.equals(status)) {
-            OffsetDateTime updatedAt = job.getUpdatedAt();
-            if (updatedAt != null && updatedAt.isAfter(OffsetDateTime.now().minusMinutes(maxRunningMinutes))) {
-                throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
-            }
-        }
-        if (!JOB_PASSWORD_REQUIRED.equals(status) && !JOB_PASSWORD_INVALID.equals(status)) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR job does not require a PDF password");
-        }
-
-        job.setStatus(JOB_QUEUED);
-        job.setProgress(5);
-        job.setErrorMessage(null);
-        OcrJobEntity saved = ocrJobRepository.save(job);
-        pdfPasswordVault.put(userId, jobId, pdfPassword);
-        queueService.enqueue(saved);
-        return viewMapper.toJobView(saved);
+        return commandService.submitPdfPassword(userId, jobId, pdfPassword);
     }
 
-    @Transactional(readOnly = true)
     public OcrJobView getJob(Long userId, Long jobId) {
         return queryService.getJob(userId, jobId);
     }
 
-    private OcrJobEntity getJobEntity(Long userId, Long jobId) {
-        return ocrJobRepository.findByIdAndUserId(jobId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "OCR job not found"));
-    }
-
-    /**
-     * 重置 statement 以便重新辨識：清掉舊草稿與解析結果、狀態設回 DRAFT。
-     * 已確認（CONFIRMED）的 statement 不動，避免覆蓋已匯入的資料。
-     */
-    private void resetStatementForReprocess(Long statementId, Long userId) {
-        if (statementId == null) {
-            return;
-        }
-        StatementEntity statement = statementRepository.findByIdAndUserId(statementId, userId).orElse(null);
-        if (statement == null || STATUS_CONFIRMED.equals(statement.getStatus())) {
-            return;
-        }
-        statementTradeRepository.deleteByStatementId(statementId);
-        statement.setRawText(null);
-        statement.setParsedJson("{}");
-        statement.setStatus(STATUS_DRAFT);
-        statementRepository.save(statement);
-    }
-
-    @Transactional(readOnly = true)
     public List<OcrDraftView> getDrafts(Long userId, Long jobId) {
         return queryService.getDrafts(userId, jobId);
     }
 
-    @Transactional
     public OcrJobView retryJob(Long userId, Long jobId, boolean force) {
-        OcrJobEntity job = getJobEntity(userId, jobId);
-        String status = job.getStatus();
-
-        if (JOB_DONE.equals(status) && !force) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR job already completed");
-        }
-
-        if (JOB_RUNNING.equals(status) && !force) {
-            OffsetDateTime updatedAt = job.getUpdatedAt();
-            if (updatedAt != null && updatedAt.isAfter(OffsetDateTime.now().minusMinutes(maxRunningMinutes))) {
-                throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
-            }
-        }
-
-        if (job.getStatementId() != null) {
-            StatementEntity statement = requireStatement(job.getStatementId(), userId);
-            if (STATUS_CONFIRMED.equals(statement.getStatus())) {
-                throw new BusinessException(ErrorCode.CONFLICT, "OCR statement already confirmed");
-            }
-            statementTradeRepository.deleteByStatementId(statement.getId());
-            statement.setRawText(null);
-            statement.setParsedJson("{}");
-            statement.setStatus(STATUS_DRAFT);
-            statementRepository.save(statement);
-        }
-
-        job.setStatus(JOB_QUEUED);
-        job.setProgress(0);
-        job.setErrorMessage(null);
-        ocrJobRepository.save(job);
-        queueService.enqueue(job);
-        return viewMapper.toJobView(job);
+        return commandService.retryJob(userId, jobId, force);
     }
 
-    @Transactional
     public OcrJobView reparse(Long userId, Long jobId, boolean force) {
-        OcrJobEntity job = ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "OCR job not found"));
-        String status = job.getStatus();
-
-        if (JOB_RUNNING.equals(status) && !force) {
-            OffsetDateTime updatedAt = job.getUpdatedAt();
-            if (updatedAt != null && updatedAt.isAfter(OffsetDateTime.now().minusMinutes(maxRunningMinutes))) {
-                throw new BusinessException(ErrorCode.CONFLICT, "OCR job is still running");
-            }
-        }
-
-        if (job.getStatementId() == null) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR job has no statement");
-        }
-
-        StatementEntity oldStatement = requireStatement(job.getStatementId(), userId);
-        if (STATUS_CONFIRMED.equals(oldStatement.getStatus()) && !force) {
-            throw new BusinessException(ErrorCode.CONFLICT, "OCR statement already confirmed");
-        }
-
-        OffsetDateTime now = OffsetDateTime.now();
-        oldStatement.setStatus(STATUS_SUPERSEDED);
-        oldStatement.setSupersededAt(now);
-        statementRepository.save(oldStatement);
-
-        StatementEntity newStatement = new StatementEntity();
-        newStatement.setUserId(oldStatement.getUserId());
-        newStatement.setPortfolioId(oldStatement.getPortfolioId());
-        newStatement.setSource(oldStatement.getSource());
-        newStatement.setFileId(oldStatement.getFileId());
-        newStatement.setStatus(STATUS_DRAFT);
-        newStatement.setParsedJson("{}");
-        statementRepository.save(newStatement);
-
-        job.setStatementId(newStatement.getId());
-        job.setStatus(JOB_QUEUED);
-        job.setProgress(0);
-        job.setErrorMessage(null);
-        ocrJobRepository.save(job);
-        queueService.enqueue(job);
-        return viewMapper.toJobView(job);
+        return commandService.reparse(userId, jobId, force);
     }
 
-    @Transactional
     public OcrJobView cancel(Long userId, Long jobId, boolean force) {
-        OcrJobEntity job = getJobEntity(userId, jobId);
-        String status = job.getStatus();
-        if (JOB_DONE.equals(status) || JOB_FAILED.equals(status) || JOB_CANCELLED.equals(status)) {
-            return viewMapper.toJobView(job);
-        }
-
-        job.setStatus(JOB_CANCELLED);
-        job.setProgress(100);
-        job.setErrorMessage("Cancelled by user");
-        return viewMapper.toJobView(ocrJobRepository.save(job));
+        return commandService.cancel(userId, jobId, force);
     }
 
-    @Transactional(readOnly = true)
     public Long getPortfolioIdByJob(Long userId, Long jobId) {
         return queryService.getPortfolioIdByJob(userId, jobId);
     }
 
-    @Transactional(readOnly = true)
     public Long getPortfolioIdByStatementId(Long userId, Long statementId) {
         return queryService.getPortfolioIdByStatementId(userId, statementId);
     }
 
-    @Transactional
     public OcrDraftView updateDraft(Long userId, Long draftId, OcrDraftUpdate update) {
-        return viewMapper.toDraftView(ocrDraftService.updateDraft(userId, draftId, update));
+        return viewMapper.toDraftView(draftService.updateDraft(userId, draftId, update));
     }
 
-    /**
-     * Confirm and import selected drafts.
-     *
-     * @param userId           User ID
-     * @param jobId            OCR Job ID
-     * @param selectedDraftIds Draft IDs to import. If null or empty, imports all
-     *                         drafts.
-     * @return ConfirmResult with importedCount and errors list
-     */
-    @Transactional
     public ConfirmResult confirm(Long userId, Long jobId, Set<Long> selectedDraftIds) {
         return confirmationService.confirm(userId, jobId, selectedDraftIds);
     }
 
-    /**
-     * Delete a single draft.
-     *
-     * @param userId  User ID
-     * @param draftId Draft ID to delete
-     */
-    @Transactional
     public void deleteDraft(Long userId, Long draftId) {
         confirmationService.deleteDraft(userId, draftId);
     }
-
-    private StatementEntity requireStatement(Long statementId, Long userId) {
-        Optional<StatementEntity> statement = statementRepository.findByIdAndUserId(statementId, userId);
-        return statement.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Statement not found"));
-    }
-
 }

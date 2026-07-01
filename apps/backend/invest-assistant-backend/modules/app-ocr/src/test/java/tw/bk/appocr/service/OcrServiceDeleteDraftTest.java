@@ -33,7 +33,6 @@ import tw.bk.apppersistence.repository.OcrJobRepository;
 import tw.bk.apppersistence.repository.PortfolioRepository;
 import tw.bk.apppersistence.repository.StatementRepository;
 import tw.bk.apppersistence.repository.StatementTradeRepository;
-import tw.bk.apppersistence.repository.StockTradeRepository;
 
 @ExtendWith(MockitoExtension.class)
 class OcrServiceDeleteDraftTest {
@@ -57,8 +56,6 @@ class OcrServiceDeleteDraftTest {
     @Mock
     private OcrPdfPasswordVault pdfPasswordVault;
     @Mock
-    private StockTradeRepository stockTradeRepository;
-    @Mock
     private OcrJobProcessor jobProcessor;
     @Mock
     private OcrDraftService ocrDraftService;
@@ -73,7 +70,7 @@ class OcrServiceDeleteDraftTest {
 
     @BeforeEach
     void setUp() {
-        service = new OcrService(
+        service = OcrServiceTestFactory.create(
                 fileRepository,
                 statementRepository,
                 statementTradeRepository,
@@ -82,7 +79,6 @@ class OcrServiceDeleteDraftTest {
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
-                stockTradeRepository,
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,

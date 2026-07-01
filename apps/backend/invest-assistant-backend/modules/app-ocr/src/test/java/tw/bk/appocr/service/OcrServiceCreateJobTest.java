@@ -32,7 +32,6 @@ import tw.bk.apppersistence.repository.OcrJobRepository;
 import tw.bk.apppersistence.repository.PortfolioRepository;
 import tw.bk.apppersistence.repository.StatementRepository;
 import tw.bk.apppersistence.repository.StatementTradeRepository;
-import tw.bk.apppersistence.repository.StockTradeRepository;
 
 @ExtendWith(MockitoExtension.class)
 class OcrServiceCreateJobTest {
@@ -56,8 +55,6 @@ class OcrServiceCreateJobTest {
     @Mock
     private OcrPdfPasswordVault pdfPasswordVault;
     @Mock
-    private StockTradeRepository stockTradeRepository;
-    @Mock
     private OcrJobProcessor jobProcessor;
     @Mock
     private OcrDraftService ocrDraftService;
@@ -72,7 +69,7 @@ class OcrServiceCreateJobTest {
 
     @BeforeEach
     void setUp() {
-        service = new OcrService(
+        service = OcrServiceTestFactory.create(
                 fileRepository,
                 statementRepository,
                 statementTradeRepository,
@@ -81,7 +78,6 @@ class OcrServiceCreateJobTest {
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
-                stockTradeRepository,
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,
@@ -166,6 +162,7 @@ class OcrServiceCreateJobTest {
         when(dedupeContentKeyResolver.resolve(file)).thenReturn("sha:abcdef");
         when(dedupeService.findJobId(userId, "sha:abcdef", portfolioId)).thenReturn(Optional.of(901L));
         when(ocrJobRepository.findByIdAndUserId(901L, userId)).thenReturn(Optional.of(existing));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(901L, userId)).thenReturn(Optional.of(existing));
         when(viewMapper.toJobView(existing)).thenReturn(new OcrJobView(
                 existing.getId(),
                 existing.getStatementId(),
@@ -210,6 +207,8 @@ class OcrServiceCreateJobTest {
         when(dedupeContentKeyResolver.resolve(file)).thenReturn("sha:deadbeef");
         when(dedupeService.findJobId(userId, "sha:deadbeef", portfolioId)).thenReturn(Optional.of(902L));
         when(ocrJobRepository.findByIdAndUserId(902L, userId)).thenReturn(Optional.of(existing));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(902L, userId)).thenReturn(Optional.of(existing));
+        when(ocrJobRepository.save(existing)).thenReturn(existing);
         when(viewMapper.toJobView(existing)).thenAnswer(invocation -> {
             OcrJobEntity job = invocation.getArgument(0);
             return new OcrJobView(
@@ -391,7 +390,9 @@ class OcrServiceCreateJobTest {
         when(dedupeContentKeyResolver.resolve(file)).thenReturn("sha:cafebabe");
         when(dedupeService.findJobId(userId, "sha:cafebabe", portfolioId)).thenReturn(Optional.of(904L));
         when(ocrJobRepository.findByIdAndUserId(904L, userId)).thenReturn(Optional.of(existing));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(904L, userId)).thenReturn(Optional.of(existing));
         when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));
+        when(ocrJobRepository.save(existing)).thenReturn(existing);
         when(viewMapper.toJobView(existing)).thenAnswer(invocation -> {
             OcrJobEntity job = invocation.getArgument(0);
             return new OcrJobView(

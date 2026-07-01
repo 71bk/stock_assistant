@@ -36,7 +36,6 @@ import tw.bk.apppersistence.repository.OcrJobRepository;
 import tw.bk.apppersistence.repository.PortfolioRepository;
 import tw.bk.apppersistence.repository.StatementRepository;
 import tw.bk.apppersistence.repository.StatementTradeRepository;
-import tw.bk.apppersistence.repository.StockTradeRepository;
 
 @ExtendWith(MockitoExtension.class)
 class OcrServiceQueryAndDelegationTest {
@@ -60,8 +59,6 @@ class OcrServiceQueryAndDelegationTest {
     @Mock
     private OcrPdfPasswordVault pdfPasswordVault;
     @Mock
-    private StockTradeRepository stockTradeRepository;
-    @Mock
     private OcrJobProcessor jobProcessor;
     @Mock
     private OcrDraftService ocrDraftService;
@@ -76,7 +73,7 @@ class OcrServiceQueryAndDelegationTest {
 
     @BeforeEach
     void setUp() {
-        service = new OcrService(
+        service = OcrServiceTestFactory.create(
                 fileRepository,
                 statementRepository,
                 statementTradeRepository,
@@ -85,7 +82,6 @@ class OcrServiceQueryAndDelegationTest {
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
-                stockTradeRepository,
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,
@@ -107,7 +103,7 @@ class OcrServiceQueryAndDelegationTest {
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.PASSWORD_REQUIRED.name(), 201L);
         OcrJobView expected = new OcrJobView(jobId, 201L, OcrJobStatus.QUEUED, 5, null);
 
-        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)).thenReturn(Optional.of(job));
         when(ocrJobRepository.save(job)).thenReturn(job);
         when(viewMapper.toJobView(job)).thenReturn(expected);
 
@@ -128,7 +124,7 @@ class OcrServiceQueryAndDelegationTest {
         Long jobId = 101L;
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.QUEUED.name(), 201L);
 
-        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)).thenReturn(Optional.of(job));
 
         BusinessException ex = assertThrows(
                 BusinessException.class,

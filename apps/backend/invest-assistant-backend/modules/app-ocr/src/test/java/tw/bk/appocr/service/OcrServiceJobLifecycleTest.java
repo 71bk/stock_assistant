@@ -17,7 +17,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.appcommon.enums.StatementStatus;
@@ -33,7 +32,6 @@ import tw.bk.apppersistence.repository.OcrJobRepository;
 import tw.bk.apppersistence.repository.PortfolioRepository;
 import tw.bk.apppersistence.repository.StatementRepository;
 import tw.bk.apppersistence.repository.StatementTradeRepository;
-import tw.bk.apppersistence.repository.StockTradeRepository;
 
 @ExtendWith(MockitoExtension.class)
 class OcrServiceJobLifecycleTest {
@@ -57,8 +55,6 @@ class OcrServiceJobLifecycleTest {
     @Mock
     private OcrPdfPasswordVault pdfPasswordVault;
     @Mock
-    private StockTradeRepository stockTradeRepository;
-    @Mock
     private OcrJobProcessor jobProcessor;
     @Mock
     private OcrDraftService ocrDraftService;
@@ -73,7 +69,7 @@ class OcrServiceJobLifecycleTest {
 
     @BeforeEach
     void setUp() {
-        service = new OcrService(
+        service = OcrServiceTestFactory.create(
                 fileRepository,
                 statementRepository,
                 statementTradeRepository,
@@ -82,13 +78,11 @@ class OcrServiceJobLifecycleTest {
                 queueService,
                 dedupeService,
                 pdfPasswordVault,
-                stockTradeRepository,
                 jobProcessor,
                 ocrDraftService,
                 dedupeContentKeyResolver,
                 importTxService,
                 viewMapper);
-        ReflectionTestUtils.setField(service, "maxRunningMinutes", 30L);
     }
 
     @Test
@@ -96,7 +90,7 @@ class OcrServiceJobLifecycleTest {
         Long userId = 7L;
         Long jobId = 101L;
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.DONE.name(), 201L);
-        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)).thenReturn(Optional.of(job));
 
         BusinessException ex = assertThrows(BusinessException.class, () -> service.retryJob(userId, jobId, false));
 
@@ -112,8 +106,9 @@ class OcrServiceJobLifecycleTest {
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.FAILED.name(), statementId);
         StatementEntity statement = statement(statementId, userId, StatementStatus.DRAFT.name());
 
-        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)).thenReturn(Optional.of(job));
         when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.of(statement));
+        when(ocrJobRepository.save(job)).thenReturn(job);
         when(viewMapper.toJobView(job)).thenReturn(new OcrJobView(jobId, statementId, OcrJobStatus.QUEUED, 0, null));
 
         OcrJobView view = service.retryJob(userId, jobId, false);
@@ -164,6 +159,7 @@ class OcrServiceJobLifecycleTest {
             }
             return entity;
         });
+        when(ocrJobRepository.save(job)).thenReturn(job);
         when(viewMapper.toJobView(job)).thenReturn(new OcrJobView(jobId, newStatementId, OcrJobStatus.QUEUED, 0, null));
 
         OcrJobView view = service.reparse(userId, jobId, false);
@@ -199,7 +195,7 @@ class OcrServiceJobLifecycleTest {
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.RUNNING.name(), 305L);
         OcrJobView expected = new OcrJobView(jobId, 305L, OcrJobStatus.CANCELLED, 100, "Cancelled by user");
 
-        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)).thenReturn(Optional.of(job));
         when(ocrJobRepository.save(job)).thenReturn(job);
         when(viewMapper.toJobView(job)).thenReturn(expected);
 
@@ -219,7 +215,7 @@ class OcrServiceJobLifecycleTest {
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.DONE.name(), 306L);
         OcrJobView expected = new OcrJobView(jobId, 306L, OcrJobStatus.DONE, 100, null);
 
-        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)).thenReturn(Optional.of(job));
         when(viewMapper.toJobView(job)).thenReturn(expected);
 
         OcrJobView view = service.cancel(userId, jobId, false);
@@ -235,7 +231,7 @@ class OcrServiceJobLifecycleTest {
         OcrJobEntity job = job(jobId, userId, OcrJobStatus.QUEUED.name(), 307L);
         OcrJobView expected = new OcrJobView(jobId, 307L, OcrJobStatus.CANCELLED, 100, "Cancelled by user");
 
-        when(ocrJobRepository.findByIdAndUserId(jobId, userId)).thenReturn(Optional.of(job));
+        when(ocrJobRepository.findByIdAndUserIdForUpdate(jobId, userId)).thenReturn(Optional.of(job));
         when(ocrJobRepository.save(job)).thenReturn(job);
         when(viewMapper.toJobView(job)).thenReturn(expected);
 
