@@ -51,8 +51,7 @@ public class FileService {
                 FileProvider.MINIO, new MinioObjectStorage(properties));
     }
 
-    @Transactional
-    public FileEntity upload(Long userId, String contentType, InputStream input) {
+    private FileEntity uploadEntity(Long userId, String contentType, InputStream input) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -125,12 +124,11 @@ public class FileService {
     }
 
     @Transactional
-    public FileView uploadView(Long userId, String contentType, InputStream input) {
-        return toFileView(upload(userId, contentType, input));
+    public FileView upload(Long userId, String contentType, InputStream input) {
+        return toFileView(uploadEntity(userId, contentType, input));
     }
 
-    @Transactional(readOnly = true)
-    public FileEntity getFile(Long userId, Long fileId) {
+    private FileEntity getFileEntity(Long userId, Long fileId) {
         if (userId == null) {
             throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED, "Unauthorized");
         }
@@ -139,17 +137,16 @@ public class FileService {
     }
 
     @Transactional(readOnly = true)
-    public FileView getFileView(Long userId, Long fileId) {
-        return toFileView(getFile(userId, fileId));
+    public FileView getFile(Long userId, Long fileId) {
+        return toFileView(getFileEntity(userId, fileId));
     }
 
     @Transactional(readOnly = true)
     public byte[] loadBytes(Long userId, Long fileId) {
-        return loadBytes(getFile(userId, fileId));
+        return loadBytes(getFileEntity(userId, fileId));
     }
 
-    @Transactional(readOnly = true)
-    public byte[] loadBytes(FileEntity file) {
+    private byte[] loadBytes(FileEntity file) {
         if (file == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
         }
@@ -258,22 +255,6 @@ public class FileService {
     }
 
     @Transactional(readOnly = true)
-    public String presignDownloadUrl(FileEntity file) {
-        if (file == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
-        }
-        if (isBlank(file.getObjectKey())) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "File object key not found");
-        }
-        FileProvider provider = resolveProvider(file);
-        if (provider == FileProvider.S3 || provider == FileProvider.MINIO) {
-            return selectStorage(provider)
-                    .presignGet(resolveBucket(file.getBucket()), file.getObjectKey(), resolvePresignExpirySeconds());
-        }
-        return localContentPath(file.getId());
-    }
-
-    @Transactional(readOnly = true)
     public String presignDownloadUrl(FileView file) {
         if (file == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "File not found");
@@ -289,7 +270,7 @@ public class FileService {
         return localContentPath(file.id());
     }
 
-    public FileProvider resolveProvider(FileEntity file) {
+    private FileProvider resolveProvider(FileEntity file) {
         String provider = file == null ? null : file.getProvider();
         if (isBlank(provider)) {
             provider = properties.getProvider();

@@ -11,6 +11,7 @@ import tw.bk.appcommon.enums.OcrJobStatus;
 import tw.bk.appcommon.enums.StatementStatus;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appocr.model.ConfirmResult;
+import tw.bk.appocr.model.OcrDraftError;
 import tw.bk.apppersistence.entity.OcrJobEntity;
 import tw.bk.apppersistence.entity.StatementEntity;
 import tw.bk.apppersistence.entity.StatementTradeEntity;
@@ -84,25 +85,19 @@ class OcrConfirmationService {
 
         // Validate and import drafts
         int importedCount = 0;
-        List<ConfirmResult.DraftError> errors = new ArrayList<>();
+        List<OcrDraftError<Long>> errors = new ArrayList<>();
 
         for (StatementTradeEntity draft : draftsToImport) {
             // Validate: check instrumentId
             if (draft.getInstrumentId() == null) {
-                errors.add(ConfirmResult.DraftError.builder()
-                        .draftId(draft.getId())
-                        .reason("缺少股票代碼 (instrumentId)")
-                        .build());
+                errors.add(new OcrDraftError<>(draft.getId(), "缺少股票代碼 (instrumentId)"));
                 continue;
             }
 
             // Validate: check duplicate
             boolean isDuplicate = ocrDraftService.isDuplicateDraft(draft, statement.getPortfolioId());
             if (isDuplicate) {
-                errors.add(ConfirmResult.DraftError.builder()
-                        .draftId(draft.getId())
-                        .reason("重複交易（相同股票、日期、買賣、數量、價格）")
-                        .build());
+                errors.add(new OcrDraftError<>(draft.getId(), "重複交易（相同股票、日期、買賣、數量、價格）"));
                 continue;
             }
 
@@ -114,10 +109,7 @@ class OcrConfirmationService {
                 importedCount++;
             } catch (BusinessException ex) {
                 log.warn("Failed to import draft: draftId={}, error={}", draft.getId(), ex.getMessage());
-                errors.add(ConfirmResult.DraftError.builder()
-                        .draftId(draft.getId())
-                        .reason(ex.getMessage())
-                        .build());
+                errors.add(new OcrDraftError<>(draft.getId(), ex.getMessage()));
             }
         }
 

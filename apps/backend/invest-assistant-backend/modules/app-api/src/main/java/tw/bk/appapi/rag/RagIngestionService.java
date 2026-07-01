@@ -47,7 +47,7 @@ class RagIngestionService {
         }
 
         Long id = IdParser.parseId(fileId);
-        FileView file = fileService.getFileView(userId, id);
+        FileView file = fileService.getFile(userId, id);
         String contentType = file.contentType();
         validateFileSize(file, maxFileSizeBytes);
         FileProvider provider = fileService.resolveProvider(file);

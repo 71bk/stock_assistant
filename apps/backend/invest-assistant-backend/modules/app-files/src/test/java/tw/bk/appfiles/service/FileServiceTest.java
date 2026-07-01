@@ -14,9 +14,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.appfiles.config.FileStorageProperties;
+import tw.bk.appfiles.model.FileView;
 import tw.bk.appfiles.model.PresignResult;
 import tw.bk.apppersistence.entity.FileEntity;
 import tw.bk.apppersistence.repository.FileRepository;
@@ -64,16 +67,16 @@ class FileServiceTest {
         });
         when(fileRepository.findByUserIdAndSha256(eq(1L), anyString())).thenReturn(Optional.empty());
 
-        FileEntity saved = service.upload(1L, "text/plain", new ByteArrayInputStream(payload));
+        FileView saved = service.upload(1L, "text/plain", new ByteArrayInputStream(payload));
 
-        assertEquals("local", saved.getProvider());
-        assertEquals(payload.length, saved.getSizeBytes());
-        assertTrue(Files.exists(tempDir.resolve(saved.getObjectKey())));
+        assertEquals("local", saved.provider());
+        assertEquals(payload.length, saved.sizeBytes());
+        assertTrue(Files.exists(tempDir.resolve(saved.objectKey())));
 
         byte[] loaded = service.loadBytes(saved);
         assertArrayEquals(payload, loaded);
 
-        verify(fileRepository).findByUserIdAndSha256(1L, saved.getSha256());
+        verify(fileRepository).findByUserIdAndSha256(1L, saved.sha256());
     }
 
     @Test
@@ -81,10 +84,8 @@ class FileServiceTest {
         properties.setProvider("s3");
         properties.setBucket("demo-bucket");
 
-        FileEntity file = new FileEntity();
-        file.setProvider("s3");
-        file.setBucket("demo-bucket");
-        file.setObjectKey("obj-key");
+        FileView file = new FileView(
+                null, "s3", "demo-bucket", "obj-key", null, null, null, null);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> service.loadBytes(file));
 
@@ -128,10 +129,8 @@ class FileServiceTest {
 
     @Test
     void presignDownloadUrl_shouldReturnLocalContentPathForLocalProvider() {
-        FileEntity existing = new FileEntity();
-        existing.setId(77L);
-        existing.setProvider("local");
-        existing.setObjectKey("obj-key");
+        FileView existing = new FileView(
+                77L, "local", null, "obj-key", null, null, null, null);
 
         String url = service.presignDownloadUrl(existing);
 
@@ -150,5 +149,17 @@ class FileServiceTest {
 
         assertEquals(ErrorCode.VALIDATION_ERROR, ex.getErrorCode());
         assertTrue(ex.getMessage().contains("Unsupported file provider"));
+    }
+
+    @Test
+    void publicApi_shouldNotExposeFileEntity() {
+        Arrays.stream(FileService.class.getDeclaredMethods())
+                .filter(method -> Modifier.isPublic(method.getModifiers()))
+                .forEach(method -> {
+                    assertFalse(method.getReturnType().equals(FileEntity.class), method::toString);
+                    assertFalse(
+                            Arrays.asList(method.getParameterTypes()).contains(FileEntity.class),
+                            method::toString);
+                });
     }
 }

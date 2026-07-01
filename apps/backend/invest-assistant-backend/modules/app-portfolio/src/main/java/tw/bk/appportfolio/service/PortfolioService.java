@@ -19,7 +19,6 @@ import tw.bk.appportfolio.model.PositionWithQuote;
 import tw.bk.appportfolio.model.TradeCommand;
 import tw.bk.appportfolio.model.TradeView;
 import tw.bk.apppersistence.entity.PortfolioEntity;
-import tw.bk.apppersistence.entity.UserPositionEntity;
 import tw.bk.apppersistence.repository.PortfolioRepository;
 
 /**
@@ -123,11 +122,6 @@ public class PortfolioService {
             Pageable pageable) {
         return queryService.listTrades(userId, portfolioId, from, to, pageable);
     }
-
-    public List<UserPositionEntity> listPositions(Long userId, Long portfolioId) {
-        return queryService.listPositions(userId, portfolioId);
-    }
-
     @Transactional
     public PortfolioPositionsRebuildResult rebuildPositions(Long portfolioId, Long instrumentId) {
         return positionService.rebuildPositions(portfolioId, instrumentId);

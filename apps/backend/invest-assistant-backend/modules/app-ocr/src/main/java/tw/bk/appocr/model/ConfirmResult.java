@@ -11,12 +11,5 @@ import lombok.Data;
 @Builder
 public class ConfirmResult {
     private int importedCount;
-    private List<DraftError> errors;
-
-    @Data
-    @Builder
-    public static class DraftError {
-        private Long draftId;
-        private String reason;
-    }
+    private List<OcrDraftError<Long>> errors;
 }

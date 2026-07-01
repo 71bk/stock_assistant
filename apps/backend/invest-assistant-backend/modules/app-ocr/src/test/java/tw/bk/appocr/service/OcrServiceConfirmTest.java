@@ -175,7 +175,7 @@ class OcrServiceConfirmTest {
 
         assertEquals(0, result.getImportedCount());
         assertEquals(1, result.getErrors().size());
-        assertEquals(31L, result.getErrors().get(0).getDraftId());
+        assertEquals(31L, result.getErrors().get(0).draftId());
         verify(ocrDraftService, never()).isDuplicateDraft(any(StatementTradeEntity.class), anyLong());
         verify(importTxService, never()).importDraft(anyLong(), anyLong(), any(StatementTradeEntity.class));
     }
@@ -208,8 +208,8 @@ class OcrServiceConfirmTest {
 
         assertEquals(1, result.getImportedCount());
         assertEquals(1, result.getErrors().size());
-        assertEquals(41L, result.getErrors().get(0).getDraftId());
-        assertEquals("幣別不符", result.getErrors().get(0).getReason());
+        assertEquals(41L, result.getErrors().get(0).draftId());
+        assertEquals("幣別不符", result.getErrors().get(0).reason());
         verify(importTxService).importDraft(userId, portfolioId, failing);
         verify(importTxService).importDraft(userId, portfolioId, ok);
         // Not all drafts imported -> statement must NOT be marked confirmed.

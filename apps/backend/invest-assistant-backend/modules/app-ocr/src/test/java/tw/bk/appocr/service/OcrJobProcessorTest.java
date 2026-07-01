@@ -87,7 +87,7 @@ class OcrJobProcessorTest {
                 any())).thenReturn(1);
         when(statementRepository.findByIdAndUserId(job.getStatementId(), userId)).thenReturn(Optional.of(statement));
         when(fileRepository.findByIdAndUserId(job.getFileId(), userId)).thenReturn(Optional.of(file));
-        when(ocrFileService.loadFileBytes(file)).thenReturn(content);
+        when(ocrFileService.loadFileBytes(userId, file.getId())).thenReturn(content);
         when(aiWorkerOcrClient.processFile(userId, file, content, null))
                 .thenThrow(new BusinessException(ErrorCode.PDF_PASSWORD_REQUIRED, "password required"));
 
@@ -123,7 +123,7 @@ class OcrJobProcessorTest {
                 any())).thenReturn(1);
         when(statementRepository.findByIdAndUserId(job.getStatementId(), userId)).thenReturn(Optional.of(statement));
         when(fileRepository.findByIdAndUserId(job.getFileId(), userId)).thenReturn(Optional.of(file));
-        when(ocrFileService.loadFileBytes(file)).thenReturn(content);
+        when(ocrFileService.loadFileBytes(userId, file.getId())).thenReturn(content);
         when(aiWorkerOcrClient.processFile(userId, file, content, "secret"))
                 .thenThrow(new BusinessException(ErrorCode.PDF_PASSWORD_INVALID, "password invalid"));
 
@@ -185,7 +185,7 @@ class OcrJobProcessorTest {
         when(pdfPasswordVault.consume(userId, jobId)).thenReturn(Optional.of("secret"));
         when(statementRepository.findByIdAndUserId(job.getStatementId(), userId)).thenReturn(Optional.of(statement));
         when(fileRepository.findByIdAndUserId(job.getFileId(), userId)).thenReturn(Optional.of(file));
-        when(ocrFileService.loadFileBytes(file)).thenReturn(content);
+        when(ocrFileService.loadFileBytes(userId, file.getId())).thenReturn(content);
         when(aiWorkerOcrClient.processFile(userId, file, content, "secret")).thenReturn(response);
         when(ocrJobRepository.updateStatusIfNotCancelled(
                 eq(jobId),

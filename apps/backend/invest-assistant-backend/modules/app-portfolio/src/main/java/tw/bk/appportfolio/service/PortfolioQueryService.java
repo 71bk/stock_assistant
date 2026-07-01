@@ -214,12 +214,6 @@ class PortfolioQueryService {
         }
         return toTradeViewPage(trades);
     }
-
-    List<UserPositionEntity> listPositions(Long userId, Long portfolioId) {
-        requirePortfolioEntity(userId, portfolioId);
-        return positionRepository.findByPortfolioId(portfolioId);
-    }
-
     List<PositionWithQuote> listPositionsWithQuotes(
             Long userId,
             Long portfolioId,

@@ -101,7 +101,7 @@ class BackendApiSmokeBaselineTest {
                 "application/pdf",
                 OffsetDateTime.parse("2026-02-16T00:00:00Z"));
         when(currentUserProvider.getUserId()).thenReturn(Optional.of(7L));
-        when(fileService.getFileView(7L, 11L)).thenReturn(file);
+        when(fileService.getFile(7L, 11L)).thenReturn(file);
         when(fileService.resolveProvider(file)).thenReturn(FileProvider.LOCAL);
 
         Result<FileUrlResponse> result = controller.getFileUrl("11");

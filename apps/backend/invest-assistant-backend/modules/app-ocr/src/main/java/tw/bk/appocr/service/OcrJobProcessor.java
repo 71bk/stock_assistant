@@ -107,7 +107,7 @@ public class OcrJobProcessor {
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "File not found"));
 
             log.info("Starting OCR processing: jobId={}, fileId={}", jobId, file.getId());
-            byte[] content = ocrFileService.loadFileBytes(file);
+            byte[] content = ocrFileService.loadFileBytes(userId, file.getId());
 
             log.info("Calling AI worker OCR...");
             AiWorkerOcrResponse response = aiWorkerOcrClient.processFile(userId, file, content, effectivePdfPassword);

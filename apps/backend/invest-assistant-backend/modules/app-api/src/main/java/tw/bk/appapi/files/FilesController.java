@@ -59,7 +59,7 @@ public class FilesController {
         log.info("檔案上傳 userId={}", userId);
         FileView entity;
         try {
-            entity = fileService.uploadView(userId, file.getContentType(), file.getInputStream());
+            entity = fileService.upload(userId, file.getContentType(), file.getInputStream());
         } catch (Exception ex) {
             if (ex instanceof BusinessException) {
                 throw (BusinessException) ex;
@@ -73,7 +73,7 @@ public class FilesController {
     @Operation(summary = "Get file metadata")
     public Result<FileResponse> getMetadata(@PathVariable String fileId) {
         Long userId = CurrentUser.require(currentUserProvider);
-        FileView entity = fileService.getFileView(userId, IdParser.parseId(fileId));
+        FileView entity = fileService.getFile(userId, IdParser.parseId(fileId));
         return Result.ok(FileResponse.from(entity));
     }
 
@@ -82,7 +82,7 @@ public class FilesController {
     public Result<FileUrlResponse> getFileUrl(@PathVariable String fileId) {
         Long userId = CurrentUser.require(currentUserProvider);
         Long id = IdParser.parseId(fileId);
-        FileView file = fileService.getFileView(userId, id);
+        FileView file = fileService.getFile(userId, id);
         FileProvider provider = fileService.resolveProvider(file);
 
         if (provider == FileProvider.LOCAL) {
@@ -106,7 +106,7 @@ public class FilesController {
     public ResponseEntity<byte[]> getContent(@PathVariable String fileId) {
         Long userId = CurrentUser.require(currentUserProvider);
         Long id = IdParser.parseId(fileId);
-        FileView file = fileService.getFileView(userId, id);
+        FileView file = fileService.getFile(userId, id);
         byte[] bytes = fileService.loadBytes(userId, id);
         MediaType mediaType = parseMediaType(file.contentType());
         return ResponseEntity.ok()
