@@ -18,18 +18,20 @@ import tw.bk.appanalytics.model.AnalyticsModels.AiUsage;
 import tw.bk.appanalytics.model.AnalyticsModels.DailyTrend;
 import tw.bk.appanalytics.model.AnalyticsModels.PageMetric;
 import tw.bk.appanalytics.model.AnalyticsModels.Summary;
+import tw.bk.appanalytics.port.AnalyticsQueryPort;
+import tw.bk.appanalytics.port.AnalyticsQueryPort.DailyCountRow;
+import tw.bk.appanalytics.port.AnalyticsQueryPort.DailyEngagementRow;
 import tw.bk.appcommon.enums.AnalyticsEventType;
 import tw.bk.appcommon.enums.ErrorCode;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.repository.AnalyticsRepository;
-import tw.bk.apppersistence.repository.AnalyticsRepository.DailyCountRow;
-import tw.bk.apppersistence.repository.AnalyticsRepository.DailyEngagementRow;
 
 @Service
 public class AnalyticsService {
     private static final String PAGE_VIEW = AnalyticsEventType.PAGE_VIEW.name();
 
     private final AnalyticsRepository repository;
+    private final AnalyticsQueryPort queryPort;
     private final PrometheusAnalyticsClient prometheusClient;
     private final AnalyticsProperties properties;
     private final Clock clock;
@@ -37,17 +39,20 @@ public class AnalyticsService {
     @Autowired
     public AnalyticsService(
             AnalyticsRepository repository,
+            AnalyticsQueryPort queryPort,
             PrometheusAnalyticsClient prometheusClient,
             AnalyticsProperties properties) {
-        this(repository, prometheusClient, properties, Clock.systemUTC());
+        this(repository, queryPort, prometheusClient, properties, Clock.systemUTC());
     }
 
     AnalyticsService(
             AnalyticsRepository repository,
+            AnalyticsQueryPort queryPort,
             PrometheusAnalyticsClient prometheusClient,
             AnalyticsProperties properties,
             Clock clock) {
         this.repository = repository;
+        this.queryPort = queryPort;
         this.prometheusClient = prometheusClient;
         this.properties = properties;
         this.clock = clock;
@@ -77,26 +82,26 @@ public class AnalyticsService {
         DateRange range = dateRange(from, to, timezone);
         OffsetDateTime activityEnd = min(range.toExclusive(), OffsetDateTime.now(clock));
         return new Summary(
-                repository.countUsersBefore(range.toExclusive()),
-                repository.countNewUsers(range.fromInclusive(), range.toExclusive()),
-                repository.countActiveUsers(activityEnd.minusDays(1), activityEnd),
-                repository.countActiveUsers(activityEnd.minusDays(7), activityEnd),
-                repository.countActiveUsers(activityEnd.minusDays(30), activityEnd),
-                repository.countPageViews(range.fromInclusive(), range.toExclusive()),
-                repository.countSessions(range.fromInclusive(), range.toExclusive()));
+                queryPort.countUsersBefore(range.toExclusive()),
+                queryPort.countNewUsers(range.fromInclusive(), range.toExclusive()),
+                queryPort.countActiveUsers(activityEnd.minusDays(1), activityEnd),
+                queryPort.countActiveUsers(activityEnd.minusDays(7), activityEnd),
+                queryPort.countActiveUsers(activityEnd.minusDays(30), activityEnd),
+                queryPort.countPageViews(range.fromInclusive(), range.toExclusive()),
+                queryPort.countSessions(range.fromInclusive(), range.toExclusive()));
     }
 
     @Transactional(readOnly = true)
     public List<DailyTrend> getDailyTrend(LocalDate from, LocalDate to, String timezone) {
         DateRange range = dateRange(from, to, timezone);
         Map<LocalDate, Long> registrations = new HashMap<>();
-        for (DailyCountRow row : repository.findRegistrationTrend(
+        for (DailyCountRow row : queryPort.findRegistrationTrend(
                 range.fromInclusive(), range.toExclusive(), range.timezone().getId())) {
             registrations.put(row.day(), row.value());
         }
 
         Map<LocalDate, DailyEngagementRow> engagement = new HashMap<>();
-        for (DailyEngagementRow row : repository.findEngagementTrend(
+        for (DailyEngagementRow row : queryPort.findEngagementTrend(
                 range.fromInclusive(), range.toExclusive(), range.timezone().getId())) {
             engagement.put(row.day(), row);
         }
@@ -116,7 +121,7 @@ public class AnalyticsService {
     @Transactional(readOnly = true)
     public List<PageMetric> getTopPages(LocalDate from, LocalDate to, String timezone) {
         DateRange range = dateRange(from, to, timezone);
-        return repository.findTopPages(
+        return queryPort.findTopPages(
                         range.fromInclusive(),
                         range.toExclusive(),
                         properties.getTopPagesLimit())

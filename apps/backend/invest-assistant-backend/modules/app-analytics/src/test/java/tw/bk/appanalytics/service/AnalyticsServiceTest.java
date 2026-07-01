@@ -3,6 +3,7 @@ package tw.bk.appanalytics.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -19,8 +20,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tw.bk.appanalytics.config.AnalyticsProperties;
 import tw.bk.appanalytics.model.AnalyticsEvent;
-import tw.bk.appanalytics.model.AnalyticsModels.Summary;
 import tw.bk.appanalytics.model.AnalyticsModels.AiUsage;
+import tw.bk.appanalytics.model.AnalyticsModels.DailyTrend;
+import tw.bk.appanalytics.model.AnalyticsModels.PageMetric;
+import tw.bk.appanalytics.model.AnalyticsModels.Summary;
+import tw.bk.appanalytics.port.AnalyticsQueryPort;
+import tw.bk.appanalytics.port.AnalyticsQueryPort.DailyCountRow;
+import tw.bk.appanalytics.port.AnalyticsQueryPort.DailyEngagementRow;
+import tw.bk.appanalytics.port.AnalyticsQueryPort.PageRow;
 import tw.bk.appcommon.exception.BusinessException;
 import tw.bk.apppersistence.repository.AnalyticsRepository;
 
@@ -34,6 +41,9 @@ class AnalyticsServiceTest {
     private AnalyticsRepository repository;
 
     @Mock
+    private AnalyticsQueryPort queryPort;
+
+    @Mock
     private PrometheusAnalyticsClient prometheusClient;
 
     private AnalyticsService service;
@@ -42,24 +52,25 @@ class AnalyticsServiceTest {
     void setUp() {
         service = new AnalyticsService(
                 repository,
+                queryPort,
                 prometheusClient,
                 new AnalyticsProperties(),
                 CLOCK);
     }
 
     @Test
-    void getSummary_shouldUseUserRoleFilteredRepositoryCounts() {
+    void getSummary_shouldUseAnalyticsQueryPort() {
         OffsetDateTime from = OffsetDateTime.parse("2026-06-17T00:00:00+08:00");
         OffsetDateTime to = OffsetDateTime.parse("2026-06-25T00:00:00+08:00");
         OffsetDateTime now = OffsetDateTime.parse("2026-06-24T12:00:00Z");
 
-        when(repository.countUsersBefore(to)).thenReturn(100L);
-        when(repository.countNewUsers(from, to)).thenReturn(8L);
-        when(repository.countActiveUsers(now.minusDays(1), now)).thenReturn(4L);
-        when(repository.countActiveUsers(now.minusDays(7), now)).thenReturn(20L);
-        when(repository.countActiveUsers(now.minusDays(30), now)).thenReturn(55L);
-        when(repository.countPageViews(from, to)).thenReturn(300L);
-        when(repository.countSessions(from, to)).thenReturn(80L);
+        when(queryPort.countUsersBefore(to)).thenReturn(100L);
+        when(queryPort.countNewUsers(from, to)).thenReturn(8L);
+        when(queryPort.countActiveUsers(now.minusDays(1), now)).thenReturn(4L);
+        when(queryPort.countActiveUsers(now.minusDays(7), now)).thenReturn(20L);
+        when(queryPort.countActiveUsers(now.minusDays(30), now)).thenReturn(55L);
+        when(queryPort.countPageViews(from, to)).thenReturn(300L);
+        when(queryPort.countSessions(from, to)).thenReturn(80L);
 
         Summary result = service.getSummary(
                 LocalDate.parse("2026-06-17"),
@@ -73,6 +84,39 @@ class AnalyticsServiceTest {
         assertEquals(55L, result.mau());
         assertEquals(300L, result.pageViews());
         assertEquals(80L, result.sessions());
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void getDailyTrend_shouldMergeQueryPortRowsAndFillMissingDays() {
+        LocalDate firstDay = LocalDate.parse("2026-06-17");
+        LocalDate secondDay = firstDay.plusDays(1);
+        OffsetDateTime from = OffsetDateTime.parse("2026-06-17T00:00:00+08:00");
+        OffsetDateTime to = OffsetDateTime.parse("2026-06-19T00:00:00+08:00");
+        when(queryPort.findRegistrationTrend(from, to, "Asia/Taipei"))
+                .thenReturn(List.of(new DailyCountRow(firstDay, 3L)));
+        when(queryPort.findEngagementTrend(from, to, "Asia/Taipei"))
+                .thenReturn(List.of(new DailyEngagementRow(secondDay, 9L, 4L)));
+
+        List<DailyTrend> result = service.getDailyTrend(firstDay, secondDay, "Asia/Taipei");
+
+        assertEquals(List.of(
+                new DailyTrend(firstDay, 3L, 0L, 0L),
+                new DailyTrend(secondDay, 0L, 4L, 9L)), result);
+    }
+
+    @Test
+    void getTopPages_shouldMapQueryPortRows() {
+        LocalDate fromDate = LocalDate.parse("2026-06-17");
+        LocalDate toDate = LocalDate.parse("2026-06-24");
+        OffsetDateTime from = OffsetDateTime.parse("2026-06-17T00:00:00+08:00");
+        OffsetDateTime to = OffsetDateTime.parse("2026-06-25T00:00:00+08:00");
+        when(queryPort.findTopPages(from, to, 10))
+                .thenReturn(List.of(new PageRow("/portfolio", 30L, 12L, 15L)));
+
+        List<PageMetric> result = service.getTopPages(fromDate, toDate, "Asia/Taipei");
+
+        assertEquals(List.of(new PageMetric("/portfolio", 30L, 12L, 15L)), result);
     }
 
     @Test
